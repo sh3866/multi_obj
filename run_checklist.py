@@ -32,7 +32,7 @@ def discover_arms(run_dir):
 
 
 def final_images(base: str, mock: bool):
-    seq = [os.path.join(base, n) for n in ("final_t0.png", "final.png", "final_t2.png")]
+    seq = [os.path.join(base, n) for n in ("final_t0.png", "final_t1.png", "final_t2.png")]
     seq = [p for p in seq if os.path.exists(p)]
     if seq:
         return seq

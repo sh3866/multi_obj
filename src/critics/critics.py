@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import List, Optional
 
 from ..config import Axis
@@ -11,10 +12,29 @@ from ..infra.parse import extract_json
 from . import prompts
 
 
-def _normalize(raw: Optional[dict], axis_key: str) -> dict:
+def _salvage_text(raw: str) -> str:
+    """When JSON never materialized (reasoning got truncated BEFORE the JSON),
+    the raw completion is still the model's actual critique — in prose. Keep it
+    rather than discarding to "(no parse)": strip <think> tags and any dangling
+    partial JSON, and return the prose (its conclusion, near the end)."""
     if not raw:
+        return ""
+    t = re.sub(r"</?think>", " ", raw, flags=re.IGNORECASE)
+    t = re.sub(r"\{[^{}]*$", " ", t)          # drop a partial JSON fragment at the tail
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[-600:] if len(t) > 600 else t
+
+
+def _normalize(raw: Optional[dict], axis_key: str, raw_text: str = "") -> dict:
+    if not raw:
+        salv = _salvage_text(raw_text or "")
+        if len(salv) >= 40:                   # usable prose critique survived
+            return {"axis": axis_key, "score": 3, "critique": salv,
+                    "suggestion": "", "parse_ok": False, "salvaged": True,
+                    "raw": (raw_text or "")[:300]}
+        # nothing usable came back at all
         return {"axis": axis_key, "score": 3, "critique": "(no parse)",
-                "suggestion": "", "parse_ok": False}
+                "suggestion": "", "parse_ok": False, "raw": (raw_text or "")[:300]}
     try:
         score = max(1, min(5, int(round(float(raw.get("score", 3))))))
     except Exception:
@@ -29,28 +49,68 @@ def func_evidence(probe: Optional[dict]) -> str:
         return ""
     fo = probe.get("func_objective")
     fo_s = f"{fo:.2f}" if isinstance(fo, (int, float)) else "n/a"
-    return (f"rendered={probe.get('rendered')}, func_objective={fo_s}, "
-            f"clicked={probe.get('n_clicked')}, click_errors={probe.get('click_errors')}, "
-            f"page_errors={len(probe.get('page_errors', []))}")
+    out = (f"rendered={probe.get('rendered')}, func_objective={fo_s}, "
+           f"clicked={probe.get('n_clicked')}, click_errors={probe.get('click_errors')}, "
+           f"page_errors={len(probe.get('page_errors', []))}")
+    # verbatim error texts: counts alone let critics say "add features" while
+    # the real problem is e.g. a blocked CDN script (pilot blank-final cause)
+    errs = ([str(e)[:200] for e in probe.get("page_errors", [])[:3]] +
+            [str(e)[:200] for e in probe.get("console_errors", [])[:2]])
+    if errs:
+        out += "\nerror_messages: " + " | ".join(errs)
+    return out
+
+
+def _pick_suggestion(d: dict) -> str:
+    return str(d.get("suggestion", d.get("suggestions", "")))
 
 
 async def axis_critic(axis: Axis, instruction: str, html: str, png: Optional[str],
                       probe: Optional[dict], gen_c, vlm_c, cfg, usage: UsageStats) -> dict:
+    # ---- side design-mode: no score, vision critic, own full prompt ----
+    if getattr(cfg, "design_mode", False) and getattr(axis, "critic_prompt", ""):
+        from .. import side_prompts as sp
+        prompt = sp.critic_prompt(axis, instruction)
+        raw = await vlm_c.generate_vlm(prompt, [png] if png else [], max_tokens=4096,
+                                       temperature=cfg.critic_temperature,
+                                       usage_stats=usage, tag=f"crit:{axis.key}")
+        d = extract_json(raw)
+        if d is None:
+            raw2 = await vlm_c.generate_vlm(
+                prompt + "\n\nRespond with ONLY the JSON object — no <think>, no preamble.",
+                [png] if png else [], max_tokens=1536, temperature=cfg.critic_temperature,
+                usage_stats=usage, tag=f"crit:{axis.key}", think=False)
+            d = extract_json(raw2) or {}
+            raw = raw2 if not d else raw
+        salv = _salvage_text(raw or "")
+        return {"axis": axis.key, "score": 3, "parse_ok": bool(d),
+                "critique": str(d.get("critique", salv if not d else "")),
+                "suggestion": _pick_suggestion(d)}
     use_vision = axis.modality in ("vision", "both") and png is not None
     src = html[:6000] if axis.modality in ("code", "both") else ""
     evidence = func_evidence(probe) if axis.key == "functionality" else ""
     prompt = prompts.critic_prompt(axis.key, axis.description, instruction,
                                    has_image=use_vision, html_excerpt=src,
                                    evidence=evidence)
-    if use_vision:
-        raw = await vlm_c.generate_vlm(prompt, [png], max_tokens=1024,
-                                       temperature=cfg.critic_temperature,
-                                       usage_stats=usage, tag=f"crit:{axis.key}")
-    else:
-        raw = await gen_c.generate(prompt, max_tokens=1024,
-                                   temperature=cfg.critic_temperature,
-                                   usage_stats=usage, tag=f"crit:{axis.key}")
-    return _normalize(extract_json(raw), axis.key)
+    async def _ask(pr: str, mt: int, think):
+        if use_vision:
+            return await vlm_c.generate_vlm(pr, [png], max_tokens=mt,
+                                            temperature=cfg.critic_temperature,
+                                            usage_stats=usage, tag=f"crit:{axis.key}",
+                                            think=think)
+        return await gen_c.generate(pr, max_tokens=mt,
+                                    temperature=cfg.critic_temperature,
+                                    usage_stats=usage, tag=f"crit:{axis.key}",
+                                    think=bool(think))
+    raw = await _ask(prompt, 4096, None)          # 1st: full reasoning (best quality)
+    parsed = extract_json(raw)
+    if parsed is None:                            # reasoning overran budget / truncated
+        raw2 = await _ask(prompt + "\n\nRespond with ONLY the JSON object — no "
+                          "analysis, no <think>, no preamble.", 1536, False)
+        parsed = extract_json(raw2)
+        if parsed is None:
+            raw = raw2                            # keep the concise attempt for audit
+    return _normalize(parsed, axis.key, raw or "")
 
 
 async def all_axis_critics(axes: List[Axis], instruction: str, html: str,
@@ -64,17 +124,50 @@ async def all_axis_critics(axes: List[Axis], instruction: str, html: str,
 async def fused_critic(instruction: str, axes: List[Axis], html: str,
                        png: Optional[str], probe: Optional[dict],
                        gen_c, vlm_c, cfg, usage: UsageStats) -> dict:
-    use_vision = png is not None
-    src = "" if use_vision else html[:6000]
-    prompt = prompts.fused_critic_prompt(instruction, [a.key for a in axes],
-                                         has_image=use_vision, html_excerpt=src,
-                                         evidence=func_evidence(probe))
-    if use_vision:
-        raw = await vlm_c.generate_vlm(prompt, [png], max_tokens=1024,
+    # ---- side design-mode: single integrated design critic, no score ----
+    if getattr(cfg, "design_mode", False):
+        from .. import side_prompts as sp
+        prompt = sp.fused_prompt(instruction, len(axes))
+        raw = await vlm_c.generate_vlm(prompt, [png] if png else [], max_tokens=4096,
                                        temperature=cfg.critic_temperature,
                                        usage_stats=usage, tag="crit:fused")
-    else:
-        raw = await gen_c.generate(prompt, max_tokens=1024,
-                                   temperature=cfg.critic_temperature,
-                                   usage_stats=usage, tag="crit:fused")
-    return _normalize(extract_json(raw), "overall")
+        d = extract_json(raw)
+        if d is None:
+            raw2 = await vlm_c.generate_vlm(
+                prompt + "\n\nRespond with ONLY the JSON object — no <think>, no preamble.",
+                [png] if png else [], max_tokens=1536, temperature=cfg.critic_temperature,
+                usage_stats=usage, tag="crit:fused", think=False)
+            d = extract_json(raw2) or {}
+            raw = raw2 if not d else raw
+        salv = _salvage_text(raw or "")
+        return {"axis": "overall", "score": 3, "parse_ok": bool(d), "good_enough": False,
+                "critique": str(d.get("critique", salv if not d else "")),
+                "suggestion": _pick_suggestion(d)}
+    use_vision = png is not None
+    src = "" if use_vision else html[:6000]
+    prompt = prompts.fused_critic_prompt(instruction, axes,
+                                         has_image=use_vision, html_excerpt=src,
+                                         evidence=func_evidence(probe))
+    async def _ask(pr: str, mt: int, think):
+        if use_vision:
+            return await vlm_c.generate_vlm(pr, [png], max_tokens=mt,
+                                            temperature=cfg.critic_temperature,
+                                            usage_stats=usage, tag="crit:fused",
+                                            think=think)
+        return await gen_c.generate(pr, max_tokens=mt,
+                                    temperature=cfg.critic_temperature,
+                                    usage_stats=usage, tag="crit:fused",
+                                    think=bool(think))
+    raw = await _ask(prompt, 4096, None)
+    parsed = extract_json(raw)
+    if parsed is None:
+        raw2 = await _ask(prompt + "\n\nRespond with ONLY the JSON object — no "
+                          "analysis, no <think>, no preamble.", 1536, False)
+        parsed = extract_json(raw2)
+        if parsed is None:
+            raw = raw2
+    out = _normalize(parsed, "overall", raw or "")
+    # explicit stop declaration (2026-07-15: replaces the score>=4 threshold —
+    # matches the blog's iterate-until-satisfied and the other arms' contract)
+    out["good_enough"] = bool((parsed or {}).get("good_enough", False))
+    return out

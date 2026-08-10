@@ -1,18 +1,23 @@
-"""Aggregate a run: budget compliance, judge winrates + Bradley-Terry, paired
-sign tests for the pre-registered comparisons, the discrimination gate, and the
-critic-leniency table. Writes {run_dir}/SUMMARY.md + summary.json.
+"""Aggregate a run: token cost, ABSOLUTE judge scores (primary, per-axis),
+paired sign tests for the pre-registered comparisons, the discrimination gate,
+checklist scores, dual-judge robustness, and the critic-leniency table.
+Writes {run_dir}/SUMMARY.md + summary.json.
 
-  python collect.py results/pilot [--axis overall]
+  python collect.py results/pilot [--judge qvl72] [--axis overall]
+
+Evaluation mode (user decision 2026-07-15): absolute 0-10 scoring
+(scores_<judge>.jsonl from run_judge.py) — no pairwise/BT. The paired sign
+test compares the two arms' scores task by task (ties dropped).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from collections import defaultdict
 
-from src.eval_b.bt import winrate_matrix, paired_sign_test, bt_from_results
 from src.infra.io_utils import atomic_write_json, atomic_write_text, read_json
 
 # pre-registered pairwise comparisons (PLAN.md); Holm-Bonferroni applied over these
@@ -20,7 +25,7 @@ KEY_COMPARISONS = [
     ("SELF", "FUSED"),   # value of an external evaluator
     ("FUSED", "AXES"),   # H1: axis separation
     ("AXES", "MAD"),     # H2: debate
-    ("BON", "MAD"),      # does the whole loop beat compute-matched sampling
+    # ("BON", "MAD") removed with the BON arm (user decision 2026-07-15)
 ]
 
 
@@ -33,51 +38,95 @@ def load_arm_stats(run_dir):
     return stats
 
 
-def load_judges(run_dir):
-    """Returns {judge_name: rows} from judge/results_*.jsonl (+ legacy results.jsonl)."""
+def _load_jsonl_by_prefix(run_dir, prefix):
+    """{name: rows} from judge/<prefix>_*.jsonl."""
     jdir = os.path.join(run_dir, "judge")
     out = {}
     if not os.path.isdir(jdir):
         return out
     for fn in sorted(os.listdir(jdir)):
-        if not (fn.startswith("results") and fn.endswith(".jsonl")):
-            continue
-        name = fn[len("results_"):-len(".jsonl")] if fn.startswith("results_") \
-            else "default"
-        out[name] = [json.loads(l) for l in open(os.path.join(jdir, fn)) if l.strip()]
-    return out
-
-
-def inter_judge_agreement(a_rows, b_rows):
-    """% of identical votes on the shared (app, pair, axis, order) keys."""
-    key = lambda r: (r["app"], r["arm_a"], r["arm_b"], r["axis"], r["order"])
-    a_map = {key(r): r.get("winner_arm") for r in a_rows if r.get("winner_arm")}
-    same = total = 0
-    for r in b_rows:
-        k = key(r)
-        if r.get("winner_arm") and k in a_map:
-            total += 1
-            same += (a_map[k] == r["winner_arm"])
-    return (same / total, total) if total else (None, 0)
-
-
-def load_checklists(run_dir):
-    """{judge_name: rows} from judge/checklist_*.jsonl."""
-    jdir = os.path.join(run_dir, "judge")
-    out = {}
-    if not os.path.isdir(jdir):
-        return out
-    for fn in sorted(os.listdir(jdir)):
-        if fn.startswith("checklist_") and fn.endswith(".jsonl"):
-            name = fn[len("checklist_"):-len(".jsonl")]
+        if fn.startswith(prefix + "_") and fn.endswith(".jsonl"):
+            name = fn[len(prefix) + 1:-len(".jsonl")]
             out[name] = [json.loads(l) for l in open(os.path.join(jdir, fn))
                          if l.strip()]
     return out
 
 
-def leniency_table(run_dir, arms):
+def load_scores(run_dir):
+    return _load_jsonl_by_prefix(run_dir, "scores")
+
+
+def load_checklists(run_dir):
+    return _load_jsonl_by_prefix(run_dir, "checklist")
+
+
+def score_map(rows, axis, view="probe_max"):
+    """{(app, arm): score} for one selection view's final artifacts on one axis.
+    Views: probe_max (shared layer-A selector) | consensus (method's own stop)."""
+    return {(r["app"], r["arm"]): r["score"] for r in rows
+            if r["axis"] == axis and r.get("view", "probe_max") == view
+            and r.get("score") is not None}
+
+
+def sign_test_scores(rows, arm_a, arm_b, axis, view="probe_max"):
+    """Task-paired sign test on absolute scores: count tasks where a>b vs b>a
+    (ties dropped, standard practice) -> exact two-sided binomial."""
+    sm = score_map(rows, axis, view)
+    apps = {app for (app, arm) in sm if arm == arm_a} & \
+           {app for (app, arm) in sm if arm == arm_b}
+    a_tasks = b_tasks = 0
+    for app in apps:
+        da = sm[(app, arm_a)] - sm[(app, arm_b)]
+        if da > 0:
+            a_tasks += 1
+        elif da < 0:
+            b_tasks += 1
+    n = a_tasks + b_tasks
+    if n == 0:
+        return {"n_tasks": 0, "p": None, "a_tasks": 0, "b_tasks": 0}
+    k = max(a_tasks, b_tasks)
+    p = sum(math.comb(n, x) for x in range(k, n + 1)) / (2 ** n) * 2
+    return {"n_tasks": n, "a_tasks": a_tasks, "b_tasks": b_tasks,
+            "p": min(1.0, p)}
+
+
+def mean_scores_by_arm(rows, view="probe_max"):
+    """{arm: {axis: mean}} over one selection view's final artifacts."""
+    acc = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        if r.get("view", "probe_max") == view and r.get("score") is not None:
+            acc[r["arm"]][r["axis"]].append(r["score"])
+    return {arm: {ax: sum(v) / len(v) for ax, v in per.items() if v}
+            for arm, per in acc.items()}
+
+
+def inter_judge_agreement(a_rows, b_rows, axis):
+    """Across the two judges: fraction of same-direction task-level arm-pair
+    orderings (both judges scored the same app for both arms, neither tied)."""
+    sa, sb = score_map(a_rows, axis), score_map(b_rows, axis)  # probe_max view
+    apps = defaultdict(set)
+    for (app, arm) in set(sa) & set(sb):
+        apps[app].add(arm)
+    same = total = 0
+    for app, arms in apps.items():
+        arms = sorted(arms)
+        for i in range(len(arms)):
+            for j in range(i + 1, len(arms)):
+                da = sa[(app, arms[i])] - sa[(app, arms[j])]
+                db = sb[(app, arms[i])] - sb[(app, arms[j])]
+                if da == 0 or db == 0:
+                    continue
+                total += 1
+                same += (da > 0) == (db > 0)
+    return (same / total, total) if total else (None, 0)
+
+
+def leniency_table(run_dir, arms, excl=frozenset()):
     """Mean in-loop critic score by round (from traces). Rising scores with a
-    flat/declining held-out judge -> leniency drift (H2 mechanism analysis)."""
+    flat/declining held-out judge -> leniency drift (H2 mechanism analysis).
+    SUBJECTIVE AXES ONLY: functionality is anchored to probe evidence and
+    barely drifts, so mixing it in would dilute the drift slope. (FUSED's
+    single fused score cannot be decomposed — reported as-is.)"""
     out = {}
     for arm in arms:
         pdir = os.path.join(run_dir, arm, "problems")
@@ -85,12 +134,16 @@ def leniency_table(run_dir, arms):
             continue
         by_round = defaultdict(list)
         for app in os.listdir(pdir):
+            if app in excl:
+                continue
             tp = os.path.join(pdir, app, "trace.json")
             if not os.path.exists(tp):
                 continue
             for h in read_json(tp).get("history", []):
                 if "scores" in h:                      # AXES / MAD
-                    by_round[h["round"]].extend(h["scores"].values())
+                    by_round[h["round"]].extend(
+                        v for k, v in h["scores"].items()
+                        if k != "functionality")
                 elif "fused_score" in h:               # FUSED
                     by_round[h["round"]].append(h["fused_score"])
         if by_round:
@@ -117,23 +170,55 @@ def holm_bonferroni(pvals):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
-    ap.add_argument("--axis", default="overall")
+    ap.add_argument("--axis", default="overall",
+                    help="primary axis for the pre-registered tests")
     ap.add_argument("--judge", default=None,
                     help="primary judge name (default: first alphabetically)")
+    ap.add_argument("--view", default="probe_max",
+                    choices=["probe_max", "consensus"],
+                    help="which final-selection view the pre-registered tests "
+                         "use (both are judged; see View comparison section)")
+    ap.add_argument("--exclude-tasks", default="",
+                    help="comma list of app ids dropped from ALL tables "
+                         "(listwise, keeps pairing fair). Use for tasks that "
+                         "are unsatisfiable in the sandbox or produced a "
+                         "blank final in any arm.")
     a = ap.parse_args()
 
+    excl = {t.strip() for t in a.exclude_tasks.split(",") if t.strip()}
+
     stats = load_arm_stats(a.run_dir)
+    for s in stats.values():
+        keep = [r for r in s.get("per_task", []) if r.get("app") not in excl]
+        drop_n = len(s.get("per_task", [])) - len(keep)
+        if drop_n:
+            s["per_task"] = keep
+            s["n_tasks"] -= drop_n
+            s["n_ok"] = min(s["n_ok"], s["n_tasks"])
+            if keep:
+                s["mean_tokens"] = sum(r["usage"]["total_tokens"]
+                                       for r in keep) / len(keep)
+                s["mean_candidates"] = sum(r["n_candidates"]
+                                           for r in keep) / len(keep)
     arms = sorted(stats)
-    judges = load_judges(a.run_dir)
+    judges = load_scores(a.run_dir)
+    # SUMMARY tables/tests are over FINAL artifacts only — with run_judge
+    # --all-candidates the file also holds per-round rows (curve analysis)
+    judges = {j: [r for r in rows
+                  if r.get("cand_id", "final") == "final"
+                  and r.get("app") not in excl]
+              for j, rows in judges.items()}
     primary = a.judge if a.judge else (sorted(judges)[0] if judges else None)
-    results = judges.get(primary, [])
+    rows = judges.get(primary, [])
     lines = [f"# Run summary — {a.run_dir}", ""]
     if judges:
-        lines += [f"Judges: {', '.join(sorted(judges))} — primary: **{primary}**", ""]
+        lines += [f"Judges: {', '.join(sorted(judges))} — primary: **{primary}** "
+                  f"(absolute 0-10 scoring)", ""]
 
-    # --- budget compliance --------------------------------------------------
-    lines += ["## Budget compliance (compute matching)", "",
-              "| arm | tasks ok | mean tokens | budget | mean candidates |",
+    # --- token cost (reported, not matched) -----------------------------------
+    lines += ["## Token cost per arm (reported only — max-performance regime, "
+              "no matching)", "",
+              "| arm | tasks ok | mean tokens | safety cap | mean candidates |",
               "|---|---|---|---|---|"]
     for arm in arms:
         s = stats[arm]
@@ -156,28 +241,48 @@ def main():
             lines.append(f"| {arm} | {m:.3f} |")
         lines.append("")
 
-    # --- judge winrates / BT --------------------------------------------------
-    summary = {"arms": arms, "axis": a.axis}
-    if results:
-        wm = winrate_matrix(results, arms, a.axis)
-        bt = bt_from_results(results, a.axis)
-        lines += [f"## Held-out judge `{primary}` — axis `{a.axis}`", "",
-                  "Bradley-Terry strengths (geo-mean 1):", ""]
-        for arm, s in sorted(bt.items(), key=lambda x: -x[1]):
-            lines.append(f"- **{arm}**: {s:.3f}")
-        lines += ["", "| pair | winrate(first) | votes |", "|---|---|---|"]
-        for (x, y), d in sorted(wm.items()):
-            wr = f"{d['winrate_a']:.2f}" if d["winrate_a"] is not None else "-"
-            lines.append(f"| {x} vs {y} | {wr} | {d['total']} |")
+    # --- absolute judge scores (PRIMARY) --------------------------------------
+    summary = {"arms": arms, "axis": a.axis, "mode": "absolute"}
+    if rows:
+        means = mean_scores_by_arm(rows, a.view)
+        axes_present = sorted({r["axis"] for r in rows})
+        lines += [f"## Held-out judge `{primary}` — absolute scores (0-10, "
+                  "final artifacts = consensus-stop outputs)", "",
+                  "| arm | " + " | ".join(axes_present) + " |",
+                  "|---|" + "---|" * len(axes_present)]
+        order = sorted(means, key=lambda m: -(means[m].get(a.axis, 0)))
+        for arm in order:
+            lines.append("| " + arm + " | " +
+                         " | ".join(f"{means[arm].get(ax, float('nan')):.2f}"
+                                    for ax in axes_present) + " |")
         lines.append("")
+        summary["means"] = means
+        other = "consensus" if a.view == "probe_max" else "probe_max"
+        om = mean_scores_by_arm(rows, other)
+        if om:
+            lines += [f"## View comparison — mean `{a.axis}` "
+                      "(probe_max = shared selector | consensus = method's own stop)",
+                      "", "| arm | probe_max | consensus |", "|---|---|---|"]
+            pm = mean_scores_by_arm(rows, "probe_max")
+            cm = mean_scores_by_arm(rows, "consensus")
+            for arm in sorted(set(pm) | set(cm),
+                              key=lambda x: -(pm.get(x, {}).get(a.axis, 0))):
+                p = pm.get(arm, {}).get(a.axis)
+                c = cm.get(arm, {}).get(a.axis)
+                lines.append(f"| {arm} | {p:.2f} |" if c is None else
+                             f"| {arm} | {p:.2f} | {c:.2f} |")
+            lines.append("")
+            summary["view_comparison"] = {
+                "probe_max": {k: v.get(a.axis) for k, v in pm.items()},
+                "consensus": {k: v.get(a.axis) for k, v in cm.items()}}
 
-        pvals = {}
-        lines += ["## Pre-registered comparisons (paired sign test)", "",
+        pvals, tests = {}, {}
+        lines += [f"## Pre-registered comparisons (paired sign test on "
+                  f"per-task `{a.axis}` scores)", "",
                   "| comparison | tasks (a/b) | p | p (Holm) |", "|---|---|---|---|"]
-        tests = {}
         for x, y in KEY_COMPARISONS:
             if x in arms and y in arms:
-                t = paired_sign_test(results, x, y, a.axis)
+                t = sign_test_scores(rows, x, y, a.axis, a.view)
                 tests[f"{x}_vs_{y}"] = t
                 pvals[f"{x}_vs_{y}"] = t["p"]
         adj = holm_bonferroni(pvals)
@@ -186,17 +291,22 @@ def main():
             ph = f"{adj[name]:.4f}" if adj.get(name) is not None else "-"
             lines.append(f"| {name} | {t['a_tasks']}/{t['b_tasks']} | {p} | {ph} |")
         lines.append("")
-        summary.update({"bt": bt,
-                        "winrates": {f"{x}|{y}": d for (x, y), d in wm.items()},
-                        "sign_tests": tests, "holm": adj})
+        summary.update({"sign_tests": tests, "holm": adj})
 
-        # --- discrimination gate ---------------------------------------------
+        # --- discrimination gate ----------------------------------------------
         gate = []
-        rates = [d["winrate_a"] for d in wm.values() if d["winrate_a"] is not None]
-        if rates and all(abs(r - 0.5) < 0.05 for r in rates):
-            gate.append("FAIL: all pairwise winrates within 45-55% — judge cannot "
-                        "separate arms. Raise task difficulty / artifact scope "
-                        "before the main run.")
+        splits = [t["a_tasks"] / t["n_tasks"] for t in tests.values()
+                  if t["n_tasks"] > 0]
+        if splits and all(abs(s - 0.5) < 0.05 for s in splits):
+            gate.append("FAIL: every pre-registered comparison splits 45-55% — "
+                        "the judge cannot separate arms on absolute scores. "
+                        "Raise task difficulty/scope or fall back to pairwise "
+                        "judging (artifacts are preserved) before the main run.")
+        n_ties = sum(1 for t in tests.values() if t["n_tasks"] == 0)
+        if n_ties:
+            gate.append(f"WARN: {n_ties} comparison(s) had zero decided tasks "
+                        "(all score ties) — absolute scale may be too coarse; "
+                        "consider pairwise fallback.")
         if func_means:
             mean_all = sum(func_means.values()) / len(func_means)
             if mean_all > 0.95:
@@ -210,12 +320,16 @@ def main():
         lines += ["## Discrimination gate", ""] + [f"- {g}" for g in gate] + [""]
         summary["gate"] = gate
     else:
-        lines += ["_No judge results yet — run run_judge.py first._", ""]
+        lines += ["_No judge scores yet — run run_judge.py first._", ""]
 
     # --- checklist scores (absolute, diagnostics + curves) --------------------
     checklists = load_checklists(a.run_dir)
-    for jn, rows in sorted(checklists.items()):
-        finals = [r for r in rows if r["cand_id"] == "final" and r["score"] is not None]
+    if excl:
+        checklists = {j: [r for r in rows if r.get("app") not in excl]
+                      for j, rows in checklists.items()}
+    for jn, cl_rows in sorted(checklists.items()):
+        finals = [r for r in cl_rows
+                  if r["cand_id"] == "final" and r["score"] is not None]
         if not finals:
             continue
         by_arm = defaultdict(list)
@@ -231,28 +345,32 @@ def main():
 
     # --- dual-judge robustness ------------------------------------------------
     if len(judges) > 1:
-        from src.eval_b.bt import bt_from_results as _bt
         lines += ["## Dual-judge robustness", ""]
-        for jn, rows in sorted(judges.items()):
-            bt_j = _bt(rows, a.axis)
-            rank = " > ".join(k for k, _ in sorted(bt_j.items(), key=lambda x: -x[1]))
-            lines.append(f"- **{jn}** BT ranking: {rank}")
+        for jn, jr in sorted(judges.items()):
+            m = mean_scores_by_arm(jr)
+            rank = " > ".join(k for k, _ in
+                              sorted(m.items(),
+                                     key=lambda x: -x[1].get(a.axis, 0)))
+            lines.append(f"- **{jn}** mean-{a.axis} ranking: {rank}")
         names = sorted(judges)
         agree_rows = []
         for i in range(len(names)):
             for j in range(i + 1, len(names)):
-                agr, n = inter_judge_agreement(judges[names[i]], judges[names[j]])
+                agr, n = inter_judge_agreement(judges[names[i]],
+                                               judges[names[j]], a.axis)
                 if agr is not None:
                     agree_rows.append(f"- {names[i]} vs {names[j]}: "
-                                      f"{agr:.1%} agreement on {n} shared votes")
+                                      f"{agr:.1%} same-direction on {n} "
+                                      "task-level arm pairs")
         lines += agree_rows + [""]
         summary["inter_judge"] = agree_rows
 
     # --- critic leniency (mechanism analysis) --------------------------------
-    lt = leniency_table(a.run_dir, arms)
+    lt = leniency_table(a.run_dir, arms, excl)
     if lt:
         rounds = sorted({r for v in lt.values() for r in v})
-        lines += ["## In-loop critic score by round (leniency trajectory)", "",
+        lines += ["## In-loop critic score by round (leniency trajectory, "
+                  "subjective axes only)", "",
                   "| arm | " + " | ".join(f"r{r}" for r in rounds) + " |",
                   "|---|" + "---|" * len(rounds)]
         for arm, v in lt.items():

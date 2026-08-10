@@ -26,7 +26,7 @@ TAG="${1:-pilot1}"; N="${2:-10}"
 GEN_MODEL="Qwen/Qwen3.6-35B-A3B-FP8"
 CRITIC_MODEL="Qwen/Qwen2.5-VL-32B-Instruct"      # same tier as generator
 JUDGE_OPEN="Qwen/Qwen2.5-VL-72B-Instruct"        # held-out, above both
-BUDGET=120000
+BUDGET=250000   # runaway safety guard only (must not bind; tokens are reported, not matched)
 VDIR="results/$TAG"
 mkdir -p "$VDIR" logs
 exec > >(tee -a "logs/${TAG}.log") 2>&1
@@ -57,7 +57,7 @@ serve_gen 8000 0,1,2,3 --tensor-parallel-size 4 --enforce-eager
 serve 8004 4,5,6,7 "$CRITIC_MODEL" --tensor-parallel-size 4 --enforce-eager --limit-mm-per-prompt image=1
 wait_up 8000; wait_up 8004
 
-for arm in ZS BON SELF FUSED AXES MAD; do
+for arm in ZS SELF FUSED AXES MAD; do   # BON excluded (user decision 2026-07-15); recoverable post hoc on the same tasks
   echo "---- generate $arm ----"
   $SUBPY run_generate.py --arm $arm \
     --gen-ports 8000 --gen-model "$GEN_MODEL" \
@@ -69,11 +69,11 @@ done
 
 # ---------------- PHASE B: held-out judge ----------------
 killall_gpu
-serve 8100 0,1,2,3,4,5,6,7 "$JUDGE_OPEN" --tensor-parallel-size 8 --max-model-len 8192 --enforce-eager --limit-mm-per-prompt image=3
+serve 8100 0,1,2,3,4,5,6,7 "$JUDGE_OPEN" --tensor-parallel-size 8 --max-model-len 16384 --enforce-eager --limit-mm-per-prompt image=6
 wait_up 8100
 $SUBPY run_judge.py --run-dir "$VDIR" --judge-name qvl72 \
   --judge-ports 8100 --judge-model "$JUDGE_OPEN" \
-  --axes overall,design,originality,craft
+  --axes functionality,design,originality,craft
 $SUBPY run_checklist.py --run-dir "$VDIR" --judge-name qvl72 \
   --judge-ports 8100 --judge-model "$JUDGE_OPEN"
 killall_gpu
@@ -83,9 +83,10 @@ if [ -n "$GEMINI_API_KEY" ]; then
   $SUBPY run_judge.py --run-dir "$VDIR" --judge-name gemini \
     --judge-base-url https://generativelanguage.googleapis.com/v1beta/openai \
     --judge-model gemini-2.5-pro \
-    --axes overall,design,originality,craft --concurrency 4
+    --axes functionality,design,originality,craft --concurrency 4
 fi
 
 # ---------------- PHASE C: collect ----------------
 $SUBPY collect.py "$VDIR" --judge qvl72
+$SUBPY make_report.py "$VDIR" --judge qvl72
 echo "================ $TAG DONE $(date) — see $VDIR/SUMMARY.md ================"

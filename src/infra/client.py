@@ -120,6 +120,32 @@ class VLLMClient:
             try:
                 async with self._semaphore:
                     async with self._session.post(url, json=payload, timeout=timeout) as resp:
+                        if resp.status == 400:
+                            # vLLM reports exact token counts in the 400 body:
+                            # "...maximum context length is N tokens ... (M in
+                            # the messages...". The char-based estimate in
+                            # generate() undershoots on dense prompts, so
+                            # recompute max_tokens from the server's numbers
+                            # and retry — same payload would 400 forever.
+                            body = await resp.text()
+                            mlim = re.search(r"maximum context length is (\d+)", body)
+                            # vLLM wording varies by version:
+                            #   "... (16385 in the messages, ...)"
+                            #   "... your prompt contains at least 16385 input tokens"
+                            mmsg = (re.search(r"\((\d+) in the messages", body) or
+                                    re.search(r"at least (\d+) input tokens", body))
+                            if mlim and mmsg and "max_tokens" in payload:
+                                # "at least N" is a lower bound -> extra margin
+                                new_max = int(mlim.group(1)) - int(mmsg.group(1)) - 256
+                                if 256 <= new_max < payload["max_tokens"]:
+                                    logger.warning(
+                                        "[%s] context overflow (prompt=%s tok, "
+                                        "limit=%s): max_tokens %d -> %d",
+                                        tag, mmsg.group(1), mlim.group(1),
+                                        payload["max_tokens"], new_max)
+                                    payload["max_tokens"] = new_max
+                                    continue
+                            raise RuntimeError(f"400 Bad Request: {body[:300]}")
                         resp.raise_for_status()
                         data = await resp.json()
                         text = data["choices"][0]["message"]["content"]
@@ -146,7 +172,7 @@ class VLLMClient:
     async def generate(self, prompt: str, max_tokens: int = 4096,
                        temperature: float = 0.7,
                        usage_stats: Optional[UsageStats] = None,
-                       tag: str = "gen") -> Optional[str]:
+                       tag: str = "gen", think: bool = False) -> Optional[str]:
         # long prompts (full HTML in revision/self-refine) + fixed max_tokens can
         # exceed the server context window -> instant 400; shrink the output
         # request to fit. Dense minified HTML/JS tokenizes at ~2.5 chars/token,
@@ -159,17 +185,17 @@ class VLLMClient:
             "max_tokens": min(max_tokens, fit),
             "temperature": temperature,
         }
-        # Qwen3.x are reasoning models: disable "thinking" so the completion is
-        # clean HTML/JSON instead of a <think> preamble. Harmless no-op for
-        # non-reasoning models is NOT guaranteed, so gate on the model name.
+        # Qwen3.x are reasoning models: by default disable "thinking" so the
+        # completion is clean HTML/JSON instead of a <think> preamble (callers
+        # that WANT reasoning pass think=True). Gate on the model name.
         if any(t in self.model_name for t in ("Qwen3", "qwen3")):
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["chat_template_kwargs"] = {"enable_thinking": think}
         return await self._post(payload, usage_stats, tag=tag)
 
     async def generate_vlm(self, prompt: str, image_paths: List[str],
                            max_tokens: int = 2048, temperature: float = 0.2,
                            usage_stats: Optional[UsageStats] = None,
-                           tag: str = "vlm") -> Optional[str]:
+                           tag: str = "vlm", think: Optional[bool] = None) -> Optional[str]:
         """Send prompt + one or more screenshots to a vision endpoint."""
         content = [{"type": "text", "text": prompt}]
         for p in image_paths:
@@ -185,6 +211,14 @@ class VLLMClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        # NOTE (2026-07-25): the vision path is the CRITIC path (all axis/fused
+        # critics see the PNG). Default keeps "thinking" ON (server default) —
+        # critics reason much better with it — with a generous max_tokens so the
+        # <think> preamble + final JSON both fit. If a caller's parse still fails
+        # (reasoning overran the budget), it retries with think=False for a
+        # guaranteed-short JSON. think=None -> leave server default (on).
+        if think is not None and any(t in self.model_name for t in ("Qwen3", "qwen3")):
+            payload["chat_template_kwargs"] = {"enable_thinking": think}
         return await self._post(payload, usage_stats, tag=tag)
 
 
@@ -258,6 +292,12 @@ class MockClient:
         return int(hashlib.md5(prompt.encode()).hexdigest(), 16) % mod
 
     def _reply(self, prompt: str) -> str:
+        # absolute judge -> per-axis 0-10 scores
+        if '"scores"' in prompt:
+            axes = re.findall(r'"(\w+)": <0-10 int>', prompt)
+            return json.dumps({"scores": {a: 4 + self._h(prompt + a, 6)
+                                          for a in axes},
+                               "reason": "[mock] deterministic absolute scores"})
         # pairwise judge -> forced choice
         if '"winner"' in prompt:
             return json.dumps({"winner": "A" if self._h(prompt, 2) == 0 else "B",
@@ -308,14 +348,14 @@ class MockClient:
         )
 
     async def generate(self, prompt: str, max_tokens=4096, temperature=0.7,
-                       usage_stats=None, tag="gen") -> str:
+                       usage_stats=None, tag="gen", think=False) -> str:
         self._n += 1
         if usage_stats is not None:
             usage_stats.record(len(prompt) // 4, 160)
         return self._reply(prompt)
 
     async def generate_vlm(self, prompt: str, image_paths=None, max_tokens=2048,
-                           temperature=0.2, usage_stats=None, tag="vlm") -> str:
+                           temperature=0.2, usage_stats=None, tag="vlm", think=None) -> str:
         self._n += 1
         if usage_stats is not None:
             usage_stats.record(len(prompt) // 4, 100)

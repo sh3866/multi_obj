@@ -1,0 +1,287 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+% ========== Packages ==========
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% ========== Theme ==========
+\usetheme{metropolis}
+
+% ========== Colors ==========
+\definecolor{navymain}{RGB}{26, 43, 76}
+\definecolor{navylight}{RGB}{200, 210, 225}
+\definecolor{accentred}{RGB}{180, 60, 60}
+\definecolor{winner}{RGB}{30, 110, 60}
+\definecolor{gray60}{RGB}{110, 118, 132}
+
+\setbeamercolor{frametitle}{bg=navymain, fg=white}
+\setbeamercolor{title separator}{fg=navymain}
+\setbeamercolor{progress bar}{fg=navymain}
+\setbeamercolor{alerted text}{fg=accentred}
+\setbeamercolor{block title}{bg=navymain, fg=white}
+\setbeamercolor{block body}{bg=navylight!30, fg=black}
+\setbeamercolor{normal text}{fg=black}
+\setbeamercolor{itemize item}{fg=navymain}
+\setbeamercolor{itemize subitem}{fg=navymain}
+
+\newcommand{\cit}[1]{{\scriptsize\color{gray60}[#1]}}
+\newcommand{\hl}[1]{\textbf{\color{navymain}#1}}
+\newcommand{\bad}[1]{\textbf{\color{accentred}#1}}
+\newcommand{\gd}[1]{\textbf{\color{winner}#1}}
+
+\title{Multi-Agent Critique for Subjective Design Quality}
+\subtitle{Does decomposing the evaluator actually help?}
+\date{2026.08.02}
+\author{Sunghyun Choi}
+
+\begin{document}
+
+% ================================================== 1. Motivation
+\begin{frame}{Motivation: the reward is not a scalar}
+\small
+LLM agents now \emph{generate artifacts} (web pages, UIs, games), not just text.
+The standard recipe is a \hl{generator--evaluator loop}: draft $\rightarrow$ critique $\rightarrow$ revise.
+\cit{Anthropic harness; Self-Refine, Madaan+ '23; Reflexion, Shinn+ '23}
+
+\vspace{0.35em}
+\begin{block}{The problem}
+For artifacts, ``quality'' is \hl{multi-objective and partly subjective}:
+functionality, layout, color/typography, originality, craft.
+These \bad{trade off against each other} --- adding visual richness costs whitespace;
+enforcing a grid costs character.
+\end{block}
+
+\vspace{0.2em}
+A \hl{single fused evaluator} collapses this into one scalar and one revision instruction.
+Two known failure modes:
+\begin{itemize}\itemsep0.15em
+  \item \bad{Leniency drift} --- a self/single evaluator declares its own work good and stops improving.
+        \cit{LLMs cannot self-correct reasoning yet, Huang+ ICLR'24}
+  \item \bad{Objective collapse} --- one axis dominates the instruction; the others silently decay.
+\end{itemize}
+
+\vspace{0.35em}
+\centering
+\textbf{RQ:} \emph{Does giving each objective its own critic --- and letting them argue ---
+produce better artifacts than one fused evaluator?}
+\end{frame}
+
+% ================================================== 2. Related work
+\begin{frame}{Where this sits}
+\scriptsize
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.49\textwidth}
+\textbf{\color{navymain}Iterative self-improvement}\\
+Self-Refine \cit{Madaan+ '23}, Reflexion \cit{Shinn+ '23}, CRITIC \cit{Gou+ '23}\\
+$\rightarrow$ \emph{single} evaluator; gains shrink or reverse without external signal
+\cit{Huang+ '24; Stechly+ '23}
+
+\vspace{0.6em}
+\textbf{\color{navymain}Multi-agent debate}\\
+Du+ '23, Liang+ '23 --- debate improves factuality/reasoning\\
+$\rightarrow$ evaluated on tasks with \bad{verifiable answers}.
+Nobody tests debate where the objective is \emph{subjective and conflicting}.
+
+\vspace{0.6em}
+\textbf{\color{navymain}Fine-grained reward}\\
+Fine-grained RLHF \cit{Wu+ '23}, Constitutional AI \cit{Bai+ '22}\\
+$\rightarrow$ decomposition helps \emph{at training time}; we ask whether it helps
+\hl{at inference time, inside the loop}.
+\end{column}
+
+\begin{column}{0.49\textwidth}
+\textbf{\color{navymain}LLM-as-judge}\\
+MT-Bench \cit{Zheng+ '23}, G-Eval \cit{Liu+ '23}\\
+Known biases: position, verbosity, \bad{self-preference} \cit{Panickssery+ '24}\\
+$\rightarrow$ forces our judge to be \emph{held out} + blind.
+
+\vspace{0.6em}
+\textbf{\color{navymain}Artifact benchmarks}\\
+ArtifactsBench \cit{Tencent Hunyuan '25} --- MLLM judge over code + screenshots;
+design is $\sim$1 checklist item out of 10\\
+UI-Bench \cit{'25} --- human expert \emph{pairwise} + TrueSkill, pure aesthetics\\
+$\rightarrow$ either design is a footnote, or evaluation needs humans.
+
+\vspace{0.6em}
+\begin{block}{\scriptsize Gap}
+\scriptsize Debate is validated on \emph{verifiable} tasks.
+Artifact generation is \emph{subjective + multi-objective}.
+We test the transfer directly, with a pre-registered protocol.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ================================================== 3. Method
+\begin{frame}{Method: an ablation ladder over the evaluator}
+\scriptsize
+Everything is held fixed except \hl{the structure of the evaluator}.
+
+\vspace{0.3em}
+\begin{center}
+\begin{tabular}{@{}llp{5.4cm}@{}}
+\toprule
+\textbf{arm} & \textbf{evaluator} & \textbf{isolates} \\
+\midrule
+ZS    & none (one pass)                  & floor anchor \\
+SELF  & generator critiques itself       & value of \emph{any} external evaluator \\
+FUSED & one fused critic (harness)       & \hl{H1 control} \\
+AXES  & 4 per-axis critics $\rightarrow$ moderator & \hl{H1}: does decomposition help? \\
+MAD   & AXES + cross-critique (debate)   & \hl{H2}: does arguing help? \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.4em}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.53\textwidth}
+\textbf{\color{navymain}Controls (pre-registered)}
+\begin{itemize}\itemsep0.1em
+  \item \hl{Shared $r_0$}: all arms start from the \emph{same} draft
+        (common random numbers) --- removes the draw lottery
+  \item \hl{Budget-matched}: equal token budget, not equal rounds
+  \item \hl{Consensus-stop}: each arm stops when \emph{its own}
+        evaluator says ``good enough'' $\Rightarrow$ leniency is measurable
+  \item Critics emit \emph{critique only}; the generator rewrites the code
+\end{itemize}
+\end{column}
+\begin{column}{0.45\textwidth}
+\textbf{\color{navymain}Evaluation (3-layer isolation)}
+\begin{itemize}\itemsep0.1em
+  \item In-loop critics $\neq$ held-out judge
+  \item Judge sees a \hl{temporal screenshot series} (load / settled / after-click)
+  \item \hl{Blind}: variants anonymised to codes, shuffled, neutral paths;
+        un-mapped only after scoring
+  \item 12 ArtifactsBench tasks; axes = functionality / design / originality / craft
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ================================================== 4. Result 1
+\begin{frame}{Result 1: decomposition + debate helps --- when the axes really conflict}
+\scriptsize
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.47\textwidth}
+\textbf{\color{navymain}(a) Main run} --- 12 tasks, shared $r_0$, cap 10 rounds, blind judge
+\begin{center}
+\begin{tabular}{@{}lc@{}}
+\toprule
+arm & overall (0--10) \\
+\midrule
+$r_0$ (shared draft) & 4.58 \\
+SELF                 & 5.34 \\
+FUSED (harness)      & 5.35 \\
+AXES                 & \gd{5.92} \\
+MAD                  & \gd{5.97} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.2em}
+$\rightarrow$ \hl{+0.6 for decomposition} over a fused evaluator.\\
+Debate $\approx$ independent axes at the \emph{final} artifact.
+
+\vspace{0.4em}
+\textbf{\color{navymain}Round trajectory} (every round judged blind)\\
+SELF / FUSED peak early (r3--6) then plateau;
+AXES / MAD keep climbing ($\sim$+1.5) --- consistent with
+\hl{peer critique suppressing leniency drift}.
+\end{column}
+
+\begin{column}{0.5\textwidth}
+\textbf{\color{navymain}(b) Is the critic the bottleneck?}\\
+Same structure, same shared $r_0$, one round ---
+only the \emph{critic text} is swapped (in-house MoE $\rightarrow$ hand-written Opus ``gold'').
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+structure & weak & gold & $\Delta$ \\
+\midrule
+fused & 4.38 & 4.75 & +0.38 \\
+axes  & 4.25 & \gd{5.27} & \gd{+1.02} \\
+mad   & 4.23 & 4.44 & +0.21 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.3em}
+$\rightarrow$ critic \emph{quality} matters, and it pays off most
+when the structure can \hl{route it per axis}.
+
+\vspace{0.5em}
+\begin{block}{\scriptsize Diagnostic found along the way}
+\scriptsize A VLM parser bug silently dropped \bad{86\%} of axis critiques
+(``no parse''). After the fix: \gd{100\%} parse (960/960).
+The earlier ``debate helps'' signal survived re-running.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ================================================== 5. Result 2 + takeaway
+\begin{frame}{Result 2: strip out functionality, and the effect disappears}
+\scriptsize
+The main tasks still reward \emph{functionality}. So: rewrite all 12 briefs as
+\hl{single-screen, design-only} tasks, make critics \hl{score-free} (pure critique),
+and vary axis granularity (2 / 4 / 10).
+
+\vspace{0.35em}
+\begin{columns}[T,onlytextwidth]
+\begin{column}{0.46\textwidth}
+\textbf{\color{navymain}(a) Design-only: null result}
+\begin{center}
+\begin{tabular}{@{}lc@{}}
+\toprule
+arm ($\times$ granularity) & score \\
+\midrule
+FUSED-10 / FUSED-2 & 6.42 / 6.41 \\
+MAD-10             & 6.25 \\
+\bad{$r_0$ (no refinement)} & \bad{5.96} \\
+AXES (all), SELF, MAD-4 & 5.79--5.96 \\
+\bottomrule
+\end{tabular}
+\end{center}
+All arms sit within $\pm$0.5 of the untouched draft; \hl{$r_0$ is mid-pack}.
+Granularity is not monotone. 18\% of finals score $<$4.5 --- \bad{render breakage
+dominates the variance}, not taste.
+\end{column}
+
+\begin{column}{0.51\textwidth}
+\textbf{\color{navymain}(b) Oracle ceiling} --- is the critic even the bottleneck?\\
+Give the loop a critic \emph{perfectly aligned with the judge}:
+same 4 axes, same 0--10 anchors, plus ``here is what a 10/10 looks like for this brief''.
+Generator = Haiku, 3 rounds, 96 blind per-axis judgments.
+\begin{center}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & $r_0$ & $r_1$ & $r_2$ & $r_3$ \\
+\midrule
+mean & 5.00 & \gd{5.77} & 5.21 & 5.10 \\
+spacing axis & 5.82 & 5.58 & 4.65 & \bad{4.50} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.2em}
+$\rightarrow$ \gd{+0.77 at round 1}, then \bad{collapse}. Net $+0.11$.
+4/6 tasks peak at $r_1$. Ceiling $\approx$7, never near 9--10.
+Failure mode: the generator keeps \emph{adding} what the critique asks for
+until the layout breaks.
+\end{column}
+\end{columns}
+
+\vspace{0.4em}
+\begin{block}{\scriptsize Takeaway}
+\scriptsize
+Decomposition + debate helps \hl{when objectives genuinely conflict and part of the signal is verifiable}.
+On \emph{pure} subjective design it buys nothing --- and an \hl{oracle critic proves the bottleneck is
+not critique quality} but the generator's ability to absorb long instructions without regression.
+\bad{Next}: regression-aware critics (``preserve what works''), render gating, and pairwise
+(not absolute) evaluation.
+\end{block}
+\end{frame}
+
+\end{document}

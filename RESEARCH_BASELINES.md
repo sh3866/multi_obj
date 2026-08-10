@@ -69,8 +69,31 @@ token-matched로 이겨야만 주장이 성립).
 2. **튜닝 공정성**: 모든 arm 하이퍼파라미터 튜닝 (agreement intensity 포함). critic 수는 3-4 (ChatEval peak, 5부터 하락)
 3. **Ablation 분리**: debate turns (문헌 예측: flat) vs 축 개수/분리 (문헌 예측: 도움) — 이 2×2가 H1/H2 분해의 핵심
 4. **Grounding**: critic 피드백은 외부 신호(렌더 스크린샷, 실측 func/efficiency, UIClip)에 anchoring. intrinsic self-judgment 단독 금지. oracle(외부 채점기) label이 refinement loop에 새면 안 됨
-5. **H3 평가**: hypervolume/coverage (MOQD 계열) + 후보 budget 일치 + human pairwise로 front 유용성 확인
+5. **H3 평가** *(v3로 이연 — PLAN.md 스코프 확정 2026-07-15)*: hypervolume/coverage (MOQD 계열) + 후보 budget 일치 + human pairwise로 front 유용성 확인
 6. **최종 검증**: 자동 지표(WebGen 채점, UIClip, ArtifactsBench judge)는 스크리닝, 최종 주장은 blind pairwise human study (BT 집계, 사전 등록된 power/보정)
+
+## 4a. 아키텍처 계보 (인용 정리, 2026-07-15)
+
+- **FUSED** = Anthropic harness 블로그 재현: planner+generator+evaluator 3역,
+  4개 기준을 양쪽에 제공, evaluator가 계속/정지 결정(임계치). 의도적 단순화:
+  기준별 임계치 대신 융합 점수 4/5 (H1 대조를 위해 "융합"이 정의상 필요),
+  evaluator가 직접 브라우징하는 대신 스크린샷+probe, 가중 없음(균등).
+- **MAD의 moderator+정지 구조** = Liang et al. MAD(judge가 라운드마다 종결 판정,
+  최대 라운드 캡) + ChatEval(critic 패널) 계보. **LLM Review(2601.08003)는
+  아키텍처 참조가 아님** — 그쪽은 병렬 작가 N명·고정 R=3·중앙 결정자 없음.
+  LLM Review는 §4b의 균질화 예측 근거로만 인용.
+
+## 4b. 창의성-균질화 반론 (추가 2026-07-15)
+
+- **LLM Review** ([2601.08003](https://arxiv.org/abs/2601.08003)): SciFi 창작에서
+  debate/discussion(상호 출력 노출)은 균질화로 novelty를 해치고, blind peer review
+  (피드백 교환 + 독립 수정)가 우월. agent 3명 peak, 그 이상은 feedback dilution.
+  구조가 모델 스케일을 대체 가능(작은 모델+구조 > 큰 모델 단독).
+- **우리 실험과의 관계**: 그들의 agent는 병렬 *창작자*(궤적 N개), 우리는 단일
+  artifact를 둘러싼 분업 *비평가*(궤적 1개) — 균질화 병리가 그대로 적용되지 않음.
+  단, moderator의 강제 합의가 originality를 깎을 수 있다는 예측은 유효 →
+  PLAN.md의 2차 예측(균질화 signature)으로 등록. 동급-모델 moderator의 정당화
+  근거로도 인용 (구조 효과를 aggregator 스케일과 분리).
 
 ## 5. 남은 조사 과제 (openQuestions)
 

@@ -25,7 +25,7 @@ TAG="${1:-main1}"
 GEN_MODEL="Qwen/Qwen3.6-35B-A3B-FP8"
 CRITIC_MODEL="Qwen/Qwen2.5-VL-32B-Instruct"
 JUDGE_OPEN="Qwen/Qwen2.5-VL-72B-Instruct"
-BUDGET=120000
+BUDGET=250000   # runaway safety guard only (must not bind; tokens are reported, not matched)
 TASK_IDS=$(cat main_task_ids.txt)
 VDIR="results/$TAG"
 mkdir -p "$VDIR" logs
@@ -58,7 +58,7 @@ serve 8004 4,5,6,7 "$CRITIC_MODEL" --tensor-parallel-size 4 --enforce-eager --li
 wait_up 8000 || { echo "FATAL: gen server failed"; exit 1; }
 wait_up 8004 || { echo "FATAL: critic server failed"; exit 1; }
 
-for arm in ZS BON SELF FUSED AXES MAD; do
+for arm in ZS SELF FUSED AXES MAD; do   # BON excluded (user decision 2026-07-15); recoverable post hoc on the same tasks
   echo "======== generate $arm $(date) ========"
   $SUBPY run_generate.py --arm $arm \
     --gen-ports 8000 --gen-model "$GEN_MODEL" \
@@ -70,7 +70,7 @@ done
 
 # ---------------- PHASE B: held-out judge ----------------
 killall_gpu
-serve 8100 0,1,2,3,4,5,6,7 "$JUDGE_OPEN" --tensor-parallel-size 8 --max-model-len 8192 --enforce-eager --limit-mm-per-prompt image=3
+serve 8100 0,1,2,3,4,5,6,7 "$JUDGE_OPEN" --tensor-parallel-size 8 --max-model-len 16384 --enforce-eager --limit-mm-per-prompt image=6
 if ! wait_up 8100; then
   echo "VL-72B failed to start — retrying with enforce-eager + shorter context"
   killall_gpu
@@ -81,7 +81,7 @@ fi
 echo "======== pairwise judging $(date) ========"
 $SUBPY run_judge.py --run-dir "$VDIR" --judge-name qvl72 \
   --judge-ports 8100 --judge-model "$JUDGE_OPEN" \
-  --axes overall,design,originality,craft --concurrency 8
+  --axes functionality,design,originality,craft --concurrency 8
 echo "======== checklist judging $(date) ========"
 $SUBPY run_checklist.py --run-dir "$VDIR" --judge-name qvl72 \
   --judge-ports 8100 --judge-model "$JUDGE_OPEN" \
@@ -91,4 +91,5 @@ killall_gpu
 # ---------------- PHASE C: collect ----------------
 echo "======== collect $(date) ========"
 $SUBPY collect.py "$VDIR" --judge qvl72
+$SUBPY make_report.py "$VDIR" --judge qvl72
 echo "================ $TAG DONE $(date) — see $VDIR/SUMMARY.md ================"

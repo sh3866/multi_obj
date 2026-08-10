@@ -26,6 +26,8 @@ REQUEST: {instruction}
 
 You see {shots} of the artifact. Judge each checklist item strictly: mark it
 passed ONLY if the screenshots clearly support it; when in doubt, fail it.
+If the screenshots show a blank/empty page, only a loading spinner, or no real
+content, EVERY item fails — never infer functionality that is not visible.
 
 CHECKLIST:
 {listed}

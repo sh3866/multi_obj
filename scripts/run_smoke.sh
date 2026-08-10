@@ -5,13 +5,13 @@
 set -e
 cd "$(dirname "$0")/.."
 rm -rf results/_smoke
-for arm in ZS BON SELF FUSED AXES MAD; do
+for arm in ZS SELF FUSED AXES MAD; do   # BON excluded (user decision 2026-07-15); recoverable post hoc on the same tasks
   python3 run_generate.py --mock --no-render --arm $arm --n-items 3 \
     --task-source artifacts --categories design_forward --difficulties medium,hard \
     --budget-tokens 12000 --output-dir results/_smoke/$arm
 done
 python3 run_judge.py --run-dir results/_smoke --mock --judge-name qvl72 \
-  --axes overall,design
+  --axes functionality,design
 python3 run_checklist.py --run-dir results/_smoke --mock --judge-name qvl72
 python3 collect.py results/_smoke --judge qvl72
 echo "SMOKE OK — see results/_smoke/SUMMARY.md"

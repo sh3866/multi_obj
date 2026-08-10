@@ -4,8 +4,9 @@ Every arm has the same signature and contract:
     async run(instruction, workdir, gen_c, vlm_c, cfg, usage) -> {
         "candidates": CandidateSet, "history": [...], "extra": {...}}
 - usage is a BudgetedUsage; the arm stops when usage.exhausted()
-- no early stopping on quality; verdicts are logged in history for the
-  leniency analysis (critic-score trajectory per round)
+- CONSENSUS-STOP regime (2026-07-15 v2): the loop breaks the moment its own
+  evaluator declares good_enough (that artifact is the final output; hard cap
+  cfg.max_rounds_cap). Verdicts are logged in history for leniency analysis.
 """
 
 from __future__ import annotations
@@ -50,16 +51,31 @@ async def run_self(instruction, workdir, gen_c, vlm_c, cfg, usage):
     evaluator of any kind (isolates the value of external feedback)."""
     cands = common.CandidateSet(usage)
     history = []
-    html = await common.gen_initial(instruction, "", gen_c, cfg, usage)
-    cands.add("r0", html, 0, "initial")
-    history.append({"round": 0, "action": "initial", "tokens": usage.total_tokens})
+    init = common.load_init(workdir, cfg)   # shared-r0 paired design
+    html = (init["html"] if init else
+            await common.gen_initial(instruction, "", gen_c, cfg, usage))
+    cands.add("r0", html, 0, "initial(shared)" if init else "initial")
+    history.append({"round": 0, "action": "initial", "shared_r0": bool(init),
+                    "tokens": usage.total_tokens})
     r, step_cost = 1, None
-    while not usage.exhausted() and r <= cfg.max_rounds_cap:  # 4 refines
+    while not usage.exhausted() and r <= cfg.max_rounds_cap:
         if step_cost and usage.remaining() < 0.6 * step_cost:
             break
         t0 = usage.total_tokens
-        html = await common.gen_self_refine(instruction, html, gen_c, cfg, usage) or html
+        png = None
+        if getattr(cfg, "design_mode", False):
+            png, _ = await common.preview(
+                html, os.path.join(workdir, f"round_{r:02d}"), cfg)
+        new_html, good = await common.gen_self_refine(instruction, html,
+                                                      gen_c, cfg, usage,
+                                                      png=png, vlm_c=vlm_c)
         step_cost = usage.total_tokens - t0
+        if cfg.early_stop and good:
+            history.append({"round": r, "action": "good_enough_stop",
+                            "good_enough_flag": True,
+                            "tokens": usage.total_tokens})
+            break  # agent declared its own work done (consensus-stop)
+        html = new_html or html
         cands.add(f"r{r}", html, r, "self_refine")
         history.append({"round": r, "action": "self_refine",
                         "tokens": usage.total_tokens})
@@ -71,9 +87,13 @@ async def run_fused(instruction, workdir, gen_c, vlm_c, cfg, usage):
     """The Anthropic-harness loop: planner + generator + ONE fused evaluator."""
     cands = common.CandidateSet(usage)
     history = []
-    spec = await common.run_planner(instruction, gen_c, cfg, usage)
-    html = await common.gen_initial(instruction, spec, gen_c, cfg, usage)
-    cands.add("r0", html, 0, "initial")
+    init = common.load_init(workdir, cfg)   # shared-r0 paired design
+    if init:
+        spec, html = init["spec"], init["html"]
+    else:
+        spec = await common.run_planner(instruction, gen_c, cfg, usage)
+        html = await common.gen_initial(instruction, spec, gen_c, cfg, usage)
+    cands.add("r0", html, 0, "initial(shared)" if init else "initial")
     r, round_cost = 0, None
     while not usage.exhausted() and r < cfg.max_rounds_cap:
         if round_cost and usage.remaining() < 0.6 * round_cost:
@@ -83,10 +103,15 @@ async def run_fused(instruction, workdir, gen_c, vlm_c, cfg, usage):
         v = await critics.fused_critic(instruction, cfg.axes(), html, png, probe,
                                        gen_c, vlm_c, cfg, usage)
         history.append({"round": r, "fused_score": v["score"],
-                        "suggestion": v["suggestion"][:160],
+                        "good_enough_flag": v.get("good_enough", False),
+                        # store the FULL fused critique + suggestion (parity with
+                        # AXES/MAD debate.critiques) — was truncated to [:160]
+                        # with no critique, which cut FUSED transcripts in reports
+                        "critique": v.get("critique", ""),
+                        "suggestion": v.get("suggestion", ""),
                         "tokens": usage.total_tokens})
-        if cfg.early_stop and (v["score"] >= 4 or not v.get("suggestion")):
-            break  # evaluator says good enough (Self-Refine-style self stop)
+        if cfg.early_stop and v.get("good_enough"):
+            break  # evaluator declared done (explicit, replaces score>=4)
         if usage.exhausted():
             break
         revision = v["suggestion"] or ("Keep improving: polish design, originality "
@@ -106,10 +131,14 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
     cands = common.CandidateSet(usage)
     history = []
     axes = axes or cfg.axes()
-    if spec is None:
-        spec = await common.run_planner(instruction, gen_c, cfg, usage)
-    html = await common.gen_initial(instruction, spec, gen_c, cfg, usage)
-    cands.add("r0", html, 0, "initial")
+    init = common.load_init(workdir, cfg)   # shared-r0 paired design
+    if init:
+        spec, html = (spec if spec is not None else init["spec"]), init["html"]
+    else:
+        if spec is None:
+            spec = await common.run_planner(instruction, gen_c, cfg, usage)
+        html = await common.gen_initial(instruction, spec, gen_c, cfg, usage)
+    cands.add("r0", html, 0, "initial(shared)" if init else "initial")
     r, round_cost = 0, None
     while not usage.exhausted() and r < cfg.max_rounds_cap:
         if round_cost and usage.remaining() < 0.6 * round_cost:
@@ -120,9 +149,11 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
                                                   probe, gen_c, vlm_c, cfg, usage)
         rebuttals = []
         if use_debate and not usage.exhausted():
-            for _ in range(max(1, cfg.debate_rounds)):
+            for _ in range(cfg.debate_rounds):
                 rebuttals = await debate.cross_critique(axes, verdicts, rebuttals,
-                                                        gen_c, cfg, usage)
+                                                        gen_c, cfg, usage,
+                                                        vlm_c=vlm_c, png=png,
+                                                        probe=probe)
                 if usage.exhausted():
                     break
         if usage.exhausted():
@@ -139,6 +170,18 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
                         "conflicts": synth.get("conflicts", []),
                         "good_enough_flag": synth["good_enough"],
                         "revision": synth["revision"][:160],
+                        # FULL debate transcript (2026-07-15): critiques, the
+                        # cross-critique rebuttals (the actual debate) and the
+                        # moderator's complete output — for qualitative
+                        # analysis; summaries above stay for compact reading.
+                        "debate": {
+                            "critiques": {v["axis"]: {
+                                "score": v.get("score"),
+                                "critique": v.get("critique", ""),
+                                "suggestion": v.get("suggestion", "")}
+                                for v in verdicts},
+                            "rebuttals": rebuttals,
+                            "synthesis": synth},
                         "tokens": usage.total_tokens})
         if cfg.early_stop and synth["good_enough"]:
             break  # critics reached consensus (self stop, logged above)
