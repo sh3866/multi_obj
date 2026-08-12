@@ -67,7 +67,7 @@ def _score(rendered, page_errors, console_errors, struct):
 
 async def render_and_probe(html: str, out_png: str,
                            viewport: Tuple[int, int] = (1280, 800),
-                           full_page: bool = True, settle_ms: int = 500, n_shots: int = 1) -> dict:
+                           full_page: bool = False, settle_ms: int = 500, n_shots: int = 1) -> dict:
     """Render one settled screenshot (t1) and collect passive load diagnostics.
 
     n_shots remains only for call-site compatibility; t0/t2 are no longer

@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Aether: Bioluminescence</title>
+<style>
+  :root {
+    --bg-deep: #05070a;
+    --bg-panel: rgba(20, 25, 40, 0.4);
+    --border-panel: rgba(255, 255, 255, 0.08);
+    --accent-cyan: #00f0ff;
+    --accent-lime: #ccff00;
+    --text-main: #ffffff;
+    --text-muted: rgba(255, 255, 255, 0.5);
+    --font-display: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'Courier New', Courier, monospace;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: var(--bg-deep);
+    color: var(--text-main);
+    font-family: var(--font-display);
+    overflow: hidden;
+  }
+
+  /* --- Layout & Atmosphere --- */
+  .scene-container {
+    position: relative;
+    width: 100%; height: 100%;
+    overflow: hidden;
+  }
+
+  /* Grainy Film Overlay */
+  .film-grain {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.04;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    z-index: 5;
+  }
+
+  /* Atmospheric Vignette & Lighting */
+  .atmosphere {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: 
+      radial-gradient(circle at 50% 120%, #0f172a 0%, transparent 60%),
+      radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(189, 0, 255, 0.05) 0%, transparent 30%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* Canvas Layer */
+  #gameCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 2;
+    cursor: none; /* Hide default cursor */
+  }
+
+  /* --- UI Layer --- */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: clamp(1.5rem, 5vw, 3rem);
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    margin: 0;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: white;
+    text-shadow: 0 0 20px rgba(255,255,255,0.2);
+    line-height: 1;
+  }
+
+  .subtitle {
+    font-size: clamp(0.6rem, 1vw, 0.75rem);
+    color: var(--accent-cyan);
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    opacity: 0.9;
+    font-weight: 600;
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+  }
+
+  /* HUD Panel */
+  .hud-panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-panel);
+    padding: 0.8rem 1.5rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    min-width: 160px;
+    justify-content: space-between;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  
+  .hud-panel.pulse {
+    transform: scale(1.05);
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+  }
+
+  .hud-icon {
+    width: 24px; height: 24px;
+    fill: var(--accent-cyan);
+    filter: drop-shadow(0 0 5px var(--accent-cyan));
+  }
+
+  .stat-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .stat-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-top: 4px;
+  }
+
+  /* Footer / Actions */
+  .footer {
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    margin-bottom: 1rem;
+  }
+
+  .btn-main {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-panel);
+    color: rgba(255,255,255,0.7);
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 1rem 2.5rem;
+    border-radius: 50px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-main::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    transform: translateX(-100%);
+  }
+
+  .btn-main:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+  }
+  
+  .btn-main:hover::after {
+    transform: translateX(100%);
+    transition: transform 0.6s ease-in-out;
+  }
+
+  .btn-main:active {
+    transform: scale(0.96);
+  }
+
+  /* Mobile adjustments */
+  @media (max-width: 600px) {
+    .ui-layer { padding: 1.2rem; }
+    .btn-main { padding: 0.8rem 2rem; font-size: 0.7rem; width: 100%; max-width: 260px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene-container">
+  <!-- Visual Backgrounds -->
+  <div class="film-grain"></div>
+  <div class="atmosphere"></div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- UI Overlay -->
+  <div class="ui-layer">
+    <header class="header">
+      <div class="brand">
+        <h1>Aether</h1>
+        <div class="subtitle">Capture & Collection</div>
+      </div>
+      <div class="hud-panel" id="hudPanel">
+        <svg class="hud-icon" viewBox="0 0 24 24">
+          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z" />
+        </svg>
+        <div class="stat-group">
+          <div class="stat-value" id="scoreDisplay">00</div>
+          <div class="stat-label">Specimens</div>
+        </div>
+      </div>
+    </header>
+
+    <footer class="footer">
+      <button class="btn-main" onclick="resetGame()">New Collection</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+  /**
+   * Aether Catcher - High Fidelity Canvas Rendering
+   */
+  
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: true });
+  const scoreEl = document.getElementById('scoreDisplay');
+  const hudPanel = document.getElementById('hudPanel');
+
+  let width, height;
+  let score = 0;
+  let particles = [];
+  let creatures = [];
+  let mouse = { x: -1000, y: -1000 };
+  let isMouseDown = false;
+  let time = 0;
+
+  // Configuration - Bioluminescent Palette
+  const PALETTE = [
+    { hex: '#00f0ff', name: 'Cyan' },   // Electric
+    { hex: '#bd00ff', name: 'Violet' }, // Neon
+    { hex: '#ff0055', name: 'Magenta'}, // Pulse
+    { hex: '#ccff00', name: 'Lime' }    // Toxic
+  ];
+  const CREATURE_COUNT = 7;
+
+  // Resize Handling
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Input Handling
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+  // Touch support
+  window.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+
+  // --- Classes ---
+
+  class Particle {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 5 + 2;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.02 + 0.015;
+      this.size = Math.random() * 3 + 1;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= 0.92; // Drag
+      this.vy *= 0.92;
+      this.life -= this.decay;
+    }
+
+    draw(ctx) {
+      ctx.globalAlpha = this.life;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  class Creature {
+    constructor() {
+      this.reset();
+      // Scatter initial positions
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+    }
+
+    reset() {
+      // Spawn off-screen
+      const side = Math.random() > 0.5 ? -100 : width + 100;
+      this.x = side;
+      this.y = Math.random() * height;
+      
+      // Movement physics
+      this.vx = (Math.random() - 0.5) * 2;
+      this.vy = (Math.random() - 0.5) * 2;
+      
+      this.radius = Math.random() * 10 + 15;
+      this.colorObj = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+      
+      // Animation props
+      this.wobble = Math.random() * Math.PI * 2;
+      this.wobbleSpeed = Math.random() * 0.05 + 0.02;
+      this.isCaught = false;
+      this.trail = [];
+    }
+
+    update() {
+      if (this.isCaught) return;
+
+      // Move
+      this.x += this.vx;
+      this.y += this.vy;
+      this.wobble += this.wobbleSpeed;
+      
+      // Organic Sine drift
+      this.x += Math.sin(this.wobble) * 0.3;
+
+      // Wall Bounce
+      if (this.x < 0 || this.x > width) this.vx *= -1;
+      if (this.y < 0 || this.y > height) this.vy *= -1;
+
+      // Mouse Interaction (Flee)
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      
+      if (dist < 200) {
+        const force = (200 - dist) / 200;
+        const angle = Math.atan2(dy, dx);
+        // Gentle push, not instant teleport
+        this.vx += Math.cos(angle) * force * 0.15;
+        this.vy += Math.sin(angle) * force * 0.15;
+      }
+
+      // Terminal velocity
+      const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+      if (speed > 4) {
+        this.vx = (this.vx / speed) * 4;
+        this.vy = (this.vy / speed) * 4;
+      }
+
+      // Trail
+      if (time % 4 === 0) {
+        this.trail.push({x: this.x, y: this.y, life: 1.0});
+      }
+      this.trail.forEach(t => t.life -= 0.03);
+      this.trail = this.trail.filter(t => t.life > 0);
+    }
+
+    draw(ctx) {
+      if (this.isCaught) return;
+
+      // Draw Trail
+      this.trail.forEach(t => {
+        ctx.globalAlpha = t.life * 0.4;
+        ctx.fillStyle = this.colorObj.hex;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, this.radius * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1.0;
+
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      
+      // Soft Glow
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = this.colorObj.hex;
+      
+      // Body - Organic Blob
+      ctx.fillStyle = this.colorObj.hex;
+      ctx.beginPath();
+      const r = this.radius;
+      // Subtle breathing animation
+      const breathe = Math.sin(time * 0.05) * 2;
+      
+      ctx.moveTo(r + breathe, 0);
+      ctx.bezierCurveTo(r + 5, r + breathe, -r - 5, r + breathe, -r - breathe, 0);
+      ctx.bezierCurveTo(-r - 5, -r - breathe, r + 5, -r - breathe, r + breathe, 0);
+      ctx.fill();
+
+      // Core - High brightness center
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(2, 2, r * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // --- Game Functions ---
+
+  function init() {
+    creatures = [];
+    for(let i=0; i<CREATURE_COUNT; i++) {
+      creatures.push(new Creature());
+    }
+    score = 0;
+    updateScoreUI();
+  }
+
+  function updateScoreUI() {
+    // Pad with zero for aesthetics
+    scoreEl.innerText = score < 10 ? `0${score}` : score;
+    
+    // Pulse animation on HUD
+    hudPanel.classList.add('pulse');
+    setTimeout(() => hudPanel.classList.remove('pulse'), 200);
+  }
+
+  function checkCatch() {
+    const catchRadius = 60; 
+
+    creatures.forEach(c => {
+      if (c.isCaught) return;
+      
+      const dx = c.x - mouse.x;
+      const dy = c.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < catchRadius) {
+        catchCreature(c);
+      }
+    });
+  }
+
+  function catchCreature(creature) {
+    creature.isCaught = true;
+    score++;
+    updateScoreUI();
+    
+    // Explosion FX
+    for(let i=0; i<30; i++) {
+      particles.push(new Particle(creature.x, creature.y, creature.colorObj.hex));
+    }
+
+    // Respawn
+    setTimeout(() => {
+      creature.reset();
+    }, 1500);
+  }
+
+  function resetGame() {
+    init();
+  }
+
+  function drawNet() {
+    ctx.save();
+    ctx.translate(mouse.x, mouse.y);
+    
+    // Net Outer Glow
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(0, 240, 255, 0.5)';
+    
+    // Outer Ring
+    ctx.strokeStyle = isMouseDown ? '#fff' : 'rgba(0, 240, 255, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 60, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Inner Tech Ring
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.arc(0, 0, 45, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Crosshair
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-10, 0); ctx.lineTo(10, 0);
+    ctx.moveTo(0, -10); ctx.lineTo(0, 10);
+    ctx.stroke();
+
+    // Center Dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // "Sucking" visual when held
+    if (isMouseDown) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 80, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function loop() {
+    time++;
+    ctx.clearRect(0, 0, width, height);
+
+    // Update & Draw Creatures
+    creatures.forEach(c => {
+      c.update();
+      c.draw(ctx);
+    });
+
+    // Update & Draw Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update();
+      p.draw(ctx);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Draw Player Net
+    drawNet();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  init();
+  loop();
+
+</script>
+</body>
+</html>

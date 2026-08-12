@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spherical Life: Deep Space</title>
+<style>
+  :root {
+    --bg-color: #030305;
+    --panel-bg: rgba(16, 18, 24, 0.65);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --text-main: #e2e8f0;
+    --text-muted: #64748b;
+    --accent-cyan: #00f0ff;
+    --accent-purple: #7000ff;
+    --accent-magenta: #ff00aa;
+    --accent-orange: #ff8800;
+    --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --radius-std: 16px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; outline: none; }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: var(--font-stack);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Canvas Layer */
+  #canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    cursor: grab;
+  }
+  #canvas-container:active { cursor: grabbing; }
+
+  /* UI Layer */
+  #ui-layer {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 2.5rem;
+  }
+
+  /* Top Left Title */
+  .header {
+    pointer-events: auto;
+    position: absolute;
+    top: 2.5rem;
+    left: 2.5rem;
+  }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: #fff;
+    margin-bottom: 0.25rem;
+    background: linear-gradient(135deg, #fff 30%, var(--accent-cyan) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .subtitle::before {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 6px;
+    background-color: var(--accent-cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent-cyan);
+  }
+
+  /* Bottom Left Control Panel */
+  .panel {
+    pointer-events: auto;
+    width: 340px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-std);
+    padding: 1.5rem;
+    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    align-self: flex-start;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+
+  .panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .panel-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Stats */
+  .stats-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .stat-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+  }
+  
+  .stat-value.highlight {
+    color: var(--accent-cyan); 
+    text-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  }
+
+  /* Sliders */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: var(--radius-sm);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 0 4px rgba(0, 240, 255, 0.2), 0 2px 10px rgba(0,0,0,0.3);
+    transition: transform 0.1s;
+    margin-top: -6px;
+  }
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+  }
+
+  /* Buttons */
+  .controls-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  button {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-main);
+    border-radius: var(--radius-std);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--font-stack);
+  }
+
+  button:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.3);
+  }
+  
+  button:active {
+    transform: translateY(1px);
+  }
+
+  /* Primary Action (Pill) */
+  button.primary {
+    background: var(--accent-cyan);
+    color: #000;
+    border: none;
+    padding: 0.85rem 1.5rem;
+    border-radius: 99px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  button.primary:hover {
+    background: #66f6ff;
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
+    transform: translateY(-1px);
+  }
+
+  /* Secondary Actions (Icons) */
+  .secondary-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  button.secondary {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  
+  button.secondary:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: var(--text-muted);
+    color: #fff;
+  }
+
+  button.secondary svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  
+  .gradient-bar {
+    flex-grow: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-cyan) 0%, var(--accent-purple) 33%, var(--accent-magenta) 66%, var(--accent-orange) 100%);
+  }
+  
+  .legend span {
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.55rem;
+  }
+
+</style>
+</head>
+<body>
+
+  <!-- Canvas -->
+  <div id="canvas-container">
+    <canvas id="sphereCanvas"></canvas>
+  </div>
+
+  <!-- UI Overlay -->
+  <div id="ui-layer">
+    
+    <!-- Header -->
+    <div class="header">
+      <h1>Spherical Life</h1>
+      <div class="subtitle">High-Density Simulation</div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="panel">
+      
+      <!-- Stats -->
+      <div class="panel-section" style="margin-bottom: 0.25rem;">
+        <div class="stats-container">
+          <div class="stat-group">
+            <span class="panel-label">Generation</span>
+            <span class="stat-value highlight" id="gen-count">0</span>
+          </div>
+          <div class="stat-group" style="text-align: right;">
+            <span class="panel-label">Population</span>
+            <span class="stat-value" id="pop-count">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="panel-section">
+        <span class="panel-label">Simulation Speed</span>
+        <input type="range" id="speed-slider" min="1" max="100" value="50">
+      </div>
+
+      <!-- Buttons -->
+      <div class="controls-grid">
+        <button id="btn-pause" class="primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+          <span>Pause Simulation</span>
+        </button>
+        
+        <div class="secondary-actions">
+          <button id="btn-step" class="secondary" title="Step Once">
+            <!-- Play Icon -->
+            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button id="btn-reset" class="secondary" title="Randomize Grid">
+            <!-- Refresh Icon -->
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="panel-section">
+        <span class="panel-label">Cell Age Spectrum</span>
+        <div class="legend">
+          <span>New</span>
+          <div class="gradient-bar"></div>
+          <span>Elder</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+/**
+ * Spherical Conway's Game of Life - Visual Revision
+ * Optimized for density (3000+ cells) and visual fidelity.
+ */
+
+// --- Configuration ---
+const CONFIG = {
+  cellCount: 3500, // Critique: High density
+  sphereRadius: 320,
+  cellSize: 2.2, // Smaller individual cells for density
+  rotationSpeed: 0.001,
+  colors: {
+    bg: '#030305',
+    cyan: { r: 0, g: 240, b: 255 },
+    purple: { r: 112, g: 0, b: 255 },
+    magenta: { r: 255, g: 0, b: 170 },
+    orange: { r: 255, g: 136, b: 0 }
+  }
+};
+
+// --- State ---
+let state = {
+  cells: [], 
+  generation: 0,
+  isRunning: true,
+  speed: 50, 
+  lastFrameTime: 0,
+  rotation: { x: 0.2, y: 0 }, 
+  zoom: 1,
+  isDragging: false,
+  lastMouse: { x: 0, y: 0 }
+};
+
+// --- Canvas Setup ---
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false }); 
+
+let width, height;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Math Helpers ---
+const Vec3 = {
+  distSq: (v1, v2) => {
+    const dx = v1.x - v2.x;
+    const dy = v1.y - v2.y;
+    const dz = v1.z - v2.z;
+    return dx*dx + dy*dy + dz*dz;
+  }
+};
+
+// --- Game Logic ---
+
+function initGame() {
+  const points = [];
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const r = CONFIG.sphereRadius;
+  
+  // 1. Generate Points (Fibonacci Lattice) - Uniform Distribution
+  for (let i = 0; i < CONFIG.cellCount; i++) {
+    const y = 1 - (i / (CONFIG.cellCount - 1)) * 2; 
+    const radiusAtY = Math.sqrt(1 - y * y); 
+    const theta = goldenAngle * i; 
+    
+    points.push({
+      x: Math.cos(theta) * radiusAtY * r,
+      y: y * r,
+      z: Math.sin(theta) * radiusAtY * r
+    });
+  }
+
+  // 2. Build Graph
+  const surfaceArea = 4 * Math.PI * r * r;
+  const avgArea = surfaceArea / CONFIG.cellCount;
+  const neighborDistSq = avgArea * 1.6; 
+
+  state.cells = points.map((p, i) => {
+    const neighbors = [];
+    
+    // Find neighbors
+    for (let j = 0; j < points.length; j++) {
+      if (i === j) continue;
+      if (Vec3.distSq(p, points[j]) < neighborDistSq) {
+        neighbors.push(j);
+      }
+    }
+    
+    // Sort by distance and trim to ensure roughly hexagonal topology
+    if (neighbors.length > 8) {
+      neighbors.sort((a, b) => Vec3.distSq(p, points[a]) - Vec3.distSq(p, points[b]));
+      neighbors.splice(7); 
+    }
+
+    return {
+      pos: p,
+      idx: i,
+      neighbors: neighbors,
+      alive: Math.random() > 0.7, // Critique: 30% density for active look
+      age: 0,
+      neighborCount: 0
+    };
+  });
+  
+  state.generation = 0;
+  updateStats();
+}
+
+function stepGame() {
+  const nextAlive = new Uint8Array(CONFIG.cellCount);
+  const nextAge = new Int16Array(CONFIG.cellCount);
+  
+  // 1. Count neighbors (Pre-pass)
+  for (let i = 0; i < CONFIG.cellCount; i++) {
+    let count = 0;
+    const nList = state.cells[i].neighbors;
+    for (let k = 0; k < nList.length; k++) {
+      if (state.cells[nList[k]].alive) count++;
+    }
+    state.cells[i].neighborCount = count;
+  }
+
+  // 2. Apply Rules
+  for (let i = 0; i < CONFIG.cellCount; i++) {
+    const cell = state.cells[i];
+    const n = cell.neighborCount;
+    
+    let isAlive = false;
+    if (cell.alive) {
+      if (n === 2 || n === 3) isAlive = true;
+    } else {
+      if (n === 3) isAlive = true;
+    }
+
+    nextAlive[i] = isAlive ? 1 : 0;
+    
+    if (isAlive) {
+      nextAge[i] = cell.alive ? cell.age + 1 : 0;
+    } else {
+      nextAge[i] = 0;
+    }
+  }
+
+  // 3. Commit
+  for (let i = 0; i < CONFIG.cellCount; i++) {
+    state.cells[i].alive = nextAlive[i] === 1;
+    state.cells[i].age = nextAge[i];
+  }
+
+  state.generation++;
+  updateStats();
+}
+
+// --- Rendering ---
+
+function project(p, rotX, rotY, zoom) {
+  // Rotate Y
+  let x = p.x * Math.cos(rotY) - p.z * Math.sin(rotY);
+  let z = p.z * Math.cos(rotY) + p.x * Math.sin(rotY);
+  
+  // Rotate X
+  let y = p.y * Math.cos(rotX) - z * Math.sin(rotX);
+  let zFinal = z * Math.cos(rotX) + p.y * Math.sin(rotX);
+  
+  // Perspective
+  const fov = 1200 * zoom;
+  const scale = fov / (fov + zFinal);
+  
+  return {
+    x: x * scale + width / 2,
+    y: y * scale + height / 2,
+    scale: scale,
+    z: zFinal
+  };
+}
+
+function getCellColor(age) {
+  // Multi-stop gradient: Cyan -> Purple -> Magenta -> Orange
+  // Age 0: Cyan
+  // Age 10: Purple
+  // Age 30: Magenta
+  // Age 60+: Orange
+  
+  let c1, c2, t;
+
+  if (age < 10) {
+    c1 = CONFIG.colors.cyan;
+    c2 = CONFIG.colors.purple;
+    t = age / 10;
+  } else if (age < 30) {
+    c1 = CONFIG.colors.purple;
+    c2 = CONFIG.colors.magenta;
+    t = (age - 10) / 20;
+  } else {
+    c1 = CONFIG.colors.magenta;
+    c2 = CONFIG.colors.orange;
+    t = Math.min(1, (age - 30) / 30);
+  }
+
+  const r = Math.floor(c1.r + (c2.r - c1.r) * t);
+  const g = Math.floor(c1.g + (c2.g - c1.g) * t);
+  const b = Math.floor(c1.b + (c2.b - c1.b) * t);
+  
+  return `rgb(${r},${g},${b})`;
+}
+
+function draw() {
+  // Clear background
+  ctx.fillStyle = CONFIG.colors.bg;
+  ctx.fillRect(0, 0, width, height);
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = CONFIG.sphereRadius * state.zoom;
+
+  // --- CRITIQUE: Visual Depth / Atmosphere ---
+  // Stronger focal anchor with multi-stop radial gradient
+  const grad = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r * 1.6);
+  grad.addColorStop(0, 'rgba(112, 0, 255, 0.08)'); // Purple center
+  grad.addColorStop(0.4, 'rgba(0, 240, 255, 0.03)'); // Cyan mid
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pre-project
+  const projectedCells = [];
+  for(let i=0; i<CONFIG.cellCount; i++) {
+    const cell = state.cells[i];
+    const proj = project(cell.pos, state.rotation.x, state.rotation.y, state.zoom);
+    projectedCells.push({ cell, proj });
+  }
+  
+  // Sort by Z (Painter's Algorithm)
+  projectedCells.sort((a, b) => b.proj.z - a.proj.z);
+
+  // Draw Cells
+  for (let i = 0; i < projectedCells.length; i++) {
+    const { cell, proj } = projectedCells[i];
+    
+    const isBack = proj.z > 0;
+    const size = CONFIG.cellSize * proj.scale;
+    
+    if (cell.alive) {
+      const colorStr = getCellColor(cell.age);
+      
+      // Lighting / Depth
+      // Front faces are brighter, back faces dimmer
+      ctx.globalAlpha = isBack ? 0.25 : 0.95;
+      
+      // Glow for young cells
+      if (cell.age < 3 && !isBack) {
+         ctx.shadowBlur = 8;
+         ctx.shadowColor = colorStr;
+      } else {
+         ctx.shadowBlur = 0;
+      }
+
+      ctx.fillStyle = colorStr;
+      
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, Math.max(0.5, size), 0, Math.PI * 2);
+      ctx.fill();
+
+    } else {
+      // Dead cells: Very subtle grid structure
+      // Critique: Darker, neutral color
+      ctx.fillStyle = '#1e293b'; 
+      ctx.globalAlpha = isBack ? 0.02 : 0.12;
+      ctx.shadowBlur = 0;
+      
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, Math.max(0.5, size), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
+  ctx.globalAlpha = 1.0;
+  ctx.shadowBlur = 0;
+}
+
+// --- Main Loop ---
+
+function loop(timestamp) {
+  if (state.isRunning) {
+    // Auto rotation
+    state.rotation.y += CONFIG.rotationSpeed;
+    
+    // Update Logic
+    // Throttle updates based on speed slider
+    if (timestamp - state.lastFrameTime > (1000 / state.speed)) {
+      stepGame();
+      state.lastFrameTime = timestamp;
+    }
+  }
+  
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// --- Interaction ---
+
+function updateStats() {
+  document.getElementById('gen-count').innerText = state.generation;
+  let pop = 0;
+  for(let c of state.cells) if(c.alive) pop++;
+  document.getElementById('pop-count').innerText = pop;
+}
+
+const btnPause = document.getElementById('btn-pause');
+btnPause.addEventListener('click', (e) => {
+  state.isRunning = !state.isRunning;
+  const label = e.target.querySelector('span');
+  const icon = e.target.querySelector('svg');
+  
+  if(!state.isRunning) {
+     // Resume state
+     label.innerText = "Resume Simulation";
+     icon.innerHTML = '<path d="M8 5v14l11-7z"/>'; // Play icon
+     e.target.style.background = '#fff';
+     e.target.style.color = '#000';
+  } else {
+     // Pause state
+     label.innerText = "Pause Simulation";
+     icon.innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>'; // Pause icon
+     e.target.style.background = 'var(--accent-cyan)';
+     e.target.style.color = '#000';
+  }
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  initGame();
+});
+
+document.getElementById('btn-step').addEventListener('click', () => {
+  if(state.isRunning) {
+    state.isRunning = false;
+    // Update UI manually
+    const label = btnPause.querySelector('span');
+    const icon = btnPause.querySelector('svg');
+    label.innerText = "Resume Simulation";
+    icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    btnPause.style.background = '#fff';
+    btnPause.style.color = '#000';
+  }
+  stepGame();
+  draw();
+});
+
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+  state.speed = parseInt(e.target.value);
+});
+
+// Mouse Drag
+const container = document.getElementById('canvas-container');
+
+container.addEventListener('mousedown', (e) => {
+  state.isDragging = true;
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!state.isDragging) return;
+  const deltaX = e.clientX - state.lastMouse.x;
+  const deltaY = e.clientY - state.lastMouse.y;
+  
+  state.rotation.y += deltaX * 0.005;
+  state.rotation.x += deltaY * 0.005;
+  
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => {
+  state.isDragging = false;
+});
+
+// Zoom
+container.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const zoomSensitivity = 0.001;
+  state.zoom -= e.deltaY * zoomSensitivity;
+  state.zoom = Math.max(0.5, Math.min(3, state.zoom));
+});
+
+// --- Init ---
+initGame();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

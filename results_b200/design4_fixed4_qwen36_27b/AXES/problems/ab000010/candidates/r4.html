@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conway Sphere</title>
+<style>
+  :root {
+    /* Palette */
+    --bg-color: #050508;
+    --glass-bg: rgba(10, 12, 18, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.12);
+    --accent-glow: rgba(100, 200, 255, 0.15);
+    
+    /* Text */
+    --text-main: #ffffff;
+    --text-muted: #8892b0;
+    --text-dim: #4a5568;
+    
+    /* Typography */
+    --font-stack: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; outline: none; }
+
+  body {
+    background-color: var(--bg-color);
+    /* Deep space radial vignette */
+    background-image: radial-gradient(circle at 50% 40%, #0f111a 0%, #000000 100%);
+    color: var(--text-main);
+    font-family: var(--font-stack);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Canvas Layer */
+  #canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    cursor: grab;
+  }
+  #canvas-container:active { cursor: grabbing; }
+
+  /* UI Layer - Vertical Hierarchy */
+  #ui-layer {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between; /* Title Top, Controls Bottom */
+    pointer-events: none;
+    padding: 40px 20px;
+  }
+
+  /* Header / Title */
+  .header {
+    pointer-events: auto;
+    text-align: center;
+    margin-top: 20px;
+    opacity: 0.9;
+  }
+  
+  .title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  
+  .subtitle {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  /* Control Panel - Floating Glass Bar (Bottom Center) */
+  .panel {
+    pointer-events: auto;
+    width: 100%;
+    max-width: 520px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-top: 1px solid var(--glass-highlight);
+    border-radius: 16px; /* Pill shape */
+    padding: 16px 24px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 20px;
+    transition: transform 0.3s ease;
+  }
+
+  /* Stats Row */
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 12px;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 80px;
+  }
+
+  .panel-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .stat-value {
+    font-family: var(--font-stack);
+    font-size: 1.25rem; /* 20px */
+    font-weight: 600;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 12px rgba(255,255,255,0.15);
+  }
+
+  /* Controls Row */
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  /* Slider */
+  .slider-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 2px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(255,255,255,0.5);
+    transition: transform 0.1s;
+  }
+  
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  /* Buttons */
+  .btn-group {
+    display: flex;
+    gap: 12px;
+  }
+
+  button {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-main);
+    padding: 0 20px;
+    height: 40px;
+    border-radius: 8px;
+    font-family: var(--font-stack);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  button:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.3);
+    box-shadow: 0 0 15px rgba(255,255,255,0.05);
+  }
+
+  button:active {
+    transform: translateY(1px);
+    background: rgba(255,255,255,0.02);
+  }
+
+  /* Primary State (Pause/Resume) */
+  button.primary {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.2);
+    text-shadow: 0 0 8px rgba(255,255,255,0.3);
+  }
+  
+  button.primary:hover {
+    background: rgba(255,255,255,0.15);
+    border-color: #fff;
+  }
+
+  /* Responsive Adjustments */
+  @media (max-width: 600px) {
+    .panel {
+      padding: 16px;
+      gap: 12px;
+    }
+    .controls-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+    .btn-group {
+      justify-content: space-between;
+    }
+    .btn-group button {
+      flex: 1;
+    }
+  }
+
+</style>
+</head>
+<body>
+
+  <!-- Canvas -->
+  <div id="canvas-container">
+    <canvas id="sphereCanvas"></canvas>
+  </div>
+
+  <!-- UI Overlay -->
+  <div id="ui-layer">
+    
+    <!-- Header -->
+    <div class="header">
+      <div class="title">Conway Sphere</div>
+      <div class="subtitle">Cellular Automata Simulation</div>
+    </div>
+
+    <!-- Spacer (flexbox handles this) -->
+
+    <!-- Control Panel (Bottom Center) -->
+    <div class="panel">
+      
+      <!-- Stats Row -->
+      <div class="stats-row">
+        <div class="stat-item">
+          <span class="panel-label">Generation</span>
+          <span class="stat-value" id="gen-count">0000</span>
+        </div>
+        <div class="stat-item" style="text-align: right;">
+          <span class="panel-label">Population</span>
+          <span class="stat-value" id="pop-count">0000</span>
+        </div>
+      </div>
+
+      <!-- Controls Row -->
+      <div class="controls-row">
+        
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="panel-label">Sim Speed</span>
+            <span class="panel-label" id="speed-val" style="color: var(--text-muted);">15 FPS</span>
+          </div>
+          <input type="range" id="speed-slider" min="1" max="60" value="15">
+        </div>
+
+        <div class="btn-group">
+          <button id="btn-pause" class="primary">Pause</button>
+          <button id="btn-reset">Reset</button>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+<script>
+/**
+ * Spherical Conway's Game of Life - Design Revision
+ * 
+ * Visual Focus:
+ * 1. Palette: Heat Map (Deep Violet -> Electric Blue -> Hot Pink -> White).
+ * 2. Rendering: Bloom/Glow effect using 'lighter' composite and radial gradients.
+ * 3. Composition: Centered Sphere.
+ * 4. Interaction: Smooth drag & zoom.
+ */
+
+// --- Configuration ---
+const CONFIG = {
+  cellCount: 4500, // High density for visual richness
+  sphereRadius: 300,
+  cellSizeBase: 2.5,
+  rotationSpeed: 0.0005,
+  colors: {
+    bg: '#050508'
+  }
+};
+
+// --- State ---
+let state = {
+  cells: [],
+  generation: 0,
+  isRunning: true,
+  speed: 15,
+  lastFrameTime: 0,
+  rotation: { x: 0.3, y: 0 },
+  zoom: 1.0,
+  isDragging: false,
+  lastMouse: { x: 0, y: 0 }
+};
+
+// --- Canvas Setup ---
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+let width, height;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Math Helpers ---
+const Vec3 = {
+  dist: (v1, v2) => {
+    const dx = v1.x - v2.x;
+    const dy = v1.y - v2.y;
+    const dz = v1.z - v2.z;
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+};
+
+// --- Initialization ---
+
+function createSpherePoints(count, radius) {
+  const points = [];
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (i / (count - 1)) * 2;
+    const radiusAtY = Math.sqrt(1 - y * y);
+    const theta = goldenAngle * i;
+    points.push({
+      x: Math.cos(theta) * radiusAtY * radius,
+      y: y * radius,
+      z: Math.sin(theta) * radiusAtY * radius,
+      idx: i
+    });
+  }
+  return points;
+}
+
+function initGame() {
+  const points = createSpherePoints(CONFIG.cellCount, CONFIG.sphereRadius);
+  
+  // Neighbor search
+  // Heuristic: Area / Count * constant to determine neighbor radius
+  const area = 4 * Math.PI * CONFIG.sphereRadius * CONFIG.sphereRadius;
+  const threshold = Math.sqrt(area / CONFIG.cellCount) * 1.5; 
+
+  state.cells = points.map((p, i) => {
+    const neighbors = [];
+    for (let j = 0; j < points.length; j++) {
+      if (i === j) continue;
+      // Optimization: Check Y distance first (cheaper than full 3D dist)
+      if (Math.abs(p.y - points[j].y) > threshold) continue;
+      
+      const d = Vec3.dist(p, points[j]);
+      if (d < threshold) {
+        neighbors.push(j);
+      }
+    }
+    
+    return {
+      pos: p,
+      idx: i,
+      neighbors: neighbors,
+      alive: Math.random() > 0.6, // 40% alive start
+      age: 0,
+      bornGen: 0
+    };
+  });
+  
+  state.generation = 0;
+  updateStats();
+}
+
+// --- Game Logic ---
+
+function stepGame() {
+  const currentAlive = state.cells.map(c => c.alive);
+  
+  state.cells.forEach((cell, i) => {
+    let aliveNeighbors = 0;
+    const nLen = cell.neighbors.length;
+    for (let k = 0; k < nLen; k++) {
+      if (currentAlive[cell.neighbors[k]]) aliveNeighbors++;
+    }
+
+    const isAlive = cell.alive;
+    let nextAlive = false;
+
+    // Standard Conway Rules
+    if (isAlive) {
+      if (aliveNeighbors === 2 || aliveNeighbors === 3) nextAlive = true;
+    } else {
+      if (aliveNeighbors === 3) nextAlive = true;
+    }
+
+    cell.alive = nextAlive;
+    
+    if (nextAlive) {
+      if (!isAlive) {
+        cell.age = 0; 
+        cell.bornGen = state.generation;
+      } else {
+        cell.age++; 
+      }
+    } else {
+      cell.age = 0; 
+    }
+  });
+
+  state.generation++;
+  updateStats();
+}
+
+// --- Rendering ---
+
+function project(p, rotX, rotY, zoom) {
+  // Rotation Y
+  let x = p.x * Math.cos(rotY) - p.z * Math.sin(rotY);
+  let z = p.z * Math.cos(rotY) + p.x * Math.sin(rotY);
+  
+  // Rotation X
+  let y = p.y * Math.cos(rotX) - z * Math.sin(rotX);
+  let zFinal = z * Math.cos(rotX) + p.y * Math.sin(rotX);
+  
+  // Perspective
+  const fov = 1200;
+  const scale = (fov / (fov + zFinal)) * zoom;
+  
+  return {
+    x: x * scale + width / 2,
+    y: y * scale + height / 2,
+    scale: scale,
+    z: zFinal
+  };
+}
+
+function draw() {
+  // 1. Clear Background
+  ctx.fillStyle = CONFIG.colors.bg;
+  ctx.fillRect(0, 0, width, height);
+
+  // 2. Project & Sort
+  const projectedCells = state.cells.map(cell => {
+    const proj = project(cell.pos, state.rotation.x, state.rotation.y, state.zoom);
+    return { cell, proj };
+  });
+  
+  // Sort Back to Front for depth blending
+  projectedCells.sort((a, b) => b.proj.z - a.proj.z);
+
+  // 3. Draw Sphere Atmosphere (Subtle Rim)
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = CONFIG.sphereRadius * state.zoom;
+  
+  // Outer Glow
+  const atmosGrad = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 1.4);
+  atmosGrad.addColorStop(0, 'rgba(20, 30, 60, 0)');
+  atmosGrad.addColorStop(0.8, 'rgba(20, 30, 60, 0.1)');
+  atmosGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = atmosGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 4. Draw Cells
+  // Use 'lighter' for bloom effect
+  ctx.globalCompositeOperation = 'lighter';
+
+  projectedCells.forEach(({ cell, proj }) => {
+    const isBack = proj.z > 0; // z > 0 is behind sphere center
+    
+    if (!cell.alive) return;
+
+    const size = CONFIG.cellSizeBase * proj.scale;
+    
+    // COLOR LOGIC: Heat Map based on Age
+    // 0-5: White/Hot Pink (New)
+    // 5-15: Electric Blue (Mid)
+    // 15+: Deep Violet (Old)
+    
+    let hue, sat, light;
+    const age = cell.age;
+    
+    if (age < 5) {
+      // New: Hot Pink / White
+      // Hue 330 (Pink) -> 0 (Red) -> White (low sat)
+      // Let's do White -> Pink
+      const t = age / 5;
+      hue = 330; 
+      sat = 100 - (t * 20); // High sat
+      light = 90 - (t * 10); // Very bright
+    } else if (age < 15) {
+      // Mid: Electric Blue
+      // Hue 330 -> 200
+      const t = (age - 5) / 10;
+      hue = 330 - (t * 130); // 330 -> 200
+      sat = 90;
+      light = 65;
+    } else {
+      // Old: Deep Violet
+      // Hue 200 -> 270
+      const t = Math.min((age - 15) / 20, 1);
+      hue = 200 + (t * 70);
+      sat = 80;
+      light = 40 + (t * 10);
+    }
+
+    // Depth fog
+    // Back cells are dimmer
+    let alpha = isBack ? 0.15 : 0.9;
+    if (isBack) {
+       sat = sat * 0.2; // Desaturate back cells
+       light = light * 0.4;
+    }
+    
+    // Draw Glow (Outer Ring) - Only for front cells to save perf
+    if (!isBack && size > 0.8) {
+      // Larger, softer glow
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, size * 4, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha * 0.2})`;
+      ctx.fill();
+    }
+
+    // Main cell core
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+    ctx.fill();
+  });
+
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// --- Main Loop ---
+
+function loop(timestamp) {
+  // Rotation
+  if (state.isRunning && !state.isDragging) {
+    state.rotation.y += CONFIG.rotationSpeed;
+  }
+  
+  // Simulation Step Throttle
+  if (state.isRunning) {
+    if (timestamp - state.lastFrameTime > (1000 / state.speed)) {
+      stepGame();
+      state.lastFrameTime = timestamp;
+    }
+  }
+  
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// --- Interaction ---
+
+function updateStats() {
+  const pop = state.cells.filter(c => c.alive).length;
+  document.getElementById('gen-count').innerText = state.generation.toString().padStart(4, '0');
+  document.getElementById('pop-count').innerText = pop.toString().padStart(4, '0');
+}
+
+document.getElementById('btn-pause').addEventListener('click', (e) => {
+  state.isRunning = !state.isRunning;
+  e.target.innerText = state.isRunning ? "Pause" : "Resume";
+  // Toggle visual styles
+  if (state.isRunning) {
+    e.target.classList.add('primary');
+  } else {
+    e.target.classList.remove('primary');
+  }
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  initGame();
+});
+
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+  state.speed = parseInt(e.target.value);
+  document.getElementById('speed-val').innerText = state.speed + " FPS";
+});
+
+const container = document.getElementById('canvas-container');
+
+container.addEventListener('mousedown', (e) => {
+  state.isDragging = true;
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!state.isDragging) return;
+  const deltaX = e.clientX - state.lastMouse.x;
+  const deltaY = e.clientY - state.lastMouse.y;
+  
+  state.rotation.y += deltaX * 0.005;
+  state.rotation.x += deltaY * 0.005;
+  
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => {
+  state.isDragging = false;
+});
+
+container.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const zoomSensitivity = 0.001;
+  state.zoom -= e.deltaY * zoomSensitivity;
+  state.zoom = Math.max(0.5, Math.min(2.5, state.zoom));
+});
+
+// --- Init ---
+initGame();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

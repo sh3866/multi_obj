@@ -147,6 +147,9 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
         png, probe = await common.preview(html, os.path.join(workdir, f"round_{r:02d}"), cfg)
         verdicts = await critics.all_axis_critics(axes, instruction, html, png,
                                                   probe, gen_c, vlm_c, cfg, usage)
+        invalid_verdicts = [v.get("axis") for v in verdicts if not v.get("contract_ok", True)]
+        if invalid_verdicts:
+            raise RuntimeError(f"critic output contract failed after retry: {invalid_verdicts}")
         rebuttals = []
         if use_debate and not usage.exhausted():
             for _ in range(cfg.debate_rounds):
@@ -154,6 +157,9 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
                                                         gen_c, cfg, usage,
                                                         vlm_c=vlm_c, png=png,
                                                         probe=probe)
+                invalid_rebuttals = [v.get("axis") for v in rebuttals if not v.get("contract_ok", True)]
+                if invalid_rebuttals:
+                    raise RuntimeError(f"rebuttal output contract failed after retry: {invalid_rebuttals}")
                 if usage.exhausted():
                     break
         if usage.exhausted():
@@ -162,7 +168,9 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
                             "stopped": "budget", "tokens": usage.total_tokens})
             break
         synth = await debate.synthesize(instruction, verdicts, rebuttals,
-                                        gen_c, cfg, usage)
+                                        gen_c, cfg, usage, vlm_c=vlm_c, png=png)
+        if not synth.get("contract_ok", True):
+            raise RuntimeError("moderator output contract failed after retry")
         history.append({"round": r,
                         "scores": {v["axis"]: v["score"] for v in verdicts},
                         "suggestions": {v["axis"]: v["suggestion"][:120]
@@ -178,7 +186,11 @@ async def _critic_loop(instruction, workdir, gen_c, vlm_c, cfg, usage,
                             "critiques": {v["axis"]: {
                                 "score": v.get("score"),
                                 "critique": v.get("critique", ""),
-                                "suggestion": v.get("suggestion", "")}
+                                "suggestion": v.get("suggestion", ""),
+                                "contract_ok": v.get("contract_ok"),
+                                "runtime_prompt": v.get("runtime_prompt", ""),
+                                "raw_response": v.get("raw_response", ""),
+                                "retry_raw_response": v.get("retry_raw_response", "")}
                                 for v in verdicts},
                             "rebuttals": rebuttals,
                             "synthesis": synth},

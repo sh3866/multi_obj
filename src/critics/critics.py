@@ -64,6 +64,20 @@ def _pick_suggestion(d: dict) -> str:
     return str(d.get("suggestion", d.get("suggestions", "")))
 
 
+def _valid_design_verdict(d: Optional[dict]) -> bool:
+    if not isinstance(d, dict):
+        return False
+    critique = str(d.get("critique", "")).strip()
+    suggestion = _pick_suggestion(d).strip()
+    joined = critique + suggestion
+    return (len(critique) >= 20 and len(suggestion) >= 20
+            and not ("<" in joined and ">" in joined))
+
+
+_DESIGN_JSON_RETRY = ("\n\nYour previous response was invalid. Return ONLY one JSON object with "
+                      "non-empty string fields \"critique\" and \"suggestion\". No reasoning or placeholders.")
+
+
 async def axis_critic(axis: Axis, instruction: str, html: str, png: Optional[str],
                       probe: Optional[dict], gen_c, vlm_c, cfg, usage: UsageStats) -> dict:
     # ---- side design-mode: no score, vision critic, own full prompt ----
@@ -72,19 +86,25 @@ async def axis_critic(axis: Axis, instruction: str, html: str, png: Optional[str
         prompt = sp.critic_prompt(axis, instruction)
         raw = await vlm_c.generate_vlm(prompt, [png] if png else [], max_tokens=4096,
                                        temperature=cfg.critic_temperature,
-                                       usage_stats=usage, tag=f"crit:{axis.key}")
+                                       usage_stats=usage, tag=f"crit:{axis.key}", think=False)
         d = extract_json(raw)
-        if d is None:
-            raw2 = await vlm_c.generate_vlm(
-                prompt + "\n\nRespond with ONLY the JSON object — no <think>, no preamble.",
-                [png] if png else [], max_tokens=1536, temperature=cfg.critic_temperature,
-                usage_stats=usage, tag=f"crit:{axis.key}", think=False)
-            d = extract_json(raw2) or {}
-            raw = raw2 if not d else raw
+        retry_raw = ""
+        if not _valid_design_verdict(d):
+            retry_raw = await vlm_c.generate_vlm(
+                prompt + _DESIGN_JSON_RETRY, [png] if png else [], max_tokens=1536,
+                temperature=cfg.critic_temperature, usage_stats=usage,
+                tag=f"crit:{axis.key}:retry", think=False) or ""
+            d2 = extract_json(retry_raw)
+            if _valid_design_verdict(d2):
+                d = d2
+        valid = _valid_design_verdict(d)
+        d = d or {}
         salv = _salvage_text(raw or "")
         return {"axis": axis.key, "score": 3, "parse_ok": bool(d),
                 "critique": str(d.get("critique", salv if not d else "")),
-                "suggestion": _pick_suggestion(d)}
+                "suggestion": _pick_suggestion(d), "contract_ok": valid,
+                "runtime_prompt": prompt, "raw_response": raw or "",
+                "retry_raw_response": retry_raw}
     use_vision = axis.modality in ("vision", "both") and png is not None
     src = html[:6000] if axis.modality in ("code", "both") else ""
     evidence = func_evidence(probe) if axis.key == "functionality" else ""
