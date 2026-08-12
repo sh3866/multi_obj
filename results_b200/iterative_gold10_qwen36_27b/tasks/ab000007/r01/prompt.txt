@@ -1,0 +1,581 @@
+You are a senior front-end engineer AND a strong visual designer, revising a web page/screen to improve its DESIGN.
+
+ORIGINAL BRIEF:
+Design the main screen (a single page) for a "Capture & Collection" creature-catching game. Include: a title and HUD (collected count), a play field with a few drifting creatures and the player with a net, and a Collection button. Put strong emphasis on the visual design: a distinct, cohesive identity and a play area that reads as a living scene — careful layout, color, typography and finish. Make this screen look genuinely polished.
+
+DESIGN CRITIQUE & CHANGES TO APPLY (from the design reviewers — apply these; keep what already works well):
+Preserve the nocturnal neon identity, LUMINA title, collected counter, glowing drifting creatures, and Collection control. The current screen does not visibly contain the required player with a net and reads as an empty tech grid rather than a living capture scene. Add a clearly recognizable player silhouette in the lower foreground holding a visible net, with scale and rim light that separate both from the background. Create subtle layered terrain/foliage silhouettes and atmospheric depth without brightening the black mood. Keep at least four creatures fully inside the viewport and establish a visual relationship between one nearby creature and the net. Do not delete or obscure any required HUD element.
+
+
+Focus on making the VISUAL DESIGN stronger per the critique — identity, layout & hierarchy, color, typography,
+and craft. Feel free to restructure or redraw as needed; do not just tweak.
+
+Technical constraints:
+- Output ONE self-contained HTML document (inline CSS and JS, no external files or network requests).
+- The page runs in a FULLY OFFLINE sandbox — every network request is BLOCKED. No external CDNs/fonts/images/APIs (React, Tailwind, three.js, Google Fonts, remote images all fail and render BLANK). Inline everything; draw graphics with CSS/SVG/canvas; use system fonts.
+- Never gate the content behind a loading/"initializing" overlay — show the real content immediately.
+
+CURRENT HTML:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lumina Catch</title>
+<style>
+  :root {
+    --bg-deep: #05070a;
+    --bg-mid: #0f1420;
+    --accent-cyan: #00f0ff;
+    --accent-magenta: #ff0055;
+    --accent-lime: #ccff00;
+    --glass-surface: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --font-display: 'Impact', 'Arial Black', system-ui, sans-serif;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: var(--bg-deep);
+    color: white;
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+
+  /* --- Background Grid & Atmosphere --- */
+  .scene-container {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .grid-bg {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: 
+      linear-gradient(var(--glass-border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--glass-border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    transform: perspective(500px) rotateX(60deg) translateY(-100px) scale(2);
+    opacity: 0.2;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .vignette {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at center, transparent 0%, var(--bg-deep) 90%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* --- Canvas Layer --- */
+  #gameCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 2;
+    cursor: none; /* Hide default cursor, we draw a net */
+  }
+
+  /* --- UI Layer --- */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none; /* Let clicks pass through to canvas */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 2rem;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: 2.5rem;
+    margin: 0;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: linear-gradient(to bottom, #fff, #aaa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(255,255,255,0.3));
+  }
+
+  .subtitle {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  /* HUD */
+  .hud-panel {
+    background: var(--glass-surface);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  .stat-icon {
+    width: 24px; height: 24px;
+    fill: var(--accent-cyan);
+    filter: drop-shadow(0 0 5px var(--accent-cyan));
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: white;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+  }
+
+  /* Footer / Actions */
+  .footer {
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    margin-bottom: 1rem;
+  }
+
+  .btn-main {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+    color: white;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    padding: 1rem 3rem;
+    border-radius: 50px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  }
+
+  .btn-main::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: 0.5s;
+  }
+
+  .btn-main:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 0 20px var(--accent-cyan), 0 0 40px rgba(0, 240, 255, 0.2);
+    border-color: var(--accent-cyan);
+  }
+
+  .btn-main:hover::before {
+    left: 100%;
+  }
+
+  /* Notification Toast */
+  .toast {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(0,0,0,0.8);
+    border: 1px solid var(--accent-lime);
+    color: var(--accent-lime);
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    font-family: var(--font-display);
+    letter-spacing: 0.1em;
+    opacity: 0;
+    pointer-events: none;
+    transition: 0.2s;
+    z-index: 20;
+    text-transform: uppercase;
+    box-shadow: 0 0 30px rgba(204, 255, 0, 0.2);
+  }
+  
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Mobile adjustments */
+  @media (max-width: 600px) {
+    h1 { font-size: 1.8rem; }
+    .ui-layer { padding: 1rem; }
+    .btn-main { padding: 0.8rem 2rem; font-size: 1rem; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene-container">
+  <!-- Visual Backgrounds -->
+  <div class="grid-bg"></div>
+  <div class="vignette"></div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- UI Overlay -->
+  <div class="ui-layer">
+    <header class="header">
+      <div class="brand">
+        <h1>Lumina</h1>
+        <div class="subtitle">Capture & Collection</div>
+      </div>
+      <div class="hud-panel">
+        <svg class="stat-icon" viewBox="0 0 24 24">
+          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z" />
+        </svg>
+        <div>
+          <div class="stat-value" id="scoreDisplay">0</div>
+          <div class="stat-label">Captured</div>
+        </div>
+      </div>
+    </header>
+
+    <div id="toast" class="toast">Specimen Captured!</div>
+
+    <footer class="footer">
+      <button class="btn-main" onclick="resetGame()">New Collection</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+  /**
+   * Game Logic & Rendering
+   * Pure Canvas implementation for smooth 60fps rendering.
+   */
+  
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: true });
+  const scoreEl = document.getElementById('scoreDisplay');
+  const toastEl = document.getElementById('toast');
+
+  let width, height;
+  let score = 0;
+  let particles = [];
+  let creatures = [];
+  let mouse = { x: -1000, y: -1000 };
+  let isMouseDown = false;
+
+  // Configuration
+  const COLORS = ['#00f0ff', '#ff0055', '#ccff00', '#bd00ff'];
+  const CREATURE_COUNT = 6;
+
+  // Resize Handling
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Input Handling
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+  // Touch support
+  window.addEventListener('touchmove', e => {
+    e.preventDefault(); // Prevent scrolling
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+
+  // --- Classes ---
+
+  class Particle {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 3 + 1;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.03 + 0.01;
+      this.size = Math.random() * 3 + 1;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.life -= this.decay;
+    }
+
+    draw(ctx) {
+      ctx.globalAlpha = this.life;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  class Creature {
+    constructor() {
+      this.reset();
+      // Start at random positions initially
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+    }
+
+    reset() {
+      // Spawn away from center slightly
+      this.x = Math.random() < 0.5 ? -50 : width + 50;
+      this.y = Math.random() * height;
+      this.vx = (Math.random() - 0.5) * 2;
+      this.vy = (Math.random() - 0.5) * 2;
+      this.radius = Math.random() * 20 + 15;
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.angle = 0;
+      this.wobble = Math.random() * Math.PI * 2;
+      this.wobbleSpeed = Math.random() * 0.05 + 0.02;
+      this.isCaught = false;
+    }
+
+    update() {
+      if (this.isCaught) return;
+
+      // Movement
+      this.x += this.vx;
+      this.y += this.vy;
+      this.wobble += this.wobbleSpeed;
+      
+      // Sine wave movement for organic feel
+      this.x += Math.sin(this.wobble) * 0.5;
+
+      // Bounce off walls
+      if (this.x < 0 || this.x > width) this.vx *= -1;
+      if (this.y < 0 || this.y > height) this.vy *= -1;
+
+      // Avoid Mouse (Net)
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      
+      if (dist < 150) {
+        // Flee behavior
+        const force = (150 - dist) / 150;
+        this.vx += (dx / dist) * force * 0.5;
+        this.vy += (dy / dist) * force * 0.5;
+      }
+
+      // Speed limiter
+      const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+      if (speed > 4) {
+        this.vx = (this.vx / speed) * 4;
+        this.vy = (this.vy / speed) * 4;
+      }
+    }
+
+    draw(ctx) {
+      if (this.isCaught) return;
+
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      
+      // Glow
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = this.color;
+      
+      // Body
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      
+      // Draw a slightly organic blob shape
+      const r = this.radius;
+      const wobbleOffset = Math.sin(this.wobble * 2) * 5;
+      
+      ctx.moveTo(r + wobbleOffset, 0);
+      ctx.bezierCurveTo(r, r, 0, r, -r - wobbleOffset, 0);
+      ctx.bezierCurveTo(-r, -r, 0, -r, r + wobbleOffset, 0);
+      
+      ctx.fill();
+
+      // Inner Core
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // --- Game Functions ---
+
+  function init() {
+    creatures = [];
+    for(let i=0; i<CREATURE_COUNT; i++) {
+      creatures.push(new Creature());
+    }
+    score = 0;
+    scoreEl.innerText = score;
+  }
+
+  function checkCatch() {
+    // Simple collision detection with the "Net" radius
+    const catchRadius = 60; // Size of the net capture zone
+
+    creatures.forEach(c => {
+      if (c.isCaught) return;
+      
+      const dx = c.x - mouse.x;
+      const dy = c.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < catchRadius) {
+        catchCreature(c);
+      }
+    });
+  }
+
+  function catchCreature(creature) {
+    creature.isCaught = true;
+    score++;
+    scoreEl.innerText = score;
+    
+    // Visual FX
+    for(let i=0; i<15; i++) {
+      particles.push(new Particle(creature.x, creature.y, creature.color));
+    }
+
+    // Show Toast
+    toastEl.classList.add('active');
+    setTimeout(() => toastEl.classList.remove('active'), 1000);
+
+    // Respawn logic (delayed)
+    setTimeout(() => {
+      creature.reset();
+    }, 2000);
+  }
+
+  function resetGame() {
+    init();
+  }
+
+  function drawNet() {
+    // Draw the player's net/cursor
+    ctx.save();
+    ctx.translate(mouse.x, mouse.y);
+    
+    // Net Glow
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#00f0ff';
+    
+    // Net Shape (Circle with dashed rim)
+    ctx.strokeStyle = isMouseDown ? '#fff' : '#00f0ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 60, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Inner reticle
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.3)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 40, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Crosshair
+    ctx.beginPath();
+    ctx.moveTo(-10, 0); ctx.lineTo(10, 0);
+    ctx.moveTo(0, -10); ctx.lineTo(0, 10);
+    ctx.stroke();
+
+    // "Sucking" effect if held down
+    if (isMouseDown) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 80, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function loop() {
+    // Clear
+    ctx.clearRect(0, 0, width, height);
+
+    // Update & Draw Creatures
+    creatures.forEach(c => {
+      c.update();
+      c.draw(ctx);
+    });
+
+    // Update & Draw Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update();
+      p.draw(ctx);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Draw Player Net
+    drawNet();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  init();
+  loop();
+
+</script>
+</body>
+</html>
+
+Return ONLY the full revised self-contained HTML, starting with <!DOCTYPE html>. No prose, no markdown fences.

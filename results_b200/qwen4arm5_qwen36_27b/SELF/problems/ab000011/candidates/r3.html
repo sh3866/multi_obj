@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            --cell: 64px;
+            --bg: #0a0b0e;
+            --panel: #111318;
+            --panel-border: #1a1d25;
+            --floor: #14161b;
+            --floor-grid: rgba(255,255,255,0.025);
+            --wall-face: #1e2128;
+            --wall-edge: #2a2d36;
+            --wall-highlight: #353944;
+            --wall-shadow: #15171e;
+            --cyan: #38d9ff;
+            --cyan-soft: rgba(56, 217, 255, 0.15);
+            --cyan-glow: rgba(56, 217, 255, 0.4);
+            --amber: #f0a040;
+            --amber-soft: rgba(240, 160, 64, 0.12);
+            --amber-glow: rgba(240, 160, 64, 0.35);
+            --green: #34e89a;
+            --green-soft: rgba(52, 232, 154, 0.12);
+            --green-glow: rgba(52, 232, 154, 0.35);
+            --red: #f05068;
+            --red-soft: rgba(240, 80, 104, 0.12);
+            --text: #d8dbe4;
+            --text-dim: #555a68;
+            --text-muted: #333744;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* Subtle radial ambient */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(ellipse 60% 50% at 50% 48%, rgba(56, 217, 255, 0.018) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .shell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: calc(var(--cell) * 7 + 48px);
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 28px 24px 24px;
+            position: relative;
+            box-shadow:
+                0 1px 0 rgba(255,255,255,0.02) inset,
+                0 20px 60px rgba(0,0,0,0.4),
+                0 0 0 1px rgba(0,0,0,0.3);
+        }
+
+        /* Header */
+        header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .title-area h1 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            letter-spacing: 0.28em;
+            text-transform: uppercase;
+            color: var(--text);
+            line-height: 1;
+        }
+
+        .title-area h1 .accent {
+            color: var(--cyan);
+        }
+
+        .title-area .sub {
+            font-size: 0.5rem;
+            font-weight: 500;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .hud {
+            display: flex;
+            gap: 28px;
+        }
+
+        .stat {
+            text-align: right;
+        }
+
+        .stat-val {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: 0.06em;
+            line-height: 1;
+        }
+
+        .stat-lbl {
+            font-size: 0.45rem;
+            font-weight: 600;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        /* Board */
+        .board-frame {
+            position: relative;
+            padding: 4px;
+            background: #08090c;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+            box-shadow: inset 0 2px 12px rgba(0,0,0,0.6);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell));
+            grid-template-rows: repeat(7, var(--cell));
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .cell {
+            width: var(--cell);
+            height: var(--cell);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Floor */
+        .cell.floor {
+            background: var(--floor);
+            border: 1px solid var(--floor-grid);
+        }
+
+        .cell.floor::after {
+            content: '';
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            background: rgba(255,255,255,0.035);
+            border-radius: 50%;
+        }
+
+        /* Wall */
+        .cell.wall {
+            background: var(--wall-face);
+            position: relative;
+        }
+
+        .cell.wall::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, var(--wall-highlight) 0%, var(--wall-face) 4px, var(--wall-face) 100%);
+        }
+
+        .cell.wall::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--wall-shadow);
+        }
+
+        /* Goal */
+        .goal-mark {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: 1.5px solid rgba(56, 217, 255, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            transition: all 0.5s ease;
+        }
+
+        .goal-mark::before {
+            content: '';
+            position: absolute;
+            inset: -10px;
+            border-radius: 14px;
+            background: radial-gradient(circle, var(--cyan-soft) 0%, transparent 70%);
+            animation: goalPulse 3s ease-in-out infinite;
+        }
+
+        .goal-mark span {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.45rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            color: rgba(56, 217, 255, 0.45);
+            text-transform: uppercase;
+        }
+
+        @keyframes goalPulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .goal-mark.active {
+            border-color: var(--green);
+            box-shadow: 0 0 20px var(--green-glow);
+        }
+
+        .goal-mark.active::before {
+            background: radial-gradient(circle, var(--green-soft) 0%, transparent 70%);
+            animation: none;
+            opacity: 1;
+        }
+
+        .goal-mark.active span {
+            color: var(--green);
+        }
+
+        /* Lever */
+        .lever {
+            position: relative;
+            width: 44px;
+            height: 44px;
+        }
+
+        .lever-base {
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 8px;
+            background: linear-gradient(180deg, #3a3d46, #2a2d35);
+            border-radius: 2px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+
+        .lever-arm {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            width: 3px;
+            height: 20px;
+            border-radius: 2px;
+            transform-origin: bottom center;
+            transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .lever.off .lever-arm {
+            background: linear-gradient(to top, #c04050, var(--red));
+            transform: translateX(-50%) rotate(-25deg);
+            box-shadow: 0 0 10px rgba(240, 80, 104, 0.25);
+        }
+
+        .lever.on .lever-arm {
+            background: linear-gradient(to top, #20c070, var(--green));
+            transform: translateX(-50%) rotate(25deg);
+            box-shadow: 0 0 10px rgba(52, 232, 154, 0.25);
+        }
+
+        .lever-knob {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .lever.off .lever-knob {
+            background: radial-gradient(circle at 35% 35%, #ff8090, var(--red));
+            box-shadow: 0 0 8px rgba(240, 80, 104, 0.3);
+        }
+
+        .lever.on .lever-knob {
+            background: radial-gradient(circle at 35% 35%, #80ffb0, var(--green));
+            box-shadow: 0 0 8px rgba(52, 232, 154, 0.3);
+        }
+
+        /* Crate */
+        .crate {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            background: linear-gradient(155deg, #4a4238, #352e25);
+            box-shadow:
+                0 4px 16px rgba(0,0,0,0.45),
+                inset 0 1px 0 rgba(255,255,255,0.06),
+                inset 0 -2px 0 rgba(0,0,0,0.25);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .crate::before {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 3px;
+        }
+
+        .crate::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 6px;
+            background:
+                linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.12) 60%, transparent 60%),
+                linear-gradient(-135deg, transparent 40%, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.12) 60%, transparent 60%);
+        }
+
+        .crate-label {
+            position: relative;
+            z-index: 2;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.4rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            color: var(--amber);
+            padding: 2px 5px;
+            border: 1px solid rgba(240, 160, 64, 0.18);
+            border-radius: 2px;
+            background: rgba(0,0,0,0.25);
+        }
+
+        /* Player */
+        .player {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 38% 32%, #ffffff 0%, #a0f0ff 20%, var(--cyan) 55%, rgba(56, 217, 255, 0.6) 100%);
+            box-shadow:
+                0 0 24px rgba(56, 217, 255, 0.3),
+                0 0 56px rgba(56, 217, 255, 0.1),
+                inset 0 -2px 6px rgba(0,0,0,0.2);
+            position: relative;
+        }
+
+        .player::before {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 7px;
+            width: 10px;
+            height: 8px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            transform: rotate(-20deg);
+        }
+
+        /* Door */
+        .door {
+            width: 38px;
+            height: 38px;
+            border-radius: 4px;
+            position: relative;
+            background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.15) 100%);
+            border: 1.5px solid rgba(255,255,255,0.06);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+            transition: all 0.5s ease;
+        }
+
+        .door::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: 7px;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #4a4d54;
+            transform: translateY(-50%);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+            transition: all 0.5s ease;
+        }
+
+        .door::after {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 1px solid rgba(255,255,255,0.03);
+            border-radius: 2px;
+        }
+
+        .door.unlocked {
+            border-color: rgba(52, 232, 154, 0.25);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3), 0 0 16px rgba(52, 232, 154, 0.08);
+        }
+
+        .door.unlocked::before {
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green-glow);
+        }
+
+        /* Footer */
+        .footer {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .controls {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+        }
+
+        .key-set {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .key {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 18px;
+            height: 18px;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 3px;
+            background: rgba(255,255,255,0.02);
+            color: var(--text-dim);
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.5rem;
+            font-weight: 600;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+        }
+
+        .key-label {
+            font-size: 0.42rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-left: 3px;
+        }
+
+        .status {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.5rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--green);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            text-transform: uppercase;
+        }
+
+        .status.show { opacity: 1; }
+
+        /* Win overlay */
+        .win-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 11, 14, 0.85);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+        }
+
+        .win-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .win-overlay h2 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--green);
+            text-shadow: 0 0 30px var(--green-glow);
+        }
+
+        .win-overlay p {
+            font-size: 0.55rem;
+            font-weight: 500;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="shell">
+        <header>
+            <div class="title-area">
+                <h1>VOID <span class="accent">LOCK</span></h1>
+                <div class="sub">System: Online</div>
+            </div>
+            <div class="hud">
+                <div class="stat">
+                    <div class="stat-val" id="level-display">07</div>
+                    <div class="stat-lbl">Sector</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-val" id="moves-display">00</div>
+                    <div class="stat-lbl">Moves</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="board-frame">
+            <div class="board" id="game-board"></div>
+        </div>
+
+        <div class="footer">
+            <div class="controls">
+                <div class="key-set">
+                    <span class="key">W</span>
+                    <span class="key">A</span>
+                    <span class="key">S</span>
+                    <span class="key">D</span>
+                    <span class="key-label">Move</span>
+                </div>
+                <div class="key-set">
+                    <span class="key">R</span>
+                    <span class="key-label">Reset</span>
+                </div>
+            </div>
+            <div class="status" id="status-msg"></div>
+        </div>
+
+        <div class="win-overlay" id="win-overlay">
+            <h2>Protocol Complete</h2>
+            <p>Press R to reset</p>
+        </div>
+    </div>
+
+    <script>
+        const SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesEl = document.getElementById('moves-display');
+        const statusEl = document.getElementById('status-msg');
+        const winOverlay = document.getElementById('win-overlay');
+
+        // 0:Floor 1:Wall 2:Player 3:Crate 4:Lever(off) 5:Goal 6:Lever(on) 7:Door(locked) 8:Door(unlocked)
+        const initMap = [
+            [1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,1],
+            [1,0,4,0,3,0,1],
+            [1,0,0,7,0,0,1],
+            [1,0,0,2,0,0,1],
+            [1,0,0,0,5,0,1],
+            [1,1,1,1,1,1,1]
+        ];
+
+        let map = JSON.parse(JSON.stringify(initMap));
+        let px = 3, py = 4;
+        let moves = 0;
+        let won = false;
+        let leverOn = false;
+
+        function render() {
+            boardEl.innerHTML = '';
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const v = map[y][x];
+                    const c = document.createElement('div');
+                    c.className = 'cell';
+
+                    if (v === 1) {
+                        c.classList.add('wall');
+                    } else {
+                        c.classList.add('floor');
+
+                        if (v === 7 || v === 8) {
+                            const d = document.createElement('div');
+                            d.className = 'door' + (v === 8 ? ' unlocked' : '');
+                            c.appendChild(d);
+                        }
+
+                        if (v === 5 || (v === 2 && isGoal(x, y))) {
+                            const g = document.createElement('div');
+                            g.className = 'goal-mark' + (won ? ' active' : '');
+                            g.innerHTML = '<span>EXIT</span>';
+                            c.appendChild(g);
+                        }
+
+                        if (v === 4 || v === 6) {
+                            const on = v === 6;
+                            const l = document.createElement('div');
+                            l.className = 'lever ' + (on ? 'on' : 'off');
+                            l.innerHTML = '<div class="lever-base"></div><div class="lever-arm"><div class="lever-knob"></div></div>';
+                            c.appendChild(l);
+                        }
+
+                        if (v === 3) {
+                            const cr = document.createElement('div');
+                            cr.className = 'crate';
+                            cr.innerHTML = '<span class="crate-label">CARGO</span>';
+                            c.appendChild(cr);
+                        }
+
+                        if (v === 2) {
+                            const p = document.createElement('div');
+                            p.className = 'player';
+                            c.appendChild(p);
+                        }
+                    }
+                    boardEl.appendChild(c);
+                }
+            }
+            movesEl.textContent = String(moves).padStart(2, '0');
+        }
+
+        function isGoal(x, y) { return initMap[y][x] === 5; }
+
+        function checkWin() {
+            for (let y = 0; y < SIZE; y++)
+                for (let x = 0; x < SIZE; x++)
+                    if (initMap[y][x] === 5 && map[y][x] === 3) return true;
+            return false;
+        }
+
+        function flash(msg) {
+            statusEl.textContent = msg;
+            statusEl.classList.add('show');
+            clearTimeout(flash._t);
+            flash._t = setTimeout(() => statusEl.classList.remove('show'), 2200);
+        }
+
+        function step(dx, dy) {
+            if (won) return;
+            const nx = px + dx, ny = py + dy;
+            if (nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE) return;
+            const t = map[ny][nx];
+
+            if (t === 1 || t === 7) return;
+
+            if (t === 4) {
+                map[py][px] = 0;
+                px = nx; py = ny;
+                map[ny][nx] = 6;
+                leverOn = true;
+                moves++;
+                render();
+                flash('Lever Engaged');
+                return;
+            }
+            if (t === 6) {
+                map[py][px] = 0;
+                px = nx; py = ny;
+                moves++;
+                render();
+                return;
+            }
+            if (t === 3) {
+                const bx = nx + dx, by = ny + dy;
+                if (bx >= 0 && bx < SIZE && by >= 0 && by < SIZE) {
+                    const b = map[by][bx];
+                    if (b !== 1 && b !== 3 && b !== 4 && b !== 6 && b !== 7) {
+                        map[by][bx] = 3;
+                        map[ny][nx] = 0;
+                        map[py][px] = 0;
+                        px = nx; py = ny;
+                        moves++;
+                        if (checkWin()) {
+                            won = true;
+                            flash('Protocol Complete');
+                            setTimeout(() => winOverlay.classList.add('show'), 400);
+                        }
+                        render();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            map[py][px] = 0;
+            px = nx; py = ny;
+            moves++;
+            render();
+        }
+
+        function reset() {
+            map = JSON.parse(JSON.stringify(initMap));
+            px = 3; py = 4;
+            moves = 0;
+            won = false;
+            leverOn = false;
+            winOverlay.classList.remove('show');
+            render();
+            flash('System Reset');
+        }
+
+        render();
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'r' || e.key === 'R') { reset(); return; }
+            let dx = 0, dy = 0;
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') dx = 1;
+            if (dx || dy) { e.preventDefault(); step(dx, dy); }
+        });
+    </script>
+</body>
+</html>

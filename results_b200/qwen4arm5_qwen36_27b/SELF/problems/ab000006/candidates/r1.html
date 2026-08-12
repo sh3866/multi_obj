@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkiFree</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #000;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #scanlines {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.08) 2px,
+                rgba(0,0,0,0.08) 4px
+            );
+        }
+        #vignette {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 9;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.45) 100%);
+        }
+        #startBtn {
+            position: fixed;
+            bottom: 12%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            background: #e8e8e8;
+            border: none;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            padding: 14px 48px;
+            color: #1a1a2e;
+            text-transform: uppercase;
+            box-shadow:
+                0 4px 0 #999,
+                0 6px 12px rgba(0,0,0,0.4);
+            transition: all 0.08s;
+            image-rendering: pixelated;
+        }
+        #startBtn:hover {
+            background: #fff;
+            box-shadow:
+                0 4px 0 #bbb,
+                0 6px 16px rgba(0,0,0,0.3);
+        }
+        #startBtn:active {
+            transform: translateX(-50%) translateY(3px);
+            box-shadow:
+                0 1px 0 #999,
+                0 2px 6px rgba(0,0,0,0.4);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="scanlines"></div>
+    <div id="vignette"></div>
+    <button id="startBtn">START GAME</button>
+
+<script>
+(function() {
+    // === RENDERER ===
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Internal resolution - low for pixel art
+    const W = 320;
+    const H = 240;
+    canvas.width = W;
+    canvas.height = H;
+
+    // Scale canvas to fill screen
+    function fitScreen() {
+        const scale = Math.max(window.innerWidth / W, window.innerHeight / H);
+        canvas.style.width = (W * scale) + 'px';
+        canvas.style.height = (H * scale) + 'px';
+        canvas.style.position = 'absolute';
+        canvas.style.left = ((window.innerWidth - W * scale) / 2) + 'px';
+        canvas.style.top = ((window.innerHeight - H * scale) / 2) + 'px';
+    }
+    window.addEventListener('resize', fitScreen);
+    fitScreen();
+
+    // === PALETTE ===
+    const C = {
+        skyTop: '#1a1a3e',
+        skyMid: '#2d2d6b',
+        skyBot: '#4a4a8a',
+        snow: '#e8e8f0',
+        snowDark: '#c8c8d8',
+        snowShadow: '#a0a0b8',
+        treeDark: '#1a3a1a',
+        treeMed: '#2a5a2a',
+        treeLight: '#3a7a3a',
+        treeHighlight: '#4a9a4a',
+        trunk: '#4a2a1a',
+        skierRed: '#cc2222',
+        skierDarkRed: '#991111',
+        skierSkin: '#e8b888',
+        skierPants: '#2244aa',
+        skierDarkPants: '#1a3388',
+        skierSki: '#ddcc44',
+        skierPole: '#888888',
+        titleWhite: '#f0f0f8',
+        titleShadow: '#2a2a4a',
+        uiBg: '#111122',
+        uiBorder: '#444466',
+        uiText: '#aaaacc',
+        uiBright: '#eeeeff',
+        btnYellow: '#ffdd44',
+        btnDark: '#ccaa22',
+        btnText: '#1a1a2e',
+        mountain1: '#3a3a6a',
+        mountain2: '#4a4a7a',
+        mountainSnow: '#c8c8e0',
+        cloudWhite: '#d0d0e8',
+        cloudShadow: '#a0a0c0',
+    };
+
+    // === PIXEL FONT (5x7 bitmap font) ===
+    const FONT = {
+        'S': [0x0e,0x04,0x04,0x02,0x1e,0x04,0x04,0x0e],
+        'K': [0x12,0x14,0x18,0x10,0x18,0x14,0x12],
+        'I': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e],
+        'F': [0x1e,0x10,0x10,0x1c,0x10,0x10,0x10],
+        'R': [0x1c,0x12,0x12,0x1c,0x14,0x18,0x16],
+        'E': [0x1e,0x10,0x10,0x1c,0x10,0x10,0x1e],
+        ' ': [0,0,0,0,0,0,0],
+        'U': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e],
+        'S': [0x0e,0x04,0x04,0x02,0x1e,0x04,0x04,0x0e],
+        'E': [0x1e,0x10,0x10,0x1c,0x10,0x10,0x1e],
+        'R': [0x1c,0x12,0x12,0x1c,0x14,0x18,0x16],
+        'T': [0x1e,0x04,0x04,0x04,0x04,0x04,0x04],
+        'A': [0x06,0x0c,0x0c,0x1e,0x0c,0x0c,0x0c],
+        'G': [0x0e,0x04,0x04,0x0c,0x06,0x04,0x0e],
+        'M': [0x12,0x1a,0x16,0x16,0x16,0x16,0x16],
+        'P': [0x1c,0x12,0x12,0x1c,0x10,0x10,0x10],
+        'L': [0x10,0x10,0x10,0x10,0x10,0x10,0x1e],
+        'D': [0x1c,0x12,0x12,0x12,0x12,0x12,0x1c],
+        'N': [0x12,0x16,0x1a,0x1a,0x16,0x16,0x16],
+        'O': [0x0e,0x12,0x12,0x12,0x12,0x12,0x0e],
+        'V': [0x12,0x12,0x12,0x12,0x12,0x0a,0x04],
+        'C': [0x0e,0x12,0x10,0x10,0x10,0x12,0x0e],
+        'H': [0x12,0x12,0x12,0x1e,0x12,0x12,0x12],
+        'W': [0x12,0x12,0x16,0x16,0x16,0x1a,0x12],
+        'Y': [0x12,0x12,0x12,0x0c,0x04,0x04,0x04],
+        'X': [0x12,0x12,0x0c,0x04,0x0c,0x12,0x12],
+        'B': [0x1c,0x12,0x12,0x1c,0x12,0x12,0x1c],
+        '1': [0x04,0x0c,0x04,0x04,0x04,0x04,0x0e],
+        '0': [0x0e,0x12,0x14,0x18,0x14,0x12,0x0e],
+        '2': [0x1c,0x12,0x04,0x08,0x10,0x10,0x1e],
+        '3': [0x1c,0x12,0x04,0x08,0x04,0x12,0x1c],
+        '4': [0x02,0x06,0x0c,0x12,0x1e,0x04,0x04],
+        '5': [0x1e,0x10,0x1c,0x04,0x04,0x12,0x1c],
+        '6': [0x0e,0x10,0x1c,0x12,0x12,0x12,0x0e],
+        '7': [0x1e,0x12,0x04,0x08,0x10,0x10,0x10],
+        '8': [0x0e,0x12,0x12,0x0e,0x12,0x12,0x0e],
+        '9': [0x0e,0x12,0x12,0x1e,0x04,0x12,0x0e],
+        '.': [0,0,0,0,0,0x08,0x08],
+        ',': [0,0,0,0,0,0x08,0x04],
+        '!': [0x04,0x04,0x04,0x04,0x04,0,0x04],
+        ':': [0,0x08,0,0,0x08,0,0],
+        '-': [0,0,0,0x0e,0,0,0],
+        '/': [0,0x02,0x04,0x08,0x10,0x02,0],
+        '>': [0x04,0x08,0x10,0x08,0x04],
+        '<': [0x10,0x08,0x04,0x08,0x10],
+    };
+
+    // Fix: need proper char keys
+    const FONT_DATA = {
+        'S': [0x0e,0x04,0x04,0x02,0x1e,0x04,0x04,0x0e],
+        'K': [0x12,0x14,0x18,0x10,0x18,0x14,0x12],
+        'I': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e],
+        'F': [0x1e,0x10,0x10,0x1c,0x10,0x10,0x10],
+        'R': [0x1c,0x12,0x12,0x1c,0x14,0x18,0x16],
+        'E': [0x1e,0x10,0x10,0x1c,0x10,0x10,0x1e],
+        ' ': [0,0,0,0,0,0,0],
+        'U': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e],
+        'T': [0x1e,0x04,0x04,0x04,0x04,0x04,0x04],
+        'A': [0x06,0x0c,0x0c,0x1e,0x0c,0x0c,0x0c],
+        'G': [0x0e,0x04,0x04,0x0c,0x06,0x04,0x0e],
+        'M': [0x12,0x1a,0x16,0x16,0x16,0x16,0x16],
+        'P': [0x1c,0x12,0x12,0x1c,0x10,0x10,0x10],
+        'L': [0x10,0x10,0x10,0x10,0x10,0x10,0x1e],
+        'D': [0x1c,0x12,0x12,0x12,0x12,0x12,0x1c],
+        'N': [0x12,0x16,0x1a,0x1a,0x16,0x16,0x16],
+        'O': [0x0e,0x12,0x12,0x12,0x12,0x12,0x0e],
+        'V': [0x12,0x12,0x12,0x12,0x12,0x0a,0x04],
+        'C': [0x0e,0x12,0x10,0x10,0x10,0x12,0x0e],
+        'H': [0x12,0x12,0x12,0x1e,0x12,0x12,0x12],
+        'W': [0x12,0x12,0x16,0x16,0x16,0x1a,0x12],
+        'Y': [0x12,0x12,0x12,0x0c,0x04,0x04,0x04],
+        'X': [0x12,0x12,0x0c,0x04,0x0c,0x12,0x12],
+        'B': [0x1c,0x12,0x12,0x1c,0x12,0x12,0x1c],
+        '1': [0x04,0x0c,0x04,0x04,0x04,0x04,0x0e],
+        '0': [0x0e,0x12,0x14,0x18,0x14,0x12,0x0e],
+        '2': [0x1c,0x12,0x04,0x08,0x10,0x10,0x1e],
+        '3': [0x1c,0x12,0x04,0x08,0x04,0x12,0x1c],
+        '4': [0x02,0x06,0x0c,0x12,0x1e,0x04,0x04],
+        '5': [0x1e,0x10,0x1c,0x04,0x04,0x12,0x1c],
+        '6': [0x0e,0x10,0x1c,0x12,0x12,0x12,0x0e],
+        '7': [0x1e,0x12,0x04,0x08,0x10,0x10,0x10],
+        '8': [0x0e,0x12,0x12,0x0e,0x12,0x12,0x0e],
+        '9': [0x0e,0x12,0x12,0x1e,0x04,0x12,0x0e],
+        '.': [0,0,0,0,0,0x08,0x08],
+        ',': [0,0,0,0,0,0x08,0x04],
+        '!': [0x04,0x04,0x04,0x04,0x04,0,0x04],
+        ':': [0,0x08,0,0,0x08,0,0],
+        '-': [0,0,0,0x0e,0,0,0],
+        '/': [0,0x02,0x04,0x08,0x10,0x02,0],
+        '>': [0x04,0x08,0x10,0x08,0x04],
+        '<': [0x10,0x08,0x04,0x08,0x10],
+        '(': [0x04,0x08,0x08,0x04,0x08,0x08,0x04],
+        ')': [0x08,0x04,0x04,0x08,0x04,0x04,0x08],
+    };
+
+    function drawChar(c, x, y, size, color) {
+        const d = FONT_DATA[c];
+        if (!d) return;
+        ctx.fillStyle = color;
+        for (let row = 0; row < d.length; row++) {
+            for (let col = 0; col < 5; col++) {
+                if (d[row] & (1 << (4 - col))) {
+                    ctx.fillRect(x + col * size, y + row * size, size, size);
+                }
+            }
+        }
+    }
+
+    function drawText(text, x, y, size, color) {
+        let cx = x;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i].toUpperCase();
+            drawChar(ch, cx, y, size, color);
+            cx += 6 * size;
+        }
+    }
+
+    function drawTextCentered(text, y, size, color) {
+        let totalWidth = 0;
+        for (let i = 0; i < text.length; i++) {
+            totalWidth += 6 * size;
+        }
+        const x = (W - totalWidth) / 2;
+        drawText(text, x, y, size, color);
+    }
+
+    // === SPRITES ===
+
+    // Pixel skier sprite (12x16)
+    const SKIER = {
+        w: 12, h: 16,
+        frames: [
+            // Frame 0 - straight
+            [
+                "  RRRR  ",
+                "  RRRR  ",
+                "  RRRR  ",
+                "  SSSS  ",
+                "  SSSS  ",
+                "  SSSS  ",
+                " RR  RR ",
+                "RRRRRRRR",
+                "RRRRRRRR",
+                " PP  PP ",
+                " PP  PP ",
+                " PP  PP ",
+                "PP    PP",
+                "SS    SS",
+                "SS    SS",
+                "YY    YY",
+            ],
+            // Frame 1 - leaning left
+            [
+                "  RRRR  ",
+                "  RRRR  ",
+                "  RRRR  ",
+                "  SSSS  ",
+                "  SSSS  ",
+                "  SSSS  ",
+                " RR  RR ",
+                "RRRRRRRR",
+                "RRRRRRRR",
+                " PP  PP ",
+                " PP  PP ",
+                " PP  PP ",
+                "PP    PP",
+                "SS    SS",
+                "SS    SS",
+                "YY    YY",
+            ]
+        ],
+        palette: {
+            'R': C.skierRed, 'r': C.skierDarkRed,
+            'S': C.skierSkin,
+            'P': C.skierPants, 'p': C.skierDarkPants,
+            'Y': C.skierSki,
+            ' ': null
+        }
+    };
+
+    // Better skier sprite
+    const SKIER_SPRITE = [
+        // 14x18
+        "  RRRRRR  ",
+        "  RRRRRR  ",
+        "  RRRRRR  ",
+        "  SSSSSS  ",
+        "  SSSSSS  ",
+        "  SSSSSS  ",
+        " RR  RR  ",
+        "RRRRRRRRRR",
+        "RRRRRRRRRR",
+        " RR  RR  ",
+        " PP  PP  ",
+        " PP  PP  ",
+        " PP  PP  ",
+        "PP    PP ",
+        "SS    SS ",
+        "SS    SS ",
+        "YY    YY ",
+        "YY    YY ",
+    ];
+
+    const SKIER_PAL = {
+        'R': C.skierRed,
+        'S': C.skierSkin,
+        'P': C.skierPants,
+        'Y': C.skierSki,
+        ' ': null,
+    };
+
+    function drawSkier(x, y, frame) {
+        const bob = Math.sin(frame * 0.15) * 1;
+        const lean = Math.sin(frame * 0.08) * 0.3;
+
+        ctx.save();
+        ctx.translate(Math.floor(x), Math.floor(y + bob));
+
+        // Shadow
+        ctx.fillStyle = C.snowShadow;
+        ctx.fillRect(-6, 18, 12, 2);
+
+        // Skis
+        ctx.fillStyle = C.skierSki;
+        ctx.fillRect(-7, 14, 2, 5);
+        ctx.fillRect(5, 14, 2, 5);
+
+        // Legs
+        ctx.fillStyle = C.skierPants;
+        ctx.fillRect(-5, 10, 3, 5);
+        ctx.fillRect(2, 10, 3, 5);
+
+        // Body
+        ctx.fillStyle = C.skierRed;
+        ctx.fillRect(-4, 4, 8, 7);
+
+        // Arms with poles
+        ctx.fillStyle = C.skierRed;
+        ctx.fillRect(-7, 5, 3, 2);
+        ctx.fillRect(4, 5, 3, 2);
+
+        // Poles
+        ctx.fillStyle = C.skierPole;
+        ctx.fillRect(-8, 6, 1, 12);
+        ctx.fillRect(7, 6, 1, 12);
+
+        // Head
+        ctx.fillStyle = C.skierSkin;
+        ctx.fillRect(-3, 0, 6, 5);
+
+        // Hat
+        ctx.fillStyle = C.skierRed;
+        ctx.fillRect(-3, -2, 6, 3);
+
+        // Goggles
+        ctx.fillStyle = '#222244';
+        ctx.fillRect(-2, 1, 5, 2);
+
+        ctx.restore();
+    }
+
+    // Tree sprite
+    function drawTree(x, y, scale) {
+        const s = Math.max(1, Math.floor(scale));
+        ctx.save();
+        ctx.translate(Math.floor(x), Math.floor(y));
+
+        // Shadow
+        ctx.fillStyle = C.snowShadow;
+        ctx.fillRect(-s * 3, s * 18, s * 6, s);
+
+        // Trunk
+        ctx.fillStyle = C.trunk;
+        ctx.fillRect(-s, s * 14, s * 2, s * 5);
+
+        // Tree layers (bottom to top)
+        const layers = [
+            { dy: 10, w: 12, h: 4, c: C.treeDark },
+            { dy: 7, w: 10, h: 4, c: C.treeMed },
+            { dy: 4, w: 8, h: 4, c: C.treeLight },
+            { dy: 1, w: 6, h: 4, c: C.treeHighlight },
+        ];
+
+        layers.forEach(l => {
+            ctx.fillStyle = l.c;
+            const hw = Math.floor(l.w / 2);
+            ctx.fillRect(-hw * s, l.dy * s, l.w * s, l.h * s);
+        });
+
+        // Snow caps on tree
+        ctx.fillStyle = C.snow;
+        ctx.fillRect(-2 * s, 0, 4 * s, s);
+        ctx.fillRect(-s, s, 2 * s, s);
+
+        ctx.restore();
+    }
+
+    // Mountain
+    function drawMountain(x, y, w, h) {
+        ctx.fillStyle = C.mountain1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + w / 2, y - h);
+        ctx.lineTo(x + w, y);
+        ctx.fill();
+
+        // Snow cap
+        ctx.fillStyle = C.mountainSnow;
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.35, y - h * 0.7);
+        ctx.lineTo(x + w / 2, y - h);
+        ctx.lineTo(x + w * 0.65, y - h * 0.7);
+        ctx.lineTo(x + w * 0.55, y - h * 0.6);
+        ctx.lineTo(x + w * 0.45, y - h * 0.65);
+        ctx.fill();
+    }
+
+    // === WORLD ===
+    let trees = [];
+    let snowParticles = [];
+    let clouds = [];
+    let frameCount = 0;
+    let skierX = W / 2;
+    let skierBob = 0;
+    let distance = 0;
+
+    function initWorld() {
+        trees = [];
+        // Generate trees with perspective
+        for (let i = 0; i < 60; i++) {
+            const z = Math.random();
+            const perspective = 0.3 + z * 0.7;
+            const y = 80 + z * 100;
+            const x = Math.random() * W;
+            const scale = 0.5 + perspective * 1.5;
+            trees.push({ x, y, scale, z });
+        }
+        trees.sort((a, b) => a.z - b.z);
+
+        snowParticles = [];
+        for (let i = 0; i < 80; i++) {
+            snowParticles.push({
+                x: Math.random() * W,
+                y: Math.random() * H,
+                speed: 0.3 + Math.random() * 1.2,
+                size: Math.random() < 0.3 ? 2 : 1,
+                drift: -0.5 - Math.random() * 1.5
+            });
+        }
+
+        clouds = [];
+        for (let i = 0; i < 5; i++) {
+            clouds.push({
+                x: Math.random() * W,
+                y: 10 + Math.random() * 40,
+                w: 20 + Math.random() * 40,
+                speed: 0.1 + Math.random() * 0.3
+            });
+        }
+    }
+
+    function drawSky() {
+        const grad = ctx.createLinearGradient(0, 0, 0, 100);
+        grad.addColorStop(0, C.skyTop);
+        grad.addColorStop(0.5, C.skyMid);
+        grad.addColorStop(1, C.skyBot);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, 100);
+
+        // Stars
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 30; i++) {
+            const sx = (i * 37 + frameCount * 0.01) % W;
+            const sy = (i * 23) % 60;
+            const brightness = (Math.sin(frameCount * 0.05 + i) + 1) / 2;
+            if (brightness > 0.7) {
+                ctx.globalAlpha = brightness * 0.6;
+                ctx.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawClouds() {
+        clouds.forEach(cl => {
+            cl.x -= cl.speed;
+            if (cl.x + cl.w < 0) cl.x = W + cl.w;
+
+            ctx.fillStyle = C.cloudWhite;
+            ctx.globalAlpha = 0.3;
+            ctx.fillRect(Math.floor(cl.x), Math.floor(cl.y), Math.floor(cl.w), 4);
+            ctx.fillRect(Math.floor(cl.x + 4), Math.floor(cl.y - 2), Math.floor(cl.w - 8), 3);
+            ctx.fillRect(Math.floor(cl.x + 8), Math.floor(cl.y - 4), Math.floor(cl.w - 16), 2);
+            ctx.globalAlpha = 1;
+        });
+    }
+
+    function drawMountains() {
+        // Far mountains
+        drawMountain(-20, 95, 80, 40);
+        drawMountain(40, 95, 100, 55);
+        drawMountain(120, 95, 70, 35);
+        drawMountain(180, 95, 90, 48);
+        drawMountain(260, 95, 80, 42);
+        drawMountain(300, 95, 60, 30);
+    }
+
+    function drawSlope() {
+        // Main slope
+        ctx.fillStyle = C.snow;
+        ctx.fillRect(0, 85, W, H - 85);
+
+        // Slope shading - subtle gradient
+        const grad = ctx.createLinearGradient(0, 85, 0, H);
+        grad.addColorStop(0, 'rgba(200,200,220,0)');
+        grad.addColorStop(0.5, 'rgba(180,180,200,0.3)');
+        grad.addColorStop(1, 'rgba(160,160,180,0.5)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 85, W, H - 85);
+
+        // Track marks (ski tracks)
+        ctx.fillStyle = C.snowDark;
+        ctx.globalAlpha = 0.3;
+        for (let i = 0; i < 8; i++) {
+            const tx = 100 + i * 15;
+            ctx.fillRect(tx, 100, 1, H - 100);
+            ctx.fillRect(tx + 3, 100, 1, H - 100);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawTrees() {
+        trees.forEach(t => {
+            drawTree(t.x, t.y, t.scale);
+        });
+    }
+
+    function drawSnow() {
+        ctx.fillStyle = '#ffffff';
+        snowParticles.forEach(p => {
+            p.y += p.speed;
+            p.x += p.drift;
+            if (p.y > H) { p.y = -2; p.x = Math.random() * W; }
+            if (p.x < -5) p.x = W + 5;
+            if (p.x > W + 5) p.x = -5;
+
+            ctx.globalAlpha = 0.4 + Math.random() * 0.4;
+            ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+        });
+        ctx.globalAlpha = 1;
+    }
+
+    // === UI ===
+    function drawTitle() {
+        // Title shadow
+        drawTextCentered('SKIFREE', 28, 3, C.titleShadow);
+        // Title main
+        drawTextCentered('SKIFREE', 27, 3, C.titleWhite);
+
+        // Subtitle
+        drawTextCentered('SURVIVE THE YETI', 52, 1, C.uiText);
+
+        // Instructions
+        drawTextCentered('USE  <  >  TO STEER', 68, 1, C.uiText);
+        drawTextCentered('AVOID TREES', 76, 1, C.uiText);
+
+        // Distance counter (decorative)
+        distance += 0.5;
+        const distStr = 'DIST: ' + Math.floor(distance).toString().padStart(5, '0') + 'm';
+        ctx.fillStyle = C.uiText;
+        drawText(distStr, 4, 4, 1, C.uiText);
+    }
+
+    function drawUI() {
+        // Dark overlay at bottom
+        ctx.fillStyle = 'rgba(10,10,25,0.85)';
+        ctx.fillRect(0, H - 42, W, 42);
+
+        // Top border
+        ctx.fillStyle = C.uiBorder;
+        ctx.fillRect(0, H - 42, W, 2);
+
+        // Title
+        drawTextCentered('SKIFREE', H - 38, 3, C.titleWhite);
+
+        // Instructions
+        drawTextCentered('USE < > TO STEER', H - 18, 1, C.uiText);
+        drawTextCentered('AVOID TREES', H - 10, 1, C.uiText);
+    }
+
+    // === MAIN LOOP ===
+    function animate() {
+        frameCount++;
+
+        // Clear
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+
+        // Draw world
+        drawSky();
+        drawClouds();
+        drawMountains();
+        drawSlope();
+        drawTrees();
+
+        // Draw skier
+        drawSkier(W / 2, 130, frameCount);
+
+        // Snow
+        drawSnow();
+
+        // UI
+        drawUI();
+
+        requestAnimationFrame(animate);
+    }
+
+    // === START BUTTON ===
+    document.getElementById('startBtn').addEventListener('click', function() {
+        this.textContent = 'LOADING...';
+        this.style.background = '#ccc';
+        setTimeout(() => {
+            this.textContent = 'START GAME';
+            this.style.background = '#e8e8e8';
+        }, 1500);
+    });
+
+    // Init
+    initWorld();
+    animate();
+})();
+</script>
+</body>
+</html>

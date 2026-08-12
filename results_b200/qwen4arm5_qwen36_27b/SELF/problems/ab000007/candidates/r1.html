@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lumina — Capture & Collection</title>
+<style>
+  :root {
+    --bg-deep: #0a0a1a;
+    --bg-mid: #12122a;
+    --accent-cyan: #4de8ff;
+    --accent-magenta: #f040ff;
+    --accent-lime: #a8ff60;
+    --accent-amber: #ffb84d;
+    --accent-rose: #ff6b8a;
+    --glass-bg: rgba(255, 255, 255, 0.04);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg-deep);
+    overflow: hidden;
+    font-family: var(--font-display);
+    color: #fff;
+  }
+
+  .scene {
+    position: relative;
+    width: 100%; height: 100%;
+    overflow: hidden;
+  }
+
+  /* Atmospheric background layers */
+  .atmosphere {
+    position: absolute; inset: 0;
+    background: 
+      radial-gradient(ellipse 120% 80% at 50% 0%, rgba(77, 232, 255, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 80% 60% at 20% 80%, rgba(240, 64, 255, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 40% at 80% 70%, rgba(168, 255, 96, 0.03) 0%, transparent 50%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .stars-canvas {
+    position: absolute; inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  #gameCanvas {
+    position: absolute; inset: 0;
+    z-index: 5;
+    cursor: none;
+  }
+
+  /* UI Overlay */
+  .ui-layer {
+    position: absolute; inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: clamp(1.25rem, 4vw, 2.5rem);
+  }
+
+  /* Top bar */
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .brand h1 {
+    font-size: clamp(1.5rem, 4vw, 2.2rem);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.7) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+    filter: drop-shadow(0 0 20px rgba(77, 232, 255, 0.15));
+  }
+
+  .brand .tagline {
+    font-size: clamp(0.55rem, 1.2vw, 0.7rem);
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    font-weight: 400;
+  }
+
+  /* HUD Panel */
+  .hud {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.75rem, 2vw, 1.25rem);
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: clamp(0.6rem, 1.5vw, 0.85rem) clamp(1rem, 2.5vw, 1.5rem);
+    box-shadow: 
+      0 8px 32px rgba(0,0,0,0.3),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+
+  .hud-icon {
+    width: clamp(20px, 3vw, 28px);
+    height: clamp(20px, 3vw, 28px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .hud-icon svg {
+    width: 100%; height: 100%;
+    filter: drop-shadow(0 0 6px var(--accent-cyan));
+  }
+
+  .hud-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .hud-value {
+    font-family: var(--font-mono);
+    font-size: clamp(1.2rem, 3vw, 1.6rem);
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+
+  .hud-label {
+    font-size: clamp(0.5rem, 1vw, 0.65rem);
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.4);
+    font-weight: 500;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    pointer-events: auto;
+  }
+
+  .btn-capture {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: clamp(0.75rem, 1.5vw, 0.9rem);
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: clamp(0.8rem, 2vw, 1rem) clamp(2rem, 5vw, 3.5rem);
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 
+      0 4px 24px rgba(0,0,0,0.2),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+
+  .btn-capture::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50px;
+    background: linear-gradient(135deg, rgba(77,232,255,0.15), rgba(240,64,255,0.1));
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  .btn-capture:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.2);
+    box-shadow: 
+      0 8px 40px rgba(77,232,255,0.15),
+      0 0 60px rgba(77,232,255,0.05),
+      inset 0 1px 0 rgba(255,255,255,0.12);
+  }
+
+  .btn-capture:hover::before { opacity: 1; }
+
+  .btn-capture:active {
+    transform: translateY(0);
+    transition-duration: 0.1s;
+  }
+
+  .btn-capture span {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Toast notification */
+  .toast {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(10, 10, 26, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(168, 255, 96, 0.3);
+    color: var(--accent-lime);
+    padding: 0.8rem 1.8rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 20;
+    box-shadow: 0 0 40px rgba(168, 255, 96, 0.1);
+  }
+
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Collection progress bar */
+  .progress-ring {
+    position: absolute;
+    bottom: clamp(5.5rem, 12vw, 7rem);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    pointer-events: none;
+    opacity: 0.6;
+  }
+
+  .progress-bar-track {
+    width: clamp(80px, 15vw, 140px);
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 10px rgba(77,232,255,0.3);
+  }
+
+  .progress-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.3);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    .hud { padding: 0.6rem 1rem; border-radius: 12px; }
+    .btn-capture { width: 90%; max-width: 280px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene">
+  <div class="atmosphere"></div>
+  <canvas class="stars-canvas" id="starsCanvas"></canvas>
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="ui-layer">
+    <header class="top-bar">
+      <div class="brand">
+        <h1>Lumina</h1>
+        <div class="tagline">Capture & Collection</div>
+      </div>
+      <div class="hud">
+        <div class="hud-icon">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="rgba(77,232,255,0.9)"/>
+          </svg>
+        </div>
+        <div class="hud-content">
+          <div class="hud-value" id="scoreDisplay">0</div>
+          <div class="hud-label">Captured</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="progress-ring">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
+      </div>
+      <div class="progress-label">Collection</div>
+    </div>
+
+    <div id="toast" class="toast">✦ Specimen Captured</div>
+
+    <footer class="bottom-bar">
+      <button class="btn-capture" onclick="resetGame()">
+        <span>New Collection</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+<script>
+(function() {
+  // === STARS BACKGROUND ===
+  const starsCanvas = document.getElementById('starsCanvas');
+  const starsCtx = starsCanvas.getContext('2d');
+  let stars = [];
+
+  function initStars() {
+    starsCanvas.width = window.innerWidth;
+    starsCanvas.height = window.innerHeight;
+    stars = [];
+    const count = Math.floor((starsCanvas.width * starsCanvas.height) / 4000);
+    for (let i = 0; i < count; i++) {
+      stars.push({
+        x: Math.random() * starsCanvas.width,
+        y: Math.random() * starsCanvas.height,
+        r: Math.random() * 1.2 + 0.2,
+        alpha: Math.random() * 0.5 + 0.1,
+        pulse: Math.random() * Math.PI * 2,
+        pulseSpeed: Math.random() * 0.01 + 0.005
+      });
+    }
+  }
+
+  function drawStars() {
+    starsCtx.clearRect(0, 0, starsCanvas.width, starsCanvas.height);
+    stars.forEach(s => {
+      s.pulse += s.pulseSpeed;
+      const a = s.alpha + Math.sin(s.pulse) * 0.15;
+      starsCtx.beginPath();
+      starsCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      starsCtx.fillStyle = `rgba(255,255,255,${Math.max(0, a)})`;
+      starsCtx.fill();
+    });
+  }
+
+  initStars();
+  window.addEventListener('resize', initStars);
+
+  // === MAIN GAME CANVAS ===
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('scoreDisplay');
+  const toastEl = document.getElementById('toast');
+  const progressFill = document.getElementById('progressFill');
+
+  let W, H;
+  let score = 0;
+  const MAX_CAPTURES = 20;
+  let particles = [];
+  let creatures = [];
+  let mouse = { x: -9999, y: -9999 };
+  let isMouseDown = false;
+  let netAngle = 0;
+  let ambientParticles = [];
+
+  const COLORS = [
+    { main: '#4de8ff', glow: 'rgba(77,232,255,', name: 'Aqua' },
+    { main: '#f040ff', glow: 'rgba(240,64,255,', name: 'Violet' },
+    { main: '#a8ff60', glow: 'rgba(168,255,96,', name: 'Moss' },
+    { main: '#ffb84d', glow: 'rgba(255,184,77,', name: 'Amber' },
+    { main: '#ff6b8a', glow: 'rgba(255,107,138,', name: 'Rose' }
+  ];
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Input
+  window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => { isMouseDown = false; checkCatch(); });
+  window.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => { isMouseDown = false; checkCatch(); });
+
+  // === CLASSES ===
+
+  class AmbientParticle {
+    constructor() {
+      this.reset();
+      this.y = Math.random() * H;
+    }
+    reset() {
+      this.x = Math.random() * W;
+      this.y = H + 10;
+      this.r = Math.random() * 2 + 0.5;
+      this.speed = Math.random() * 0.3 + 0.1;
+      this.drift = (Math.random() - 0.5) * 0.3;
+      this.alpha = Math.random() * 0.15 + 0.05;
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    update() {
+      this.y -= this.speed;
+      this.x += this.drift + Math.sin(this.y * 0.01) * 0.1;
+      if (this.y < -10) this.reset();
+    }
+    draw(c) {
+      c.beginPath();
+      c.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      c.fillStyle = this.color.glow + this.alpha + ')';
+      c.fill();
+    }
+  }
+
+  class Particle {
+    constructor(x, y, color, type) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      this.type = type || 'burst';
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.type === 'burst' ? Math.random() * 4 + 2 : Math.random() * 1.5 + 0.5;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.02 + 0.015;
+      this.size = Math.random() * 3 + 1;
+      this.gravity = 0;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += this.gravity;
+      this.vx *= 0.98;
+      this.vy *= 0.98;
+      this.life -= this.decay;
+      this.size *= 0.995;
+    }
+    draw(c) {
+      if (this.life <= 0) return;
+      c.globalAlpha = this.life;
+      c.fillStyle = this.color;
+      c.shadowBlur = 8;
+      c.shadowColor = this.color;
+      c.beginPath();
+      c.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      c.fill();
+      c.shadowBlur = 0;
+      c.globalAlpha = 1;
+    }
+  }
+
+  class Creature {
+    constructor(type) {
+      this.type = type || Math.floor(Math.random() * 3);
+      this.colorObj = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.color = this.colorObj.main;
+      this.reset();
+      this.x = Math.random() * W;
+      this.y = Math.random() * H;
+    }
+
+    reset() {
+      const side = Math.floor(Math.random() * 4);
+      if (side === 0) { this.x = -60; this.y = Math.random() * H; }
+      else if (side === 1) { this.x = W + 60; this.y = Math.random() * H; }
+      else if (side === 2) { this.x = Math.random() * W; this.y = -60; }
+      else { this.x = Math.random() * W; this.y = H + 60; }
+
+      this.vx = (Math.random() - 0.5) * 1.2;
+      this.vy = (Math.random() - 0.5) * 1.2;
+      this.baseRadius = Math.random() * 12 + 14;
+      this.phase = Math.random() * Math.PI * 2;
+      this.phaseSpeed = Math.random() * 0.02 + 0.01;
+      this.wobbleAmp = Math.random() * 0.3 + 0.2;
+      this.isCaught = false;
+      this.catchScale = 1;
+      this.alpha = 1;
+      this.trail = [];
+    }
+
+    update() {
+      if (this.isCaught) {
+        this.catchScale *= 0.9;
+        this.alpha *= 0.92;
+        return this.alpha > 0.01;
+      }
+
+      this.phase += this.phaseSpeed;
+
+      // Organic movement
+      this.x += this.vx + Math.sin(this.phase) * this.wobbleAmp;
+      this.y += this.vy + Math.cos(this.phase * 0.7) * this.wobbleAmp * 0.5;
+
+      // Trail
+      this.trail.push({ x: this.x, y: this.y, a: 0.4 });
+      if (this.trail.length > 12) this.trail.shift();
+      this.trail.forEach(t => t.a *= 0.9);
+
+      // Wall avoidance
+      const margin = 40;
+      if (this.x < margin) this.vx += 0.05;
+      if (this.x > W - margin) this.vx -= 0.05;
+      if (this.y < margin) this.vy += 0.05;
+      if (this.y > H - margin) this.vy -= 0.05;
+
+      // Mouse avoidance
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 120) {
+        const force = ((120 - dist) / 120) * 0.8;
+        this.vx += (dx / dist) * force;
+        this.vy += (dy / dist) * force;
+      }
+
+      // Speed limit
+      const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+      if (speed > 3) {
+        this.vx = (this.vx / speed) * 3;
+        this.vy = (this.vy / speed) * 3;
+      }
+
+      return true;
+    }
+
+    draw(c) {
+      if (this.alpha <= 0.01) return;
+      c.save();
+      c.translate(this.x, this.y);
+      c.scale(this.catchScale, this.catchScale);
+      c.globalAlpha = this.alpha;
+
+      // Trail
+      if (!this.isCaught) {
+        this.trail.forEach((t, i) => {
+          c.beginPath();
+          c.arc(t.x - this.x, t.y - this.y, this.baseRadius * 0.3 * (i / this.trail.length), 0, Math.PI * 2);
+          c.fillStyle = this.colorObj.glow + (t.a * 0.3) + ')';
+          c.fill();
+        });
+      }
+
+      // Glow
+      c.shadowBlur = 25;
+      c.shadowColor = this.color;
+
+      const r = this.baseRadius;
+      const p = this.phase;
+
+      if (this.type === 0) {
+        // Jellyfish shape
+        this.drawJellyfish(c, r, p);
+      } else if (this.type === 1) {
+        // Orb with wings
+        this.drawOrbWings(c, r, p);
+      } else {
+        // Moth-like
+        this.drawMoth(c, r, p);
+      }
+
+      c.restore();
+    }
+
+    drawJellyfish(c, r, p) {
+      // Dome
+      c.beginPath();
+      c.moveTo(-r * 0.8, r * 0.2);
+      c.bezierCurveTo(-r * 0.8, -r * 0.6, r * 0.8, -r * 0.6, r * 0.8, r * 0.2);
+      c.bezierCurveTo(r * 0.6, r * 0.5, r * 0.3, r * 0.3, 0, r * 0.4);
+      c.bezierCurveTo(-r * 0.3, r * 0.3, -r * 0.6, r * 0.5, -r * 0.8, r * 0.2);
+      c.fillStyle = this.color;
+      c.fill();
+
+      // Tentacles
+      c.strokeStyle = this.color;
+      c.lineWidth = 1.5;
+      c.globalAlpha *= 0.6;
+      for (let i = -2; i <= 2; i++) {
+        c.beginPath();
+        const tx = i * r * 0.25;
+        c.moveTo(tx, r * 0.3);
+        const wave = Math.sin(p * 2 + i) * r * 0.3;
+        c.bezierCurveTo(tx + wave, r * 0.7, tx - wave, r * 1.1, tx + wave * 0.5, r * 1.4);
+        c.stroke();
+      }
+      c.globalAlpha /= 0.6;
+
+      // Core
+      c.shadowBlur = 0;
+      c.fillStyle = 'rgba(255,255,255,0.9)';
+      c.beginPath();
+      c.arc(0, -r * 0.1, r * 0.25, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    drawOrbWings(c, r, p) {
+      // Wings
+      c.globalAlpha *= 0.5;
+      const wingFlap = Math.sin(p * 3) * 0.3;
+      for (let side = -1; side <= 1; side += 2) {
+        c.beginPath();
+        c.ellipse(side * r * 0.7, 0, r * 0.6, r * 0.35 + wingFlap * r * 0.2, side * 0.3, 0, Math.PI * 2);
+        c.fillStyle = this.color;
+        c.fill();
+      }
+      c.globalAlpha /= 0.5;
+
+      // Body
+      c.beginPath();
+      c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+      c.fillStyle = this.color;
+      c.fill();
+
+      // Core
+      c.shadowBlur = 0;
+      c.fillStyle = '#fff';
+      c.beginPath();
+      c.arc(0, 0, r * 0.2, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    drawMoth(c, r, p) {
+      // Body
+      c.beginPath();
+      c.ellipse(0, 0, r * 0.25, r * 0.6, 0, 0, Math.PI * 2);
+      c.fillStyle = this.color;
+      c.fill();
+
+      // Wings
+      c.globalAlpha *= 0.6;
+      const flap = Math.sin(p * 4) * 0.2;
+      for (let side = -1; side <= 1; side += 2) {
+        c.beginPath();
+        c.moveTo(side * r * 0.1, -r * 0.2);
+        c.bezierCurveTo(side * r * 1.2, -r * 0.8 + flap * r, side * r * 1.4, r * 0.1, side * r * 0.1, r * 0.3);
+        c.fillStyle = this.color;
+        c.fill();
+      }
+      c.globalAlpha /= 0.6;
+
+      // Core
+      c.shadowBlur = 0;
+      c.fillStyle = '#fff';
+      c.beginPath();
+      c.arc(0, -r * 0.1, r * 0.15, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    getBounds() {
+      return { x: this.x, y: this.y, r: this.baseRadius * 1.2 };
+    }
+  }
+
+  // === GAME FUNCTIONS ===
+
+  function init() {
+    creatures = [];
+    const types = [0, 1, 2, 0, 1, 2, 0, 1];
+    for (let i = 0; i < 8; i++) {
+      creatures.push(new Creature(types[i % types.length]));
+    }
+    ambientParticles = [];
+    for (let i = 0; i < 30; i++) {
+      ambientParticles.push(new AmbientParticle());
+    }
+    score = 0;
+    scoreEl.innerText = '0';
+    progressFill.style.width = '0%';
+  }
+
+  function checkCatch() {
+    const catchRadius = 55;
+    let caughtAny = false;
+
+    creatures.forEach((c, i) => {
+      if (c.isCaught) return;
+      const b = c.getBounds();
+      const dx = b.x - mouse.x;
+      const dy = b.y - mouse.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < catchRadius + b.r * 0.5) {
+        catchCreature(c);
+        caughtAny = true;
+      }
+    });
+
+    if (caughtAny) {
+      // Net pulse effect
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        particles.push(new Particle(
+          mouse.x + Math.cos(angle) * 30,
+          mouse.y + Math.sin(angle) * 30,
+          'rgba(255,255,255,0.6)',
+          'ring'
+        ));
+      }
+    }
+  }
+
+  function catchCreature(creature) {
+    creature.isCaught = true;
+    score++;
+    scoreEl.innerText = score;
+
+    const pct = Math.min((score / MAX_CAPTURES) * 100, 100);
+    progressFill.style.width = pct + '%';
+
+    // Burst particles
+    for (let i = 0; i < 20; i++) {
+      particles.push(new Particle(creature.x, creature.y, creature.color, 'burst'));
+    }
+
+    // Toast
+    toastEl.classList.add('active');
+    clearTimeout(toastEl._timeout);
+    toastEl._timeout = setTimeout(() => toastEl.classList.remove('active'), 1200);
+
+    // Respawn
+    setTimeout(() => {
+      const idx = creatures.indexOf(creature);
+      if (idx !== -1) {
+        creatures[idx] = new Creature(creature.type);
+      }
+    }, 2500);
+  }
+
+  function resetGame() {
+    init();
+  }
+  window.resetGame = resetGame;
+
+  function drawNet() {
+    if (mouse.x < -100) return;
+    ctx.save();
+    ctx.translate(mouse.x, mouse.y);
+
+    const pulse = isMouseDown ? 1.15 : 1;
+    const baseR = 50 * pulse;
+
+    // Outer glow ring
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = 'rgba(77,232,255,0.4)';
+    ctx.strokeStyle = isMouseDown ? 'rgba(255,255,255,0.6)' : 'rgba(77,232,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, baseR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner ring
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(77,232,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, baseR * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Net web pattern
+    ctx.strokeStyle = 'rgba(77,232,255,0.12)';
+    ctx.lineWidth = 0.8;
+    const spokes = 8;
+    for (let i = 0; i < spokes; i++) {
+      const a = (i / spokes) * Math.PI * 2 + netAngle * 0.005;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * baseR, Math.sin(a) * baseR);
+      ctx.stroke();
+    }
+
+    // Concentric web rings
+    for (let r = 0.3; r <= 1; r += 0.3) {
+      ctx.beginPath();
+      ctx.arc(0, 0, baseR * r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Crosshair
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1;
+    const ch = 8;
+    ctx.beginPath();
+    ctx.moveTo(-ch, 0); ctx.lineTo(ch, 0);
+    ctx.moveTo(0, -ch); ctx.lineTo(0, ch);
+    ctx.stroke();
+
+    // Center dot
+    ctx.fillStyle = isMouseDown ? '#fff' : 'rgba(77,232,255,0.8)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Suction effect
+    if (isMouseDown) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      for (let r = baseR + 5; r < baseR + 40; r += 10) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // === MAIN LOOP ===
+
+  function loop() {
+    ctx.clearRect(0, 0, W, H);
+    netAngle += 1;
+
+    // Ambient particles
+    ambientParticles.forEach(p => {
+      p.update();
+      p.draw(ctx);
+    });
+
+    // Creatures
+    creatures = creatures.filter(c => c.update());
+    creatures.forEach(c => c.draw(ctx));
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      particles[i].update();
+      particles[i].draw(ctx);
+      if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+
+    // Net
+    drawNet();
+
+    // Stars
+    drawStars();
+
+    requestAnimationFrame(loop);
+  }
+
+  init();
+  loop();
+})();
+</script>
+</body>
+</html>

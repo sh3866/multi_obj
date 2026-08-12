@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            --cell: 76px;
+            --bg: #06070a;
+            --surface: #0c0d12;
+            --wall-face: #15171e;
+            --wall-top: #1c1e27;
+            --wall-highlight: rgba(255,255,255,0.03);
+            --floor: #0e0f14;
+            --floor-grid: rgba(255,255,255,0.025);
+            --cyan: #64e8ff;
+            --cyan-dim: rgba(100, 232, 255, 0.08);
+            --cyan-glow: rgba(100, 232, 255, 0.35);
+            --amber: #f0a848;
+            --amber-dim: rgba(240, 168, 72, 0.1);
+            --amber-glow: rgba(240, 168, 72, 0.3);
+            --green: #4de890;
+            --green-dim: rgba(77, 232, 144, 0.08);
+            --green-glow: rgba(77, 232, 144, 0.35);
+            --red: #f05060;
+            --red-dim: rgba(240, 80, 96, 0.1);
+            --red-glow: rgba(240, 80, 96, 0.3);
+            --text: #d8dae4;
+            --text-dim: #5a5e70;
+            --text-muted: #2e3140;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Ambient background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 60% 50% at 50% 40%, rgba(100, 232, 255, 0.018) 0%, transparent 70%),
+                radial-gradient(ellipse 40% 30% at 30% 70%, rgba(240, 168, 72, 0.01) 0%, transparent 60%),
+                radial-gradient(ellipse 80% 60% at 50% 100%, rgba(0,0,0,0.6) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Subtle noise texture */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            opacity: 0.015;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            background-size: 200px 200px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: calc(var(--cell) * 7 + 64px);
+        }
+
+        /* ── Header ── */
+        header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 0 8px 28px;
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        header::after {
+            content: '';
+            position: absolute;
+            top: -12px;
+            left: 0;
+            width: 40px;
+            height: 1px;
+            background: linear-gradient(90deg, var(--cyan-glow), transparent);
+        }
+
+        .title-block {
+            position: relative;
+        }
+
+        .title-block h1 {
+            font-size: 1.15rem;
+            font-weight: 300;
+            letter-spacing: 0.55em;
+            text-transform: uppercase;
+            color: var(--text);
+            line-height: 1;
+            margin-left: -0.55em;
+        }
+
+        .title-block h1 .accent {
+            color: var(--cyan);
+            font-weight: 600;
+            text-shadow: 0 0 30px var(--cyan-glow), 0 0 60px rgba(100, 232, 255, 0.15);
+        }
+
+        .title-block .sys-label {
+            font-size: 0.5rem;
+            font-weight: 500;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 10px;
+            margin-left: -0.55em;
+        }
+
+        .hud {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+        }
+
+        .stat {
+            text-align: right;
+            position: relative;
+        }
+
+        .stat::before {
+            content: '';
+            position: absolute;
+            top: -12px;
+            right: 0;
+            width: 24px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--text-muted));
+        }
+
+        .stat-val {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+            letter-spacing: 0.15em;
+            line-height: 1;
+        }
+
+        .stat-lbl {
+            font-size: 0.45rem;
+            font-weight: 600;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        /* ── Board ── */
+        .board-container {
+            position: relative;
+            border-radius: 12px;
+            padding: 2px;
+            background: linear-gradient(160deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 50%, rgba(255,255,255,0.02) 100%);
+            box-shadow:
+                0 32px 100px rgba(0,0,0,0.6),
+                0 0 0 1px rgba(255,255,255,0.03),
+                inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+
+        /* Ambient glow behind board */
+        .board-container::before {
+            content: '';
+            position: absolute;
+            inset: -40px;
+            border-radius: 40px;
+            background: radial-gradient(ellipse at center, rgba(100, 232, 255, 0.03) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .board-inner {
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--surface);
+            box-shadow: inset 0 2px 30px rgba(0,0,0,0.4);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell));
+            grid-template-rows: repeat(7, var(--cell));
+        }
+
+        .cell {
+            width: var(--cell);
+            height: var(--cell);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Floor */
+        .cell.floor {
+            background: var(--floor);
+            position: relative;
+        }
+
+        .cell.floor::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border: 1px solid var(--floor-grid);
+            pointer-events: none;
+        }
+
+        /* Subtle floor variation */
+        .cell.floor:nth-child(odd)::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.005);
+            pointer-events: none;
+        }
+
+        /* Wall */
+        .cell.wall {
+            background: var(--wall-face);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cell.wall .wall-body {
+            position: absolute;
+            inset: 1px;
+            background: linear-gradient(180deg, var(--wall-top) 0%, var(--wall-face) 40%, rgba(0,0,0,0.15) 100%);
+            border-radius: 3px;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.04),
+                inset 0 -2px 6px rgba(0,0,0,0.2),
+                0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .cell.wall .wall-body::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 1px; right: 1px;
+            height: 2px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 100%);
+            border-radius: 3px 3px 0 0;
+        }
+
+        .cell.wall .wall-body::after {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border: 1px solid rgba(255,255,255,0.015);
+            border-radius: 2px;
+        }
+
+        /* Goal */
+        .goal {
+            position: absolute;
+            inset: 12px;
+            border-radius: 10px;
+            border: 1.5px dashed rgba(100, 232, 255, 0.15);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .goal::before {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 14px;
+            background: radial-gradient(circle, var(--cyan-dim) 0%, transparent 70%);
+            animation: goalPulse 4s ease-in-out infinite;
+        }
+
+        .goal span {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.4rem;
+            font-weight: 700;
+            letter-spacing: 0.25em;
+            color: rgba(100, 232, 255, 0.3);
+            text-transform: uppercase;
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes goalPulse {
+            0%, 100% { opacity: 0.3; transform: scale(0.97); }
+            50% { opacity: 0.6; transform: scale(1.03); }
+        }
+
+        .goal.active {
+            border-color: var(--green);
+            border-style: solid;
+            box-shadow: 0 0 30px var(--green-glow), inset 0 0 15px var(--green-dim);
+        }
+
+        .goal.active::before {
+            background: radial-gradient(circle, var(--green-dim) 0%, transparent 70%);
+            animation: none;
+            opacity: 1;
+        }
+
+        .goal.active span {
+            color: var(--green);
+            text-shadow: 0 0 12px var(--green-glow);
+        }
+
+        /* Lever */
+        .lever {
+            position: relative;
+            width: 56px;
+            height: 56px;
+        }
+
+        .lever-plate {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 28px;
+            height: 12px;
+            background: linear-gradient(180deg, #2a2c34, #1a1c22);
+            border-radius: 3px;
+            box-shadow:
+                0 4px 12px rgba(0,0,0,0.5),
+                inset 0 1px 0 rgba(255,255,255,0.04),
+                inset 0 -1px 0 rgba(0,0,0,0.2);
+        }
+
+        .lever-stem {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            width: 5px;
+            height: 24px;
+            border-radius: 2.5px;
+            transform-origin: bottom center;
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .lever.off .lever-stem {
+            background: linear-gradient(to top, #7a2838, var(--red));
+            transform: translateX(-50%) rotate(-28deg);
+            box-shadow: 0 0 16px var(--red-glow), 0 2px 6px rgba(0,0,0,0.3);
+        }
+
+        .lever.on .lever-stem {
+            background: linear-gradient(to top, #1a8050, var(--green));
+            transform: translateX(-50%) rotate(28deg);
+            box-shadow: 0 0 16px var(--green-glow), 0 2px 6px rgba(0,0,0,0.3);
+        }
+
+        .lever-head {
+            position: absolute;
+            top: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .lever.off .lever-head {
+            background: radial-gradient(circle at 35% 30%, #ff9898, var(--red) 60%, #a03040 100%);
+            box-shadow: 0 0 20px var(--red-glow), 0 4px 10px rgba(0,0,0,0.4), inset 0 -3px 6px rgba(0,0,0,0.2);
+        }
+
+        .lever.on .lever-head {
+            background: radial-gradient(circle at 35% 30%, #90ffaa, var(--green) 60%, #1a7040 100%);
+            box-shadow: 0 0 20px var(--green-glow), 0 4px 10px rgba(0,0,0,0.4), inset 0 -3px 6px rgba(0,0,0,0.2);
+        }
+
+        /* Crate */
+        .crate {
+            width: 56px;
+            height: 56px;
+            border-radius: 10px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+        }
+
+        .crate-body {
+            position: absolute;
+            inset: 0;
+            border-radius: 10px;
+            background: linear-gradient(160deg, #5a5242, #3a3228 50%, #2a241c 100%);
+            box-shadow:
+                0 8px 30px rgba(0,0,0,0.5),
+                0 3px 12px rgba(0,0,0,0.3),
+                inset 0 1px 0 rgba(255,255,255,0.08),
+                inset 0 -4px 0 rgba(0,0,0,0.3),
+                inset 0 0 0 1px rgba(0,0,0,0.2);
+        }
+
+        .crate-body::before {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 6px;
+        }
+
+        .crate-body::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 10px;
+            background:
+                linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.12) 60%, transparent 60%),
+                linear-gradient(-135deg, transparent 40%, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.12) 60%, transparent 60%);
+        }
+
+        .crate-label {
+            position: relative;
+            z-index: 2;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.38rem;
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            color: var(--amber);
+            padding: 4px 8px;
+            border: 1px solid rgba(240, 168, 72, 0.15);
+            border-radius: 3px;
+            background: rgba(0,0,0,0.4);
+            text-shadow: 0 0 8px var(--amber-glow);
+        }
+
+        /* Player */
+        .player {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            position: relative;
+            z-index: 10;
+        }
+
+        .player-body {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: radial-gradient(circle at 38% 30%, #ffffff 0%, #d0f8ff 10%, var(--cyan) 35%, rgba(100, 232, 255, 0.4) 70%, transparent 100%);
+            box-shadow:
+                0 0 40px var(--cyan-glow),
+                0 0 80px rgba(100, 232, 255, 0.12),
+                0 6px 20px rgba(0,0,0,0.3),
+                inset 0 -4px 10px rgba(0,0,0,0.2),
+                inset 0 3px 8px rgba(255,255,255,0.12);
+            animation: playerFloat 3.5s ease-in-out infinite;
+        }
+
+        .player-body::before {
+            content: '';
+            position: absolute;
+            top: 7px;
+            left: 10px;
+            width: 14px;
+            height: 10px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            transform: rotate(-20deg);
+            filter: blur(1px);
+        }
+
+        /* Player light cast on floor */
+        .player::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 10px;
+            background: radial-gradient(ellipse, var(--cyan-dim) 0%, transparent 70%);
+            border-radius: 50%;
+            filter: blur(4px);
+        }
+
+        @keyframes playerFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        /* Door */
+        .door {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            position: relative;
+            background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.15) 100%);
+            border: 1.5px solid rgba(255,255,255,0.05);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.4);
+            transition: all 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .door::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: 9px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #3a3d48;
+            transform: translateY(-50%);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            transition: all 0.8s ease;
+        }
+
+        .door::after {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border: 1px solid rgba(255,255,255,0.02);
+            border-radius: 4px;
+        }
+
+        .door.unlocked {
+            border-color: rgba(77, 232, 144, 0.25);
+            box-shadow:
+                inset 0 0 20px rgba(0,0,0,0.4),
+                0 0 25px var(--green-glow);
+        }
+
+        .door.unlocked::before {
+            background: var(--green);
+            box-shadow: 0 0 10px var(--green-glow), 0 0 20px var(--green-glow);
+        }
+
+        /* Footer */
+        .footer {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .key-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .key {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 24px;
+            height: 24px;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 5px;
+            background: rgba(255,255,255,0.02);
+            color: var(--text-dim);
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.52rem;
+            font-weight: 600;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+        }
+
+        .key-label {
+            font-size: 0.42rem;
+            font-weight: 600;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-left: 6px;
+        }
+
+        .status {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.5rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            color: var(--green);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            text-transform: uppercase;
+            text-shadow: 0 0 12px var(--green-glow);
+        }
+
+        .status.show { opacity: 1; }
+
+        /* Win overlay */
+        .win-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(6, 7, 10, 0.92);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+            backdrop-filter: blur(12px);
+        }
+
+        .win-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .win-overlay h2 {
+            font-size: 1.4rem;
+            font-weight: 300;
+            letter-spacing: 0.5em;
+            text-transform: uppercase;
+            color: var(--green);
+            text-shadow: 0 0 50px var(--green-glow), 0 0 100px rgba(77, 232, 144, 0.15);
+            margin-left: -0.5em;
+        }
+
+        .win-overlay .win-sub {
+            font-size: 0.5rem;
+            font-weight: 500;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-top: 16px;
+        }
+
+        .win-overlay .win-moves {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+            letter-spacing: 0.1em;
+        }
+
+        /* Scanline overlay - very subtle */
+        .scanlines {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 3px,
+                rgba(0,0,0,0.015) 3px,
+                rgba(0,0,0,0.015) 6px
+            );
+            z-index: 999;
+        }
+
+        /* Vignette */
+        .vignette {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%);
+            z-index: 998;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <div class="app">
+        <header>
+            <div class="title-block">
+                <h1>VOID <span class="accent">LOCK</span></h1>
+                <div class="sys-label">System: Online</div>
+            </div>
+            <div class="hud">
+                <div class="stat">
+                    <div class="stat-val" id="level-display">07</div>
+                    <div class="stat-lbl">Sector</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-val" id="moves-display">00</div>
+                    <div class="stat-lbl">Moves</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="board-container">
+            <div class="board-inner">
+                <div class="board" id="game-board"></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="controls">
+                <div class="key-group">
+                    <span class="key">W</span>
+                    <span class="key">A</span>
+                    <span class="key">S</span>
+                    <span class="key">D</span>
+                    <span class="key-label">Move</span>
+                </div>
+                <div class="key-group">
+                    <span class="key">R</span>
+                    <span class="key-label">Reset</span>
+                </div>
+            </div>
+            <div class="status" id="status-msg"></div>
+        </div>
+    </div>
+
+    <div class="win-overlay" id="win-overlay">
+        <h2>Protocol Complete</h2>
+        <div class="win-sub">Press R to reset</div>
+        <div class="win-moves" id="win-moves"></div>
+    </div>
+
+    <script>
+        const SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesEl = document.getElementById('moves-display');
+        const statusEl = document.getElementById('status-msg');
+        const winOverlay = document.getElementById('win-overlay');
+        const winMovesEl = document.getElementById('win-moves');
+
+        // 0:Floor 1:Wall 2:Player 3:Crate 4:Lever(off) 5:Goal 6:Lever(on) 7:Door(locked) 8:Door(unlocked)
+        const initMap = [
+            [1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,1],
+            [1,0,4,0,3,0,1],
+            [1,0,0,7,0,0,1],
+            [1,0,0,2,0,0,1],
+            [1,0,0,0,5,0,1],
+            [1,1,1,1,1,1,1]
+        ];
+
+        let map = JSON.parse(JSON.stringify(initMap));
+        let px = 3, py = 4;
+        let moves = 0;
+        let won = false;
+
+        function render() {
+            boardEl.innerHTML = '';
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const v = map[y][x];
+                    const c = document.createElement('div');
+                    c.className = 'cell';
+
+                    if (v === 1) {
+                        c.classList.add('wall');
+                        const wb = document.createElement('div');
+                        wb.className = 'wall-body';
+                        c.appendChild(wb);
+                    } else {
+                        c.classList.add('floor');
+
+                        // Door
+                        if (v === 7 || v === 8) {
+                            const d = document.createElement('div');
+                            d.className = 'door' + (v === 8 ? ' unlocked' : '');
+                            c.appendChild(d);
+                        }
+
+                        // Goal
+                        if (v === 5 || (v === 2 && isGoal(x, y))) {
+                            const g = document.createElement('div');
+                            g.className = 'goal' + (won ? ' active' : '');
+                            g.innerHTML = '<span>EXIT</span>';
+                            c.appendChild(g);
+                        }
+
+                        // Lever
+                        if (v === 4 || v === 6) {
+                            const on = v === 6;
+                            const l = document.createElement('div');
+                            l.className = 'lever ' + (on ? 'on' : 'off');
+                            l.innerHTML = '<div class="lever-plate"></div><div class="lever-stem"><div class="lever-head"></div></div>';
+                            c.appendChild(l);
+                        }
+
+                        // Crate
+                        if (v === 3) {
+                            const cr = document.createElement('div');
+                            cr.className = 'crate';
+                            cr.innerHTML = '<div class="crate-body"></div><span class="crate-label">CARGO</span>';
+                            c.appendChild(cr);
+                        }
+
+                        // Player
+                        if (v === 2) {
+                            const p = document.createElement('div');
+                            p.className = 'player';
+                            p.innerHTML = '<div class="player-body"></div>';
+                            c.appendChild(p);
+                        }
+                    }
+                    boardEl.appendChild(c);
+                }
+            }
+            movesEl.textContent = String(moves).padStart(2, '0');
+        }
+
+        function isGoal(x, y) { return initMap[y][x] === 5; }
+
+        function checkWin() {
+            for (let y = 0; y < SIZE; y++)
+                for (let x = 0; x < SIZE; x++)
+                    if (initMap[y][x] === 5 && map[y][x] === 3) return true;
+            return false;
+        }
+
+        function flash(msg) {
+            statusEl.textContent = msg;
+            statusEl.classList.add('show');
+            clearTimeout(flash._t);
+            flash._t = setTimeout(() => statusEl.classList.remove('show'), 2500);
+        }
+
+        function step(dx, dy) {
+            if (won) return;
+            const nx = px + dx, ny = py + dy;
+            if (nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE) return;
+            const t = map[ny][nx];
+
+            if (t === 1 || t === 7) return;
+
+            if (t === 4) {
+                map[py][px] = 0;
+                px = nx; py = ny;
+                map[ny][nx] = 6;
+                moves++;
+                render();
+                flash('Lever Engaged');
+                return;
+            }
+            if (t === 6) {
+                map[py][px] = 0;
+                px = nx; py = ny;
+                moves++;
+                render();
+                return;
+            }
+            if (t === 3) {
+                const bx = nx + dx, by = ny + dy;
+                if (bx >= 0 && bx < SIZE && by >= 0 && by < SIZE) {
+                    const b = map[by][bx];
+                    if (b !== 1 && b !== 3 && b !== 4 && b !== 6 && b !== 7) {
+                        map[by][bx] = 3;
+                        map[ny][nx] = 0;
+                        map[py][px] = 0;
+                        px = nx; py = ny;
+                        moves++;
+                        if (checkWin()) {
+                            won = true;
+                            flash('Protocol Complete');
+                            winMovesEl.textContent = 'Completed in ' + moves + ' moves';
+                            setTimeout(() => winOverlay.classList.add('show'), 600);
+                        }
+                        render();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            map[py][px] = 0;
+            px = nx; py = ny;
+            moves++;
+            render();
+        }
+
+        function reset() {
+            map = JSON.parse(JSON.stringify(initMap));
+            px = 3; py = 4;
+            moves = 0;
+            won = false;
+            winOverlay.classList.remove('show');
+            render();
+            flash('System Reset');
+        }
+
+        render();
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'r' || e.key === 'R') { reset(); return; }
+            let dx = 0, dy = 0;
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') dx = 1;
+            if (dx || dy) { e.preventDefault(); step(dx, dy); }
+        });
+    </script>
+</body>
+</html>

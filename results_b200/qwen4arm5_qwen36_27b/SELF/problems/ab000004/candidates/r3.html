@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+    :root {
+        --cyan: #00e5ff;
+        --cyan-deep: #0091a8;
+        --cyan-glow: rgba(0, 229, 255, 0.6);
+        --magenta: #ff2070;
+        --magenta-glow: rgba(255, 32, 112, 0.5);
+        --gold: #ffc800;
+        --gold-glow: rgba(255, 200, 0, 0.5);
+        --bg-deep: #020408;
+        --bg-panel: rgba(4, 12, 32, 0.85);
+        --border-subtle: rgba(0, 229, 255, 0.08);
+        --border-active: rgba(0, 229, 255, 0.3);
+        --text-primary: #e8edf5;
+        --text-secondary: #6b7a94;
+        --text-dim: #3a4a62;
+        --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body {
+        background: var(--bg-deep);
+        color: var(--text-primary);
+        font-family: var(--font-display);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* === BACKGROUND CANVAS === */
+    #bgCanvas {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 0;
+    }
+
+    /* === ATMOSPHERIC OVERLAYS === */
+    .overlay-vignette {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background:
+            radial-gradient(ellipse at 50% 30%, transparent 30%, rgba(2,4,8,0.6) 100%),
+            linear-gradient(180deg, rgba(2,4,8,0.3) 0%, transparent 30%, transparent 70%, rgba(2,4,8,0.8) 100%);
+    }
+
+    .overlay-scanlines {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(0, 229, 255, 0.006) 3px,
+            rgba(0, 229, 255, 0.006) 6px
+        );
+    }
+
+    .overlay-noise {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        opacity: 0.015;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        background-size: 256px 256px;
+    }
+
+    /* === HUD HEADER === */
+    .hud-header {
+        position: relative;
+        z-index: 10;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 24px 48px;
+        border-bottom: 1px solid rgba(0, 229, 255, 0.04);
+    }
+
+    .hud-left, .hud-right {
+        display: flex;
+        gap: 56px;
+        align-items: flex-start;
+    }
+
+    .hud-block {
+        display: flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .hud-label {
+        font-family: var(--font-mono);
+        font-size: 0.5rem;
+        letter-spacing: 5px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .hud-label .dot {
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        animation: blink-dot 2.5s infinite;
+    }
+
+    .hud-label .dot-cyan { background: var(--cyan); box-shadow: 0 0 8px var(--cyan-glow); }
+    .hud-label .dot-magenta { background: var(--magenta); box-shadow: 0 0 8px var(--magenta-glow); }
+    .hud-label .dot-gold { background: var(--gold); box-shadow: 0 0 8px var(--gold-glow); }
+
+    @keyframes blink-dot {
+        0%, 85%, 100% { opacity: 1; }
+        92% { opacity: 0.15; }
+    }
+
+    .hud-value {
+        font-family: var(--font-mono);
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: 4px;
+        line-height: 1;
+    }
+
+    .hud-value.wave-val { color: var(--text-primary); text-shadow: 0 0 30px rgba(255,255,255,0.15); }
+    .hud-value.hp-val { color: var(--magenta); text-shadow: 0 0 30px var(--magenta-glow); }
+    .hud-value.credits-val { color: var(--gold); text-shadow: 0 0 30px var(--gold-glow); }
+
+    .hud-right .hud-block { align-items: flex-end; }
+    .hud-right .hud-label { flex-direction: row-reverse; }
+
+    .hp-bar-container {
+        width: 130px;
+        height: 2px;
+        background: rgba(255,32,112,0.1);
+        border-radius: 1px;
+        margin-top: 10px;
+        overflow: hidden;
+    }
+
+    .hp-bar-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, var(--magenta), #ff5090);
+        border-radius: 1px;
+        box-shadow: 0 0 10px var(--magenta-glow);
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* === MAIN CONTENT === */
+    .main-content {
+        position: relative;
+        z-index: 10;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+        gap: 20px;
+    }
+
+    /* === TITLE === */
+    .title-wrapper {
+        position: relative;
+        text-align: center;
+        margin-bottom: 8px;
+    }
+
+    .title-main {
+        font-family: var(--font-display);
+        font-size: clamp(3rem, 8vw, 6.5rem);
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        line-height: 0.95;
+        position: relative;
+        display: inline-block;
+        user-select: none;
+    }
+
+    .title-main .word-js {
+        background: linear-gradient(180deg, #ffffff 0%, #8a9ab0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        opacity: 0.85;
+    }
+
+    .title-main .word-planet {
+        color: var(--cyan);
+        -webkit-text-fill-color: var(--cyan);
+        text-shadow:
+            0 0 80px rgba(0, 229, 255, 0.4),
+            0 0 160px rgba(0, 229, 255, 0.15),
+            0 0 240px rgba(0, 229, 255, 0.05);
+        position: relative;
+    }
+
+    .title-main .word-defense {
+        background: linear-gradient(180deg, #ffffff 0%, #8a9ab0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        opacity: 0.85;
+    }
+
+    .title-subtitle {
+        font-family: var(--font-mono);
+        font-size: 0.55rem;
+        letter-spacing: 12px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-top: 18px;
+        text-align: center;
+    }
+
+    .title-line {
+        width: 120px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(0,229,255,0.25), transparent);
+        margin: 16px auto 0;
+    }
+
+    /* === BRIEFING PANEL === */
+    .briefing-panel {
+        position: relative;
+        width: 100%;
+        max-width: 540px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-subtle);
+        padding: 28px 32px;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+
+    .briefing-panel::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(0,229,255,0.02) 0%, transparent 40%);
+        pointer-events: none;
+    }
+
+    .corner {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+    }
+
+    .corner::before, .corner::after {
+        content: '';
+        position: absolute;
+        background: var(--cyan);
+    }
+
+    .corner-tl { top: -1px; left: -1px; }
+    .corner-tl::before { top: 0; left: 0; width: 12px; height: 1.5px; }
+    .corner-tl::after { top: 0; left: 0; width: 1.5px; height: 12px; }
+
+    .corner-tr { top: -1px; right: -1px; }
+    .corner-tr::before { top: 0; right: 0; width: 12px; height: 1.5px; }
+    .corner-tr::after { top: 0; right: 0; width: 1.5px; height: 12px; }
+
+    .corner-bl { bottom: -1px; left: -1px; }
+    .corner-bl::before { bottom: 0; left: 0; width: 12px; height: 1.5px; }
+    .corner-bl::after { bottom: 0; left: 0; width: 1.5px; height: 12px; }
+
+    .corner-br { bottom: -1px; right: -1px; }
+    .corner-br::before { bottom: 0; right: 0; width: 12px; height: 1.5px; }
+    .corner-br::after { bottom: 0; right: 0; width: 1.5px; height: 12px; }
+
+    .briefing-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .briefing-icon {
+        width: 14px;
+        height: 14px;
+        color: var(--cyan);
+        animation: pulse-icon 2s infinite;
+        flex-shrink: 0;
+    }
+
+    @keyframes pulse-icon {
+        0%, 100% { opacity: 1; filter: drop-shadow(0 0 6px var(--cyan-glow)); }
+        50% { opacity: 0.5; filter: drop-shadow(0 0 12px var(--cyan-glow)); }
+    }
+
+    .briefing-header-text {
+        font-family: var(--font-mono);
+        font-size: 0.5rem;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: var(--cyan);
+    }
+
+    .briefing-text {
+        font-size: 0.85rem;
+        line-height: 1.85;
+        color: var(--text-secondary);
+        letter-spacing: 0.01em;
+    }
+
+    .briefing-text strong {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    /* === UPGRADE CARDS === */
+    .upgrades-row {
+        display: flex;
+        gap: 14px;
+        width: 100%;
+        max-width: 620px;
+    }
+
+    .upgrade-card {
+        flex: 1;
+        position: relative;
+        background: linear-gradient(180deg, rgba(0,229,255,0.03) 0%, rgba(0,229,255,0.005) 100%);
+        border: 1px solid var(--border-subtle);
+        padding: 24px 12px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        overflow: hidden;
+    }
+
+    .upgrade-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 0%, rgba(0,229,255,0.08) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .upgrade-card:hover::before { opacity: 1; }
+
+    .upgrade-card:hover {
+        border-color: var(--border-active);
+        transform: translateY(-2px);
+        box-shadow:
+            0 8px 32px rgba(0,229,255,0.06),
+            inset 0 1px 0 rgba(0,229,255,0.1);
+    }
+
+    .upgrade-card:active {
+        transform: translateY(0);
+        transition-duration: 0.1s;
+    }
+
+    .upgrade-icon-wrap {
+        width: 40px;
+        height: 40px;
+        margin: 0 auto 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .upgrade-icon-wrap svg {
+        width: 26px;
+        height: 26px;
+        stroke: var(--cyan);
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 8px rgba(0,229,255,0.25));
+        transition: filter 0.3s ease;
+    }
+
+    .upgrade-card:hover .upgrade-icon-wrap svg {
+        filter: drop-shadow(0 0 16px rgba(0,229,255,0.5));
+    }
+
+    .upgrade-name {
+        font-family: var(--font-mono);
+        font-size: 0.5rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--text-primary);
+        margin-bottom: 6px;
+        font-weight: 600;
+    }
+
+    .upgrade-cost {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        color: var(--gold);
+        letter-spacing: 1px;
+    }
+
+    /* === START BUTTON === */
+    .btn-start-wrap {
+        position: relative;
+        margin-top: 8px;
+    }
+
+    .btn-start {
+        position: relative;
+        background: transparent;
+        color: var(--cyan);
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 10px;
+        text-transform: uppercase;
+        padding: 22px 56px;
+        border: none;
+        cursor: pointer;
+        overflow: visible;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-start::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border: 1px solid rgba(0,229,255,0.15);
+        clip-path: polygon(
+            0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%,
+            16px 100%, 0 calc(100% - 16px)
+        );
+        transition: border-color 0.4s ease;
+    }
+
+    .btn-start:hover::before {
+        border-color: rgba(0,229,255,0.5);
+    }
+
+    .btn-start::after {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        background: linear-gradient(180deg, rgba(0,229,255,0.08) 0%, transparent 100%);
+        clip-path: polygon(
+            0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%,
+            16px 100%, 0 calc(100% - 16px)
+        );
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover::after { opacity: 1; }
+
+    .btn-start:hover {
+        color: #ffffff;
+        text-shadow: 0 0 30px var(--cyan-glow), 0 0 60px rgba(0,229,255,0.2);
+        transform: scale(1.02);
+    }
+
+    .btn-start:active {
+        transform: scale(0.98);
+        transition-duration: 0.1s;
+    }
+
+    .btn-corner {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+    }
+
+    .btn-corner::before, .btn-corner::after {
+        content: '';
+        position: absolute;
+        background: var(--cyan);
+        opacity: 0.3;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover .btn-corner::before,
+    .btn-start:hover .btn-corner::after { opacity: 1; }
+
+    .btn-corner.tl { top: -6px; left: -6px; }
+    .btn-corner.tl::before { top: 0; left: 0; width: 8px; height: 1.5px; }
+    .btn-corner.tl::after { top: 0; left: 0; width: 1.5px; height: 8px; }
+
+    .btn-corner.br { bottom: -6px; right: -6px; }
+    .btn-corner.br::before { bottom: 0; right: 0; width: 8px; height: 1.5px; }
+    .btn-corner.br::after { bottom: 0; right: 0; width: 1.5px; height: 8px; }
+
+    /* === DECORATIVE RINGS === */
+    .deco-ring {
+        position: fixed;
+        border-radius: 50%;
+        border: 1px solid rgba(0,229,255,0.02);
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .deco-ring-1 {
+        width: 700px; height: 700px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        animation: rotate-slow 90s linear infinite;
+    }
+
+    .deco-ring-2 {
+        width: 500px; height: 500px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,229,255,0.035);
+        animation: rotate-slow 70s linear infinite reverse;
+    }
+
+    .deco-ring-3 {
+        width: 900px; height: 900px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,229,255,0.012);
+        animation: rotate-slow 130s linear infinite;
+    }
+
+    @keyframes rotate-slow {
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 768px) {
+        .hud-header { padding: 16px 24px; }
+        .hud-left, .hud-right { gap: 28px; }
+        .hud-value { font-size: 1.1rem; }
+        .upgrades-row { flex-direction: column; max-width: 260px; }
+        .briefing-panel { padding: 20px 22px; }
+        .btn-start { padding: 18px 40px; font-size: 0.75rem; letter-spacing: 7px; }
+        .title-main { letter-spacing: 0.03em; }
+    }
+
+    @media (max-width: 480px) {
+        .hud-header { flex-direction: column; gap: 12px; align-items: center; }
+        .hud-left, .hud-right { gap: 16px; }
+        .title-main { font-size: 2.2rem; }
+        .title-subtitle { letter-spacing: 6px; font-size: 0.5rem; }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<div class="overlay-vignette"></div>
+<div class="overlay-scanlines"></div>
+<div class="overlay-noise"></div>
+
+<div class="deco-ring deco-ring-1"></div>
+<div class="deco-ring deco-ring-2"></div>
+<div class="deco-ring deco-ring-3"></div>
+
+<!-- HUD HEADER -->
+<header class="hud-header">
+    <div class="hud-left">
+        <div class="hud-block">
+            <span class="hud-label"><span class="dot dot-cyan"></span>Wave Status</span>
+            <span class="hud-value wave-val" id="waveDisplay">001</span>
+        </div>
+        <div class="hud-block">
+            <span class="hud-label"><span class="dot dot-magenta"></span>Shield Integrity</span>
+            <span class="hud-value hp-val" id="hpDisplay">100%</span>
+            <div class="hp-bar-container">
+                <div class="hp-bar-fill" id="hpBar"></div>
+            </div>
+        </div>
+    </div>
+    <div class="hud-right">
+        <div class="hud-block">
+            <span class="hud-label"><span class="dot dot-gold"></span>Credits</span>
+            <span class="hud-value credits-val" id="creditsDisplay">500</span>
+        </div>
+    </div>
+</header>
+
+<!-- MAIN CONTENT -->
+<main class="main-content">
+
+    <!-- TITLE -->
+    <div class="title-wrapper">
+        <h1 class="title-main">
+            <span class="word-js">JS</span> <span class="word-planet">Planet</span> <span class="word-defense">Defense</span>
+        </h1>
+        <div class="title-subtitle">Orbital Defense Command v2.4.1</div>
+        <div class="title-line"></div>
+    </div>
+
+    <!-- BRIEFING -->
+    <div class="briefing-panel">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+        <div class="briefing-header">
+            <svg class="briefing-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span class="briefing-header-text">Incoming Transmission</span>
+        </div>
+        <p class="briefing-text">
+            Commander, sensors detect a <strong>massive swarm</strong> approaching the sector.
+            Orbital cannons are online but require manual calibration. Optimize your turret systems
+            before the first wave breaches the <strong>perimeter</strong>.
+        </p>
+    </div>
+
+    <!-- UPGRADES -->
+    <div class="upgrades-row">
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon-wrap">
+                <svg viewBox="0 0 24 24">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Damage Output</div>
+            <div class="upgrade-cost">150 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon-wrap">
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Fire Rate</div>
+            <div class="upgrade-cost">200 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon-wrap">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Projectile Speed</div>
+            <div class="upgrade-cost">100 Credits</div>
+        </div>
+    </div>
+
+    <!-- START BUTTON -->
+    <div class="btn-start-wrap">
+        <button class="btn-start" onclick="startGame()">
+            <span class="btn-corner tl"></span>
+            <span class="btn-corner br"></span>
+            Initialize Defense
+        </button>
+    </div>
+
+</main>
+
+<script>
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let time = 0;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Stars
+const stars = [];
+for (let i = 0; i < 350; i++) {
+    stars.push({
+        x: Math.random() * W * 2 - W * 0.5,
+        y: Math.random() * H * 2 - H * 0.5,
+        z: Math.random() * 3 + 0.3,
+        size: Math.random() * 1.6 + 0.2,
+        twinkleSpeed: Math.random() * 0.012 + 0.004,
+        twinkleOffset: Math.random() * Math.PI * 2,
+        color: Math.random() > 0.82 ? 'cyan' : (Math.random() > 0.5 ? 'warm' : 'white')
+    });
+}
+
+// Floating particles
+const particles = [];
+for (let i = 0; i < 15; i++) {
+    particles.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.15,
+        vy: (Math.random() - 0.5) * 0.15,
+        size: Math.random() * 1.5 + 0.5,
+        opacity: Math.random() * 0.15 + 0.02
+    });
+}
+
+// Shooting stars
+const shootingStars = [];
+function spawnShootingStar() {
+    if (Math.random() < 0.002 && shootingStars.length < 2) {
+        shootingStars.push({
+            x: Math.random() * W,
+            y: Math.random() * H * 0.35,
+            vx: (Math.random() - 0.3) * 7,
+            vy: Math.random() * 3.5 + 1.5,
+            life: 1,
+            decay: Math.random() * 0.012 + 0.007,
+            length: Math.random() * 50 + 25
+        });
+    }
+}
+
+function drawBackground() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Deep space gradient
+    const grad = ctx.createRadialGradient(W/2, H * 0.35, 0, W/2, H * 0.35, Math.max(W, H) * 0.85);
+    grad.addColorStop(0, '#080e20');
+    grad.addColorStop(0.35, '#040a18');
+    grad.addColorStop(1, '#020408');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle nebula glow - blue
+    const nebulaGrad = ctx.createRadialGradient(W * 0.3, H * 0.3, 0, W * 0.3, H * 0.3, 450);
+    nebulaGrad.addColorStop(0, 'rgba(0, 40, 90, 0.1)');
+    nebulaGrad.addColorStop(0.5, 'rgba(0, 25, 60, 0.03)');
+    nebulaGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebulaGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Nebula glow - purple
+    const nebulaGrad2 = ctx.createRadialGradient(W * 0.7, H * 0.5, 0, W * 0.7, H * 0.5, 350);
+    nebulaGrad2.addColorStop(0, 'rgba(50, 0, 70, 0.06)');
+    nebulaGrad2.addColorStop(0.5, 'rgba(25, 0, 40, 0.02)');
+    nebulaGrad2.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebulaGrad2;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    for (const star of stars) {
+        const sx = ((star.x / star.z) % W + W) % W;
+        const sy = ((star.y / star.z) % H + H) % H;
+        const twinkle = Math.sin(time * star.twinkleSpeed + star.twinkleOffset) * 0.5 + 0.5;
+        const alpha = (0.15 + twinkle * 0.75) * Math.min(1, star.z / 2.5);
+
+        let color;
+        if (star.color === 'cyan') {
+            color = `rgba(170, 220, 255, ${alpha})`;
+        } else if (star.color === 'warm') {
+            color = `rgba(255, 225, 190, ${alpha})`;
+        } else {
+            color = `rgba(210, 220, 245, ${alpha})`;
+        }
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, star.size * (1/star.z), 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        if (star.size > 1.1 && alpha > 0.45) {
+            ctx.beginPath();
+            ctx.arc(sx, sy, star.size * 3.5 / star.z, 0, Math.PI * 2);
+            ctx.fillStyle = star.color === 'cyan'
+                ? `rgba(0, 229, 255, ${alpha * 0.05})`
+                : `rgba(190, 200, 245, ${alpha * 0.03})`;
+            ctx.fill();
+        }
+    }
+
+    // Shooting stars
+    spawnShootingStar();
+    for (let i = shootingStars.length - 1; i >= 0; i--) {
+        const ss = shootingStars[i];
+        ss.x += ss.vx;
+        ss.y += ss.vy;
+        ss.life -= ss.decay;
+
+        if (ss.life <= 0) {
+            shootingStars.splice(i, 1);
+            continue;
+        }
+
+        const tailX = ss.x - ss.vx * ss.length / 8;
+        const tailY = ss.y - ss.vy * ss.length / 8;
+
+        const ssGrad = ctx.createLinearGradient(tailX, tailY, ss.x, ss.y);
+        ssGrad.addColorStop(0, `rgba(190, 220, 255, 0)`);
+        ssGrad.addColorStop(1, `rgba(190, 220, 255, ${ss.life * 0.5})`);
+
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(ss.x, ss.y);
+        ctx.strokeStyle = ssGrad;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+    }
+
+    // Floating particles
+    for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < -10) p.x = W + 10;
+        if (p.x > W + 10) p.x = -10;
+        if (p.y < -10) p.y = H + 10;
+        if (p.y > H + 10) p.y = -10;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 229, 255, ${p.opacity})`;
+        ctx.fill();
+    }
+
+    // === PLANET (more subtle, pushed back) ===
+    const planetX = W * 0.5;
+    const planetY = H * 0.38;
+    const planetR = Math.min(W, H) * 0.32;
+
+    // Outer glow
+    const outerGlow = ctx.createRadialGradient(planetX, planetY, planetR * 0.85, planetX, planetY, planetR * 2.5);
+    outerGlow.addColorStop(0, 'rgba(0, 80, 140, 0.05)');
+    outerGlow.addColorStop(0.4, 'rgba(0, 50, 100, 0.015)');
+    outerGlow.addColorStop(1, 'transparent');
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Atmosphere ring
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.04)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.07)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Planet body
+    const pBody = ctx.createRadialGradient(
+        planetX - planetR * 0.3, planetY - planetR * 0.3, 0,
+        planetX, planetY, planetR
+    );
+    pBody.addColorStop(0, '#0d1830');
+    pBody.addColorStop(0.3, '#091228');
+    pBody.addColorStop(0.7, '#050c1c');
+    pBody.addColorStop(1, '#020810');
+    ctx.fillStyle = pBody;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Surface features
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.clip();
+
+    const continents = [
+        { cx: planetX - planetR * 0.15, cy: planetY - planetR * 0.1, rx: planetR * 0.3, ry: planetR * 0.22, rot: 0.15 },
+        { cx: planetX + planetR * 0.25, cy: planetY + planetR * 0.18, rx: planetR * 0.18, ry: planetR * 0.28, rot: -0.25 },
+        { cx: planetX + planetR * 0.05, cy: planetY - planetR * 0.35, rx: planetR * 0.12, ry: planetR * 0.1, rot: 0.4 },
+    ];
+
+    for (const c of continents) {
+        ctx.save();
+        ctx.translate(c.cx, c.cy);
+        ctx.rotate(c.rot);
+        const cGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(c.rx, c.ry));
+        cGrad.addColorStop(0, 'rgba(0, 70, 110, 0.12)');
+        cGrad.addColorStop(0.5, 'rgba(0, 45, 80, 0.06)');
+        cGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = cGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, c.rx, c.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.03)';
+    ctx.lineWidth = 0.5;
+    for (let i = -4; i <= 4; i++) {
+        const latY = planetY + i * planetR * 0.2;
+        const halfW = Math.sqrt(Math.max(0, planetR * planetR - (latY - planetY) * (latY - planetY)));
+        if (halfW > 0) {
+            ctx.beginPath();
+            ctx.moveTo(planetX - halfW, latY);
+            ctx.lineTo(planetX + halfW, latY);
+            ctx.stroke();
+        }
+    }
+
+    for (let i = -3; i <= 3; i++) {
+        const lonX = planetX + i * planetR * 0.28;
+        const halfH = Math.sqrt(Math.max(0, planetR * planetR - (lonX - planetX) * (lonX - planetX)));
+        if (halfH > 0) {
+            ctx.beginPath();
+            ctx.moveTo(lonX, planetY - halfH);
+            ctx.lineTo(lonX, planetY + halfH);
+            ctx.stroke();
+        }
+    }
+
+    // Cloud bands
+    const cloudOpacity = 0.04 + Math.sin(time * 0.004) * 0.015;
+    for (let i = 0; i < 3; i++) {
+        const cloudY = planetY - planetR * 0.28 + i * planetR * 0.32;
+        const cloudGrad = ctx.createLinearGradient(
+            planetX - planetR, cloudY,
+            planetX + planetR, cloudY
+        );
+        cloudGrad.addColorStop(0, 'transparent');
+        cloudGrad.addColorStop(0.2, `rgba(90, 170, 210, ${cloudOpacity})`);
+        cloudGrad.addColorStop(0.5, `rgba(90, 170, 210, ${cloudOpacity * 1.4})`);
+        cloudGrad.addColorStop(0.8, `rgba(90, 170, 210, ${cloudOpacity})`);
+        cloudGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = cloudGrad;
+        ctx.fillRect(planetX - planetR, cloudY - 6, planetR * 2, 12);
+    }
+
+    // Specular highlight
+    const specGrad = ctx.createRadialGradient(
+        planetX - planetR * 0.28, planetY - planetR * 0.3, 0,
+        planetX - planetR * 0.28, planetY - planetR * 0.3, planetR * 0.55
+    );
+    specGrad.addColorStop(0, 'rgba(90, 190, 245, 0.06)');
+    specGrad.addColorStop(0.5, 'rgba(50, 140, 190, 0.02)');
+    specGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = specGrad;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Terminator shadow
+    const termGrad = ctx.createLinearGradient(
+        planetX + planetR * 0.25, planetY,
+        planetX + planetR, planetY
+    );
+    termGrad.addColorStop(0, 'transparent');
+    termGrad.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+    ctx.fillStyle = termGrad;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Atmosphere rim lighting
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.1)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR - 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // === ORBITAL RING ===
+    ctx.save();
+    ctx.translate(planetX, planetY);
+    ctx.rotate(0.12);
+    ctx.scale(1, 0.22);
+
+    const orbitR = planetR * 1.55;
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.06)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, orbitR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Ring segments
+    for (let i = 0; i < 10; i++) {
+        const angle = (i / 10) * Math.PI * 2 + time * 0.0015;
+        const rx = Math.cos(angle) * orbitR;
+        const ry = Math.sin(angle) * orbitR;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 229, 255, ${0.12 + Math.sin(time * 0.008 + i) * 0.08})`;
+        ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Perspective grid
+    const horizon = H * 0.62;
+    const gridSpeed = time * 0.25;
+
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.02)';
+    ctx.lineWidth = 0.5;
+
+    const cx = W / 2;
+    for (let i = -12; i <= 12; i++) {
+        const spread = i * 45;
+        ctx.beginPath();
+        ctx.moveTo(cx + spread * 0.02, horizon - 60);
+        ctx.lineTo(cx + spread * 2.5, H + 50);
+        ctx.stroke();
+    }
+
+    const spacing = 30;
+    const offset = gridSpeed % spacing;
+    for (let i = 0; i < 18; i++) {
+        const baseY = horizon + 8 + i * spacing + offset;
+        if (baseY > H + 20) continue;
+
+        const progress

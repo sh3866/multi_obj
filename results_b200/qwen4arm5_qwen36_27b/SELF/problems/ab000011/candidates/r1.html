@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            --bg-deep: #08090a;
+            --bg-panel: #0c0d0f;
+            --bg-floor: #111316;
+            --bg-wall-top: #2a2d33;
+            --bg-wall-side: #1a1c21;
+            --bg-wall-shadow: #0e1014;
+            --text-primary: #d4d8e0;
+            --text-dim: #4a5060;
+            --text-muted: #2a3040;
+            --accent-cyan: #00e5ff;
+            --accent-cyan-dim: #006070;
+            --accent-amber: #ff9f1c;
+            --accent-amber-dim: #603a08;
+            --accent-magenta: #ff2d6b;
+            --accent-green: #00ff88;
+            --cell-size: 72px;
+            --gap: 3px;
+            --board-pad: 6px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Ambient background */
+        .ambient {
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 60% 50% at 50% 40%, rgba(0, 229, 255, 0.03) 0%, transparent 70%),
+                radial-gradient(ellipse 80% 60% at 50% 50%, rgba(0,0,0,0) 0%, var(--bg-deep) 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Subtle grid overlay */
+        .grid-overlay {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+            background-size: 48px 48px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Main Container */
+        .shell {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: calc(var(--cell-size) * 7 + var(--gap) * 8 + var(--board-pad) * 2 + 48px);
+            background: var(--bg-panel);
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 12px;
+            padding: 24px 24px 20px;
+            box-shadow:
+                0 0 0 1px rgba(0,0,0,0.5),
+                0 20px 60px rgba(0,0,0,0.6),
+                0 0 120px rgba(0, 229, 255, 0.02);
+        }
+
+        /* Header */
+        header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .title-block h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .title-block h1 .accent {
+            color: var(--accent-cyan);
+            text-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+        }
+
+        .title-block .subtitle {
+            font-size: 0.6rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .hud-stats {
+            display: flex;
+            gap: 28px;
+            align-items: flex-start;
+        }
+
+        .stat {
+            text-align: right;
+        }
+
+        .stat-value {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: 0.05em;
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.55rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        /* Board Container */
+        .board-frame {
+            position: relative;
+            padding: var(--board-pad);
+            background: #060708;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.03);
+            box-shadow:
+                inset 0 1px 4px rgba(0,0,0,0.8),
+                0 0 30px rgba(0, 229, 255, 0.03);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell-size));
+            grid-template-rows: repeat(7, var(--cell-size));
+            gap: var(--gap);
+        }
+
+        /* Cells */
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        /* Floor */
+        .cell.floor {
+            background: var(--bg-floor);
+        }
+
+        .cell.floor::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 2px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* Wall */
+        .cell.wall {
+            background: var(--bg-wall-side);
+            border-radius: 2px;
+            box-shadow:
+                inset 0 2px 0 var(--bg-wall-top),
+                inset 0 -2px 0 var(--bg-wall-shadow),
+                inset 2px 0 0 rgba(255,255,255,0.02),
+                inset -2px 0 0 rgba(0,0,0,0.3),
+                0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        .cell.wall::after {
+            content: '';
+            position: absolute;
+            inset: 3px;
+            border-radius: 1px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%);
+        }
+
+        /* Goal */
+        .cell.goal {
+            background: var(--bg-floor);
+        }
+
+        .goal-marker {
+            width: 60%;
+            height: 60%;
+            border: 1.5px dashed rgba(0, 229, 255, 0.35);
+            border-radius: 4px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .goal-marker::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 6px;
+            background: radial-gradient(circle, rgba(0, 229, 255, 0.06) 0%, transparent 70%);
+        }
+
+        .goal-label {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.5rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: rgba(0, 229, 255, 0.45);
+        }
+
+        /* Lever */
+        .lever-assembly {
+            position: relative;
+            width: 44px;
+            height: 44px;
+        }
+
+        .lever-base-plate {
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 28px;
+            height: 8px;
+            background: linear-gradient(to bottom, #3a3d44, #2a2d33);
+            border-radius: 2px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        }
+
+        .lever-pivot {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 6px;
+            height: 6px;
+            background: #4a4d54;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        .lever-arm {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            width: 4px;
+            height: 22px;
+            background: linear-gradient(to top, var(--accent-magenta), #ff5a8a);
+            border-radius: 2px;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-35deg);
+            box-shadow: 0 0 12px rgba(255, 45, 107, 0.4), 0 0 30px rgba(255, 45, 107, 0.15);
+            transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .lever-knob {
+            position: absolute;
+            top: -5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 14px;
+            height: 14px;
+            background: radial-gradient(circle at 35% 35%, #ff7aa0, var(--accent-magenta));
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(255, 45, 107, 0.5), 0 2px 6px rgba(0,0,0,0.4);
+        }
+
+        .lever-active .lever-arm {
+            transform: translateX(-50%) rotate(35deg);
+            background: linear-gradient(to top, var(--accent-green), #40ffaa);
+            box-shadow: 0 0 12px rgba(0, 255, 136, 0.4), 0 0 30px rgba(0, 255, 136, 0.15);
+        }
+
+        .lever-active .lever-knob {
+            background: radial-gradient(circle at 35% 35%, #70ffb0, var(--accent-green));
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.5), 0 2px 6px rgba(0,0,0,0.4);
+        }
+
+        /* Crate */
+        .crate {
+            width: 56px;
+            height: 56px;
+            position: relative;
+            border-radius: 4px;
+            background: linear-gradient(145deg, #3d3830, #2a2520);
+            box-shadow:
+                0 4px 12px rgba(0,0,0,0.5),
+                inset 0 1px 0 rgba(255,255,255,0.08),
+                inset 0 -1px 0 rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .crate::before {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 2px;
+        }
+
+        .crate::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(135deg, transparent 44%, rgba(0,0,0,0.2) 44%, rgba(0,0,0,0.2) 56%, transparent 56%),
+                linear-gradient(-135deg, transparent 44%, rgba(0,0,0,0.2) 44%, rgba(0,0,0,0.2) 56%, transparent 56%);
+            border-radius: 4px;
+        }
+
+        .crate-label {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.5rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--accent-amber);
+            text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+            z-index: 2;
+        }
+
+        .crate-glow {
+            position: absolute;
+            inset: -6px;
+            border-radius: 8px;
+            background: radial-gradient(circle, rgba(255, 159, 28, 0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        /* Player */
+        .player {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 38% 35%, #ffffff, var(--accent-cyan) 60%, rgba(0, 229, 255, 0.6));
+            box-shadow:
+                0 0 20px rgba(0, 229, 255, 0.5),
+                0 0 40px rgba(0, 229, 255, 0.2),
+                0 0 60px rgba(0, 229, 255, 0.1),
+                inset 0 -2px 6px rgba(0,0,0,0.2);
+            position: relative;
+            animation: playerPulse 2.5s ease-in-out infinite;
+        }
+
+        .player::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 6px;
+            width: 10px;
+            height: 8px;
+            background: rgba(255,255,255,0.35);
+            border-radius: 50%;
+            transform: rotate(-20deg);
+        }
+
+        @keyframes playerPulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 229, 255, 0.5), 0 0 40px rgba(0, 229, 255, 0.2), 0 0 60px rgba(0, 229, 255, 0.1); }
+            50% { box-shadow: 0 0 25px rgba(0, 229, 255, 0.6), 0 0 50px rgba(0, 229, 255, 0.3), 0 0 80px rgba(0, 229, 255, 0.15); }
+        }
+
+        /* Footer */
+        .footer {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .controls {
+            display: flex;
+            gap: 18px;
+            align-items: center;
+        }
+
+        .key-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .key {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 22px;
+            height: 22px;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 4px;
+            background: rgba(255,255,255,0.03);
+            color: var(--text-dim);
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+        }
+
+        .key-hint {
+            font-size: 0.6rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .status-message {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.6rem;
+            letter-spacing: 0.1em;
+            color: var(--accent-green);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            text-transform: uppercase;
+        }
+
+        .status-message.visible {
+            opacity: 1;
+        }
+
+        /* Corner decorations */
+        .corner-deco {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-color: rgba(255,255,255,0.06);
+            border-style: solid;
+        }
+        .corner-deco.tl { top: -1px; left: -1px; border-width: 1px 0 0 1px; border-radius: 3px 0 0 0; }
+        .corner-deco.tr { top: -1px; right: -1px; border-width: 1px 1px 0 0; border-radius: 0 3px 0 0; }
+        .corner-deco.bl { bottom: -1px; left: -1px; border-width: 0 0 1px 1px; border-radius: 0 0 0 3px; }
+        .corner-deco.br { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; border-radius: 0 0 3px 0; }
+
+        /* Win state */
+        .cell.goal .goal-marker.win {
+            border-color: var(--accent-green);
+            border-style: solid;
+            animation: goalWin 1s ease-in-out infinite;
+        }
+
+        .cell.goal .goal-marker.win .goal-label {
+            color: var(--accent-green);
+        }
+
+        @keyframes goalWin {
+            0%, 100% { box-shadow: 0 0 10px rgba(0, 255, 136, 0.1); }
+            50% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.25); }
+        }
+
+        /* Move animation */
+        .cell {
+            transition: background-color 0.15s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ambient"></div>
+    <div class="grid-overlay"></div>
+
+    <div class="shell">
+        <div class="corner-deco tl"></div>
+        <div class="corner-deco tr"></div>
+        <div class="corner-deco bl"></div>
+        <div class="corner-deco br"></div>
+
+        <header>
+            <div class="title-block">
+                <h1>VOID <span class="accent">LOCK</span></h1>
+                <div class="subtitle">System: Online</div>
+            </div>
+            <div class="hud-stats">
+                <div class="stat">
+                    <div class="stat-value" id="level-display">07</div>
+                    <div class="stat-label">Sector</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="moves-display">14</div>
+                    <div class="stat-label">Moves</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="board-frame">
+            <div class="board" id="game-board"></div>
+        </div>
+
+        <div class="footer">
+            <div class="controls">
+                <div class="key-group">
+                    <span class="key">W</span>
+                    <span class="key">A</span>
+                    <span class="key">S</span>
+                    <span class="key">D</span>
+                    <span class="key-hint">Move</span>
+                </div>
+                <div class="key-group">
+                    <span class="key">R</span>
+                    <span class="key-hint">Reset</span>
+                </div>
+            </div>
+            <div class="status-message" id="status-msg">Protocol Initiated</div>
+        </div>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves-display');
+        const statusMsg = document.getElementById('status-msg');
+
+        // 0: Floor, 1: Wall, 2: Player, 3: Crate, 4: Lever, 5: Goal, 6: Lever (Active)
+        const initialMap = [
+            [1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 4, 0, 3, 0, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1],
+            [1, 0, 0, 0, 5, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        let mapState = JSON.parse(JSON.stringify(initialMap));
+        let playerPos = { x: 3, y: 4 };
+        let moves = 14;
+        let leverActive = false;
+        let won = false;
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const cellVal = mapState[y][x];
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+
+                    if (cellVal === 1) {
+                        cell.classList.add('wall');
+                    } else {
+                        cell.classList.add('floor');
+
+                        // Goal (can have player on it)
+                        if (cellVal === 5 || (cellVal === 2 && isGoal(x, y))) {
+                            const goalMarker = document.createElement('div');
+                            goalMarker.className = 'goal-marker' + (won ? ' win' : '');
+                            goalMarker.innerHTML = '<span class="goal-label">EXIT</span>';
+                            cell.appendChild(goalMarker);
+                        }
+
+                        // Lever
+                        if (cellVal === 4 || cellVal === 6) {
+                            const isActive = cellVal === 6;
+                            const lever = document.createElement('div');
+                            lever.className = 'lever-assembly' + (isActive ? ' lever-active' : '');
+                            lever.innerHTML = `
+                                <div class="lever-base-plate"></div>
+                                <div class="lever-pivot"></div>
+                                <div class="lever-arm">
+                                    <div class="lever-knob"></div>
+                                </div>
+                            `;
+                            cell.appendChild(lever);
+                        }
+
+                        // Crate
+                        if (cellVal === 3) {
+                            const crate = document.createElement('div');
+                            crate.className = 'crate';
+                            crate.innerHTML = '<span class="crate-glow"></span><span class="crate-label">CARGO</span>';
+                            cell.appendChild(crate);
+                        }
+
+                        // Player
+                        if (cellVal === 2) {
+                            const player = document.createElement('div');
+                            player.className = 'player';
+                            cell.appendChild(player);
+                        }
+                    }
+
+                    boardEl.appendChild(cell);
+                }
+            }
+
+            movesDisplay.textContent = moves;
+        }
+
+        function isGoal(x, y) {
+            // Check original map for goal position
+            for (let row of initialMap) {
+                for (let i = 0; i < row.length; i++) {
+                    if (row[i] === 5) {
+                        // Find this goal in initial map
+                    }
+                }
+            }
+            // Simple approach: check if initial map has goal at this position
+            return initialMap[y][x] === 5;
+        }
+
+        function checkWin() {
+            // Check if crate is on goal
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    if (initialMap[y][x] === 5 && mapState[y][x] === 3) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function showStatus(msg) {
+            statusMsg.textContent = msg;
+            statusMsg.classList.add('visible');
+            clearTimeout(showStatus._timer);
+            showStatus._timer = setTimeout(() => {
+                statusMsg.classList.remove('visible');
+            }, 2500);
+        }
+
+        function movePlayer(dx, dy) {
+            if (won) return;
+
+            const newX = playerPos.x + dx;
+            const newY = playerPos.y + dy;
+
+            if (newX < 0 || newX >= BOARD_SIZE || newY < 0 || newY >= BOARD_SIZE) return;
+
+            const targetCell = mapState[newY][newX];
+
+            if (targetCell === 1) return;
+
+            // Lever interaction
+            if (targetCell === 4) {
+                mapState[newY][newX] = 6;
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 6; // lever stays active
+                playerPos = { x: newX, y: newY };
+                // Place player on the cell - but lever is there too
+                // We'll represent player+lever as a special state or just put player on top
+                // For simplicity, let's make the lever cell hold the player too
+                // Actually, let's just set player position and render handles it
+                // We need to store that player is on lever cell
+                mapState[newY][newX] = 6; // lever active, player is here
+                moves++;
+                renderBoard();
+                showStatus('Lever Engaged');
+                return;
+            }
+
+            if (targetCell === 6) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                return;
+            }
+
+            // Crate interaction
+            if (targetCell === 3) {
+                const nextX = newX + dx;
+                const nextY = newY + dy;
+
+                if (nextX >= 0 && nextX < BOARD_SIZE && nextY >= 0 && nextY < BOARD_SIZE) {
+                    const nextCell = mapState[nextY][nextX];
+                    if (nextCell !== 1 && nextCell !== 3 && nextCell !== 4 && nextCell !== 6) {
+                        mapState[nextY][nextX] = 3;
+                        mapState[newY][newX] = 0;
+                        mapState[playerPos.y][playerPos.x] = 0;
+                        playerPos = { x: newX, y: newY };
+
+                        // Check if we need to put player on a special cell
+                        if (initialMap[newY][newX] === 5) {
+                            // player on goal - handled in render
+                        }
+
+                        moves++;
+
+                        if (checkWin()) {
+                            won = true;
+                            showStatus('Protocol Complete');
+                        }
+
+                        renderBoard();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            // Empty move
+            mapState[playerPos.y][playerPos.x] = 0;
+            playerPos = { x: newX, y: newY };
+            moves++;
+            renderBoard();
+        }
+
+        function resetGame() {
+            mapState = JSON.parse(JSON.stringify(initialMap));
+            playerPos = { x: 3, y: 4 };
+            moves = 14;
+            won = false;
+            leverActive = false;
+            renderBoard();
+            showStatus('System Reset');
+        }
+
+        renderBoard();
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                resetGame();
+                return;
+            }
+
+            let dx = 0, dy = 0;
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') dx = 1;
+
+            if (dx !== 0 || dy !== 0) {
+                e.preventDefault();
+                movePlayer(dx, dy);
+            }
+        });
+    </script>
+</body>
+</html>

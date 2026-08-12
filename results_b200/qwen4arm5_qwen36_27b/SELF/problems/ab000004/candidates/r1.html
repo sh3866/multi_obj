@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+    :root {
+        --cyan: #00f0ff;
+        --cyan-dim: #007a82;
+        --magenta: #ff0055;
+        --gold: #ffd700;
+        --gold-dim: #8a7200;
+        --bg-deep: #020408;
+        --bg-mid: #060a14;
+        --panel-bg: rgba(4, 12, 28, 0.85);
+        --panel-border: rgba(0, 240, 255, 0.15);
+        --text-primary: #e8f0ff;
+        --text-dim: #6a7a90;
+        --font-mono: 'Courier New', Courier, monospace;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body {
+        background: var(--bg-deep);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    /* === BACKGROUND CANVAS === */
+    #bgCanvas {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 0;
+    }
+
+    /* === ATMOSPHERIC OVERLAYS === */
+    .overlay-vignette {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%);
+    }
+
+    .overlay-scanlines {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 240, 255, 0.015) 2px,
+            rgba(0, 240, 255, 0.015) 4px
+        );
+    }
+
+    .overlay-flicker {
+        position: fixed;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+        animation: flicker 8s infinite;
+        opacity: 0;
+        background: rgba(0, 240, 255, 0.02);
+    }
+
+    @keyframes flicker {
+        0%, 95%, 100% { opacity: 0; }
+        96% { opacity: 1; }
+        97% { opacity: 0; }
+        98% { opacity: 0.5; }
+        99% { opacity: 0; }
+    }
+
+    /* === HUD HEADER === */
+    .hud-header {
+        position: relative;
+        z-index: 10;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 24px 48px;
+        border-bottom: 1px solid rgba(0, 240, 255, 0.08);
+    }
+
+    .hud-header::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 48px;
+        right: 48px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--cyan-dim), transparent);
+    }
+
+    .hud-left, .hud-right {
+        display: flex;
+        gap: 48px;
+        align-items: flex-start;
+    }
+
+    .hud-block {
+        display: flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .hud-label {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--cyan-dim);
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .hud-label::before {
+        content: '';
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        background: var(--cyan);
+        border-radius: 50%;
+        box-shadow: 0 0 6px var(--cyan);
+        animation: blink-dot 2s infinite;
+    }
+
+    @keyframes blink-dot {
+        0%, 70%, 100% { opacity: 1; }
+        75% { opacity: 0.2; }
+    }
+
+    .hud-value {
+        font-family: var(--font-mono);
+        font-size: 1.6rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        line-height: 1;
+    }
+
+    .hud-value.wave-val { color: var(--text-primary); text-shadow: 0 0 20px rgba(232,240,255,0.3); }
+    .hud-value.hp-val { color: var(--magenta); text-shadow: 0 0 20px rgba(255,0,85,0.4); }
+    .hud-value.credits-val { color: var(--gold); text-shadow: 0 0 20px rgba(255,215,0,0.4); }
+
+    .hud-right .hud-block { align-items: flex-end; }
+    .hud-right .hud-label { flex-direction: row-reverse; }
+    .hud-right .hud-label::before { margin-left: 0; }
+
+    /* HP BAR */
+    .hp-bar-container {
+        width: 120px;
+        height: 4px;
+        background: rgba(255,0,85,0.15);
+        border-radius: 2px;
+        margin-top: 8px;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .hp-bar-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, var(--magenta), #ff4488);
+        border-radius: 2px;
+        box-shadow: 0 0 10px rgba(255,0,85,0.5);
+        transition: width 0.5s ease;
+    }
+
+    /* === MAIN CONTENT === */
+    .main-content {
+        position: relative;
+        z-index: 10;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+        gap: 36px;
+    }
+
+    /* === TITLE === */
+    .title-wrapper {
+        position: relative;
+        text-align: center;
+        margin-bottom: 8px;
+    }
+
+    .title-main {
+        font-family: var(--font-sans);
+        font-size: clamp(2.5rem, 6vw, 4.5rem);
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        line-height: 1.1;
+        position: relative;
+        display: inline-block;
+    }
+
+    .title-main .word-js {
+        background: linear-gradient(180deg, #ffffff 0%, #8899aa 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .title-main .word-planet {
+        color: var(--cyan);
+        -webkit-text-fill-color: var(--cyan);
+        text-shadow: 0 0 40px rgba(0,240,255,0.6), 0 0 80px rgba(0,240,255,0.3);
+        position: relative;
+    }
+
+    .title-main .word-defense {
+        background: linear-gradient(180deg, #ffffff 0%, #8899aa 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    /* Chromatic aberration layers */
+    .title-glow {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    .title-glow span {
+        font-family: var(--font-sans);
+        font-size: clamp(2.5rem, 6vw, 4.5rem);
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        line-height: 1.1;
+        color: var(--cyan);
+        filter: blur(30px);
+        opacity: 0.4;
+        white-space: nowrap;
+    }
+
+    .title-subtitle {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        letter-spacing: 8px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-top: 12px;
+        text-align: center;
+    }
+
+    .title-line {
+        width: 200px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--cyan-dim), transparent);
+        margin: 0 auto;
+        margin-top: 16px;
+    }
+
+    /* === BRIEFING PANEL === */
+    .briefing-panel {
+        position: relative;
+        width: 100%;
+        max-width: 580px;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        padding: 28px 32px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* Corner decorations */
+    .briefing-panel::before,
+    .briefing-panel::after {
+        content: '';
+        position: absolute;
+        width: 24px;
+        height: 24px;
+        border-color: var(--cyan);
+        border-style: solid;
+    }
+
+    .briefing-panel::before {
+        top: -1px; left: -1px;
+        border-width: 2px 0 0 2px;
+        box-shadow: -4px -4px 12px rgba(0,240,255,0.2);
+    }
+
+    .briefing-panel::after {
+        bottom: -1px; right: -1px;
+        border-width: 0 2px 2px 0;
+        box-shadow: 4px 4px 12px rgba(0,240,255,0.2);
+    }
+
+    .corner-tr, .corner-bl {
+        position: absolute;
+        width: 24px;
+        height: 24px;
+        border-color: var(--cyan);
+        border-style: solid;
+    }
+
+    .corner-tr {
+        top: -1px; right: -1px;
+        border-width: 2px 2px 0 0;
+        box-shadow: 4px -4px 12px rgba(0,240,255,0.2);
+    }
+
+    .corner-bl {
+        bottom: -1px; left: -1px;
+        border-width: 0 0 2px 2px;
+        box-shadow: -4px 4px 12px rgba(0,240,255,0.2);
+    }
+
+    .briefing-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .briefing-icon {
+        width: 18px;
+        height: 18px;
+        color: var(--cyan);
+        animation: pulse-icon 2s infinite;
+    }
+
+    @keyframes pulse-icon {
+        0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px var(--cyan)); }
+        50% { opacity: 0.6; filter: drop-shadow(0 0 8px var(--cyan)); }
+    }
+
+    .briefing-header-text {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--cyan);
+    }
+
+    .briefing-text {
+        font-size: 0.9rem;
+        line-height: 1.75;
+        color: var(--text-dim);
+        letter-spacing: 0.02em;
+    }
+
+    .briefing-text strong {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    /* Scanline overlay on panel */
+    .briefing-panel .panel-scanlines {
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(0, 240, 255, 0.008) 3px,
+            rgba(0, 240, 255, 0.008) 6px
+        );
+        pointer-events: none;
+        border-radius: inherit;
+    }
+
+    /* === UPGRADE CARDS === */
+    .upgrades-row {
+        display: flex;
+        gap: 20px;
+        width: 100%;
+        max-width: 720px;
+    }
+
+    .upgrade-card {
+        flex: 1;
+        position: relative;
+        background: linear-gradient(135deg, rgba(0,240,255,0.03) 0%, rgba(0,240,255,0.01) 100%);
+        border: 1px solid rgba(0,240,255,0.1);
+        padding: 24px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        overflow: hidden;
+    }
+
+    .upgrade-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 0%, rgba(0,240,255,0.08) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.35s ease;
+    }
+
+    .upgrade-card:hover::before { opacity: 1; }
+
+    .upgrade-card:hover {
+        border-color: rgba(0,240,255,0.35);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 32px rgba(0,240,255,0.1), inset 0 1px 0 rgba(0,240,255,0.1);
+    }
+
+    .upgrade-card:active {
+        transform: translateY(-1px);
+    }
+
+    .upgrade-card .card-bg {
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+        opacity: 0;
+        transition: opacity 0.35s ease;
+    }
+
+    .upgrade-card:hover .card-bg { opacity: 1; }
+
+    .upgrade-icon-wrap {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .upgrade-icon-wrap svg {
+        width: 32px;
+        height: 32px;
+        stroke: var(--cyan);
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 8px rgba(0,240,255,0.4));
+        transition: filter 0.35s ease;
+    }
+
+    .upgrade-card:hover .upgrade-icon-wrap svg {
+        filter: drop-shadow(0 0 16px rgba(0,240,255,0.7));
+    }
+
+    .upgrade-icon-ring {
+        position: absolute;
+        inset: 0;
+        border: 1px solid rgba(0,240,255,0.15);
+        border-radius: 50%;
+        opacity: 0;
+        transition: all 0.35s ease;
+    }
+
+    .upgrade-card:hover .upgrade-icon-ring {
+        opacity: 1;
+        inset: -4px;
+        border-color: rgba(0,240,255,0.25);
+    }
+
+    .upgrade-name {
+        font-family: var(--font-mono);
+        font-size: 0.65rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--text-primary);
+        margin-bottom: 6px;
+        font-weight: 700;
+    }
+
+    .upgrade-cost {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--gold);
+        letter-spacing: 1px;
+    }
+
+    /* === START BUTTON === */
+    .btn-start-wrap {
+        position: relative;
+        margin-top: 8px;
+    }
+
+    .btn-start {
+        position: relative;
+        background: transparent;
+        color: var(--cyan);
+        font-family: var(--font-mono);
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        padding: 22px 56px;
+        border: none;
+        cursor: pointer;
+        overflow: visible;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Button frame */
+    .btn-start::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border: 1px solid rgba(0,240,255,0.3);
+        clip-path: polygon(
+            0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%,
+            16px 100%, 0 calc(100% - 16px)
+        );
+        transition: border-color 0.4s ease;
+    }
+
+    .btn-start:hover::before {
+        border-color: var(--cyan);
+    }
+
+    /* Inner glow */
+    .btn-start::after {
+        content: '';
+        position: absolute;
+        inset: 2px;
+        background: linear-gradient(180deg, rgba(0,240,255,0.08) 0%, transparent 100%);
+        clip-path: polygon(
+            0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%,
+            16px 100%, 0 calc(100% - 16px)
+        );
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover::after { opacity: 1; }
+
+    .btn-start:hover {
+        color: #fff;
+        text-shadow: 0 0 20px var(--cyan), 0 0 40px rgba(0,240,255,0.4);
+        transform: scale(1.02);
+    }
+
+    .btn-start:active {
+        transform: scale(0.98);
+    }
+
+    /* Corner accents for button */
+    .btn-corner {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border-color: var(--cyan);
+        border-style: solid;
+        opacity: 0.5;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover .btn-corner { opacity: 1; }
+
+    .btn-corner.tl { top: -4px; left: -4px; border-width: 2px 0 0 2px; }
+    .btn-corner.br { bottom: -4px; right: -4px; border-width: 0 2px 2px 0; }
+
+    /* Animated border line */
+    .btn-border-anim {
+        position: absolute;
+        top: -1px;
+        left: -1px;
+        right: -1px;
+        bottom: -1px;
+        pointer-events: none;
+        overflow: hidden;
+        clip-path: polygon(
+            0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%,
+            16px 100%, 0 calc(100% - 16px)
+        );
+    }
+
+    .btn-border-anim::before {
+        content: '';
+        position: absolute;
+        top: 0; left: -100%;
+        width: 60%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+        opacity: 0;
+        transition: left 0.6s ease;
+    }
+
+    .btn-start:hover .btn-border-anim::before {
+        left: 100%;
+        opacity: 0.6;
+    }
+
+    /* === DECORATIVE RINGS === */
+    .deco-ring {
+        position: fixed;
+        border-radius: 50%;
+        border: 1px solid rgba(0,240,255,0.04);
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .deco-ring-1 {
+        width: 700px; height: 700px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        animation: rotate-slow 60s linear infinite;
+    }
+
+    .deco-ring-2 {
+        width: 500px; height: 500px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,240,255,0.06);
+        animation: rotate-slow 45s linear infinite reverse;
+    }
+
+    .deco-ring-3 {
+        width: 900px; height: 900px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,240,255,0.02);
+        animation: rotate-slow 90s linear infinite;
+    }
+
+    @keyframes rotate-slow {
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 768px) {
+        .hud-header { padding: 16px 20px; }
+        .hud-left, .hud-right { gap: 24px; }
+        .hud-value { font-size: 1.2rem; }
+        .upgrades-row { flex-direction: column; max-width: 320px; }
+        .briefing-panel { padding: 20px; }
+        .btn-start { padding: 18px 40px; font-size: 0.9rem; letter-spacing: 4px; }
+    }
+
+    @media (max-width: 480px) {
+        .hud-header { flex-direction: column; gap: 16px; align-items: center; }
+        .hud-left, .hud-right { gap: 16px; }
+        .title-main { font-size: 2rem; }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<div class="overlay-vignette"></div>
+<div class="overlay-scanlines"></div>
+<div class="overlay-flicker"></div>
+
+<div class="deco-ring deco-ring-1"></div>
+<div class="deco-ring deco-ring-2"></div>
+<div class="deco-ring deco-ring-3"></div>
+
+<!-- HUD HEADER -->
+<header class="hud-header">
+    <div class="hud-left">
+        <div class="hud-block">
+            <span class="hud-label">Wave Status</span>
+            <span class="hud-value wave-val" id="waveDisplay">001</span>
+        </div>
+        <div class="hud-block">
+            <span class="hud-label">Shield Integrity</span>
+            <span class="hud-value hp-val" id="hpDisplay">100%</span>
+            <div class="hp-bar-container">
+                <div class="hp-bar-fill" id="hpBar"></div>
+            </div>
+        </div>
+    </div>
+    <div class="hud-right">
+        <div class="hud-block">
+            <span class="hud-label">Credits</span>
+            <span class="hud-value credits-val" id="creditsDisplay">500</span>
+        </div>
+    </div>
+</header>
+
+<!-- MAIN CONTENT -->
+<main class="main-content">
+
+    <!-- TITLE -->
+    <div class="title-wrapper">
+        <div class="title-glow"><span>PLANET</span></div>
+        <h1 class="title-main">
+            <span class="word-js">JS</span> <span class="word-planet">Planet</span> <span class="word-defense">Defense</span>
+        </h1>
+        <div class="title-subtitle">Orbital Defense Command v2.4.1</div>
+        <div class="title-line"></div>
+    </div>
+
+    <!-- BRIEFING -->
+    <div class="briefing-panel">
+        <div class="corner-tr"></div>
+        <div class="corner-bl"></div>
+        <div class="panel-scanlines"></div>
+        <div class="briefing-header">
+            <svg class="briefing-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span class="briefing-header-text">Incoming Transmission</span>
+        </div>
+        <p class="briefing-text">
+            Commander, sensors detect a <strong>massive swarm</strong> approaching the sector.
+            Orbital cannons are online but require manual calibration. Optimize your turret systems
+            before the first wave breaches the <strong>perimeter</strong>.
+        </p>
+    </div>
+
+    <!-- UPGRADES -->
+    <div class="upgrades-row">
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="card-bg"></div>
+            <div class="upgrade-icon-wrap">
+                <div class="upgrade-icon-ring"></div>
+                <svg viewBox="0 0 24 24">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Damage Output</div>
+            <div class="upgrade-cost">150 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="card-bg"></div>
+            <div class="upgrade-icon-wrap">
+                <div class="upgrade-icon-ring"></div>
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Fire Rate</div>
+            <div class="upgrade-cost">200 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="card-bg"></div>
+            <div class="upgrade-icon-wrap">
+                <div class="upgrade-icon-ring"></div>
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Projectile Speed</div>
+            <div class="upgrade-cost">100 Credits</div>
+        </div>
+    </div>
+
+    <!-- START BUTTON -->
+    <div class="btn-start-wrap">
+        <button class="btn-start" onclick="startGame()">
+            <div class="btn-border-anim"></div>
+            <span class="btn-corner tl"></span>
+            <span class="btn-corner br"></span>
+            Initialize Defense
+        </button>
+    </div>
+
+</main>
+
+<script>
+// === CANVAS BACKGROUND ===
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let time = 0;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Stars
+const stars = [];
+for (let i = 0; i < 200; i++) {
+    stars.push({
+        x: Math.random() * 2000 - 500,
+        y: Math.random() * 2000 - 500,
+        z: Math.random() * 3 + 0.5,
+        size: Math.random() * 1.5 + 0.3,
+        twinkleSpeed: Math.random() * 0.02 + 0.005,
+        twinkleOffset: Math.random() * Math.PI * 2
+    });
+}
+
+// Floating particles
+const particles = [];
+for (let i = 0; i < 30; i++) {
+    particles.push({
+        x: Math.random() * 2000 - 500,
+        y: Math.random() * 2000 - 500,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        size: Math.random() * 2 + 1,
+        opacity: Math.random() * 0.3 + 0.05
+    });
+}
+
+function drawBackground() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Deep space gradient
+    const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H) * 0.8);
+    grad.addColorStop(0, '#0a1020');
+    grad.addColorStop(0.5, '#050810');
+    grad.addColorStop(1, '#020408');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Nebula glow
+    const nebulaGrad = ctx.createRadialGradient(W * 0.3, H * 0.4, 0, W * 0.3, H * 0.4, 400);
+    nebulaGrad.addColorStop(0, 'rgba(0, 40, 80, 0.15)');
+    nebulaGrad.addColorStop(0.5, 'rgba(0, 20, 60, 0.05)');
+    nebulaGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebulaGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    const nebulaGrad2 = ctx.createRadialGradient(W * 0.7, H * 0.6, 0, W * 0.7, H * 0.6, 350);
+    nebulaGrad2.addColorStop(0, 'rgba(40, 0, 60, 0.1)');
+    nebulaGrad2.addColorStop(0.5, 'rgba(20, 0, 40, 0.04)');
+    nebulaGrad2.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebulaGrad2;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    for (const star of stars) {
+        const sx = (star.x / star.z) % W;
+        const sy = (star.y / star.z) % H;
+        const twinkle = Math.sin(time * star.twinkleSpeed + star.twinkleOffset) * 0.5 + 0.5;
+        const alpha = (0.3 + twinkle * 0.7) * Math.min(1, star.z / 2);
+
+        ctx.beginPath();
+        ctx.arc(sx < 0 ? sx + W : sx, sy < 0 ? sy + H : sy, star.size * (1/star.z), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(200, 220, 255, ${alpha})`;
+        ctx.fill();
+
+        // Glow for brighter stars
+        if (star.size > 1) {
+            ctx.beginPath();
+            ctx.arc(sx < 0 ? sx + W : sx, sy < 0 ? sy + H : sy, star.size * 3 / star.z, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(180, 210, 255, ${alpha * 0.1})`;
+            ctx.fill();
+        }
+    }
+
+    // Floating particles
+    for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < -10) p.x = W + 10;
+        if (p.x > W + 10) p.x = -10;
+        if (p.y < -10) p.y = H + 10;
+        if (p.y > H + 10) p.y = -10;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 240, 255, ${p.opacity})`;
+        ctx.fill();
+    }
+
+    // Perspective grid
+    const horizon = H * 0.55;
+    const gridLines = 25;
+    const gridSpeed = time * 0.4;
+
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.06)';
+    ctx.lineWidth = 0.5;
+
+    // Vertical perspective lines
+    const cx = W / 2;
+    for (let i = -20; i <= 20; i++) {
+        const spread = i * 60;
+        ctx.beginPath();
+        ctx.moveTo(cx + spread * 0.05, horizon - 100);
+        ctx.lineTo(cx + spread * 2.5, H + 50);
+        ctx.stroke();
+    }
+
+    // Horizontal moving lines
+    const spacing = 40;
+    const offset = gridSpeed % spacing;
+    for (let i = 0; i < 30; i++) {
+        const baseY = horizon + 20 + i * spacing + offset;
+        if (baseY > H + 20) continue;
+
+        const progress = (baseY - horizon) / (H - horizon);
+        const alpha = Math.pow(progress, 1.5) * 0.15;
+
+        if (alpha > 0.005) {
+            ctx.strokeStyle = `rgba(0, 240, 255, ${alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(0, baseY);
+            ctx.lineTo(W, baseY);
+            ctx.stroke();
+        }
+    }
+
+    // Planet silhouette (subtle)
+    const planetX = W * 0.5;
+    const planetY = H * 0.48;
+    const planetR = Math.min(W, H) * 0.32;
+
+    // Planet glow
+    const pGlow = ctx.createRadialGradient(planetX, planetY, planetR * 0.8, planetX, planetY, planetR * 1.4);
+    pGlow.addColorStop(0, 'rgba(0, 240, 255, 0.02)');
+    pGlow.addColorStop(0.5, 'rgba(0, 100, 140, 0.01)');
+    pGlow.addColorStop(1, 'transparent');
+    ctx.fillStyle = pGlow;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Planet body
+    const pBody = ctx.createRadialGradient(planetX - planetR * 0.3, planetY - planetR * 0.3, 0, planetX, planetY, planetR);
+    pBody.addColorStop(0, 'rgba(10, 20, 40, 0.6)');
+    pBody.addColorStop(0.7, 'rgba(5, 10, 25, 0.8)');
+    pBody.addColorStop(1, 'rgba(2, 4, 10, 0.9)');
+    ctx.fillStyle = pBody;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Planet atmosphere ring
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.08)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Atmosphere glow
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Surface detail lines (latitude)
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.03)';
+    ctx.lineWidth = 0.5;
+    for (let i = -3; i <= 3; i++) {
+        const latY = planetY + i * planetR * 0.28;
+        const halfW = Math.sqrt(Math.max(0, planetR * planetR - (latY - planetY) * (latY - planetY)));
+        if (halfW > 0) {
+            ctx.beginPath();
+            ctx.moveTo(planetX - halfW, latY);
+            ctx.lineTo(planetX + halfW, latY);
+            ctx.stroke();
+        }
+    }
+
+    time++;
+    requestAnimationFrame(drawBackground);
+}
+
+drawBackground();
+
+// === INTERACTIONS ===
+function cardPulse(el) {
+    el.style.borderColor = 'rgba(0,240,255,0.6)';
+    el.style.boxShadow = '0 0 30px rgba(0,240,255,0.2), inset 0 0 20px rgba(0,240,255,0.05)';
+    setTimeout(() => {
+        el.style.borderColor = '';
+        el.style.boxShadow = '';
+    }, 300);
+}
+
+function startGame() {
+    const btn = document.querySelector('.btn-start');
+    btn.textContent = 'CALIBRATING...';
+    btn.style.letterSpacing = '3px';
+    btn.style.color = '#fff';
+    btn.style.textShadow = '0 0 30px var(--cyan)';
+
+    // Flash effect
+    document.body.style.transition = 'filter 0.1s ease';
+    document.body.style.filter = 'brightness(3)';
+
+    setTimeout(() => {
+        document.body.style.filter = 'brightness(1)';
+        setTimeout(() => {
+            btn.innerHTML = '<span style="position:relative;z-index:1">INITIALIZE DEFENSE</span>';
+            btn.style.letterSpacing = '';
+            btn.style.color = '';
+            btn.style.textShadow = '';
+        }, 200);
+    }, 150);
+}
+</script>
+</body>
+</html>

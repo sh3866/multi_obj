@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkiFree - Retro Edition</title>
+    <style>
+        :root {
+            /* Palette - Deep Icy Navy & Retro Highlights */
+            --bg-deep: #0f172a;
+            --bg-sky-top: #020617;
+            --bg-sky-bot: #1e293b;
+            --snow-highlight: #f8fafc;
+            --snow-shadow: #94a3b8;
+            --pine-dark: #0f2e18;
+            --pine-light: #1e5c32;
+            --ui-bg: #020617; /* Near black, deep navy */
+            --ui-border: #334155;
+            --ui-text: #e2e8f0;
+            --ui-accent: #fbbf24; /* Retro Yellow */
+            --ui-accent-hover: #f59e0b;
+            --font-pixel: "Courier New", Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-deep);
+            font-family: var(--font-pixel);
+            color: var(--ui-text);
+        }
+
+        /* CRT/Scanline Overlay */
+        .crt-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.1));
+            background-size: 100% 3px, 4px 100%;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* Vignette */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, transparent 50%, rgba(2, 6, 23, 0.8) 100%);
+            z-index: 15;
+            pointer-events: none;
+        }
+
+        /* Main Container */
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated; /* Crisp pixels */
+        }
+
+        /* HUD / UI Panel */
+        .ui-panel {
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            z-index: 10;
+            width: 320px;
+            background: var(--ui-bg);
+            border: 4px solid var(--ui-border);
+            padding: 24px;
+            box-shadow: 
+                0 0 0 4px var(--bg-deep), 
+                0 20px 50px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            /* Entrance Animation */
+            opacity: 0;
+            animation: slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation-delay: 0.2s;
+        }
+
+        /* Typography */
+        h1 {
+            margin: 0;
+            font-size: 3rem;
+            line-height: 1;
+            color: var(--ui-text);
+            text-transform: uppercase;
+            letter-spacing: -2px;
+            text-shadow: 3px 3px 0px var(--ui-border);
+        }
+
+        .meta-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--snow-shadow);
+            border-top: 2px solid var(--ui-border);
+            border-bottom: 2px solid var(--ui-border);
+            padding: 8px 0;
+            margin-bottom: 8px;
+        }
+
+        .instructions {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #94a3b8;
+        }
+
+        .instructions kbd {
+            background: var(--ui-border);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-family: inherit;
+            font-size: 0.8em;
+        }
+
+        /* Start Button */
+        .start-btn {
+            background: var(--ui-accent);
+            color: #000;
+            border: none;
+            padding: 16px 0;
+            font-size: 1.2rem;
+            font-family: var(--font-pixel);
+            font-weight: 900;
+            text-transform: uppercase;
+            cursor: pointer;
+            letter-spacing: 1px;
+            box-shadow: 
+                inset 0 -4px 0 rgba(0,0,0,0.2),
+                0 4px 0 #b45309; /* Darker shadow */
+            transition: all 0.1s;
+            position: relative;
+            top: 0;
+        }
+
+        .start-btn:hover {
+            background: var(--ui-accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 
+                inset 0 -4px 0 rgba(0,0,0,0.2),
+                0 6px 0 #b45309;
+        }
+
+        .start-btn:active {
+            transform: translateY(2px);
+            box-shadow: 
+                inset 0 -4px 0 rgba(0,0,0,0.2),
+                0 0 0 #b45309;
+        }
+
+        /* Animations */
+        @keyframes slideIn {
+            from { transform: translateY(40px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Blinking cursor effect */
+        .blink {
+            animation: blinker 1s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- The World -->
+        <canvas id="world"></canvas>
+        
+        <!-- Post-processing -->
+        <div class="vignette"></div>
+        <div class="crt-overlay"></div>
+
+        <!-- UI Overlay -->
+        <div class="ui-panel">
+            <h1>SkiFree</h1>
+            
+            <div class="meta-info">
+                <span>V 1.04</span>
+                <span>HIGH SCORE: 0</span>
+            </div>
+
+            <div class="instructions">
+                <p>DESCEND THE SLOPE.</p>
+                <p>AVOID TREES. FEED THE YETI.</p>
+                <p style="margin-top:8px;">
+                    <kbd>&larr;</kbd> <kbd>&rarr;</kbd> STEER<br>
+                    <kbd>SPACE</kbd> JUMP
+                </p>
+            </div>
+
+            <button class="start-btn" id="startBtn">Start Run</button>
+        </div>
+    </div>
+
+<script>
+    /**
+     * VISUAL ENGINE
+     * Procedural generation of the retro ski scene.
+     */
+    const canvas = document.getElementById('world');
+    const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
+
+    // Configuration
+    const CONFIG = {
+        pixelSize: 4,
+        colors: {
+            skyTop: '#020617',
+            skyBot: '#1e293b',
+            snow: '#e2e8f0',
+            snowDark: '#cbd5e1',
+            treeDark: '#0f2e18',
+            treeLight: '#1e5c32',
+            treeHighlight: '#2f8552'
+        }
+    };
+
+    let width, height;
+    let frame = 0;
+    let trees = [];
+    let particles = [];
+    
+    // --- Drawing Functions ---
+
+    // Helper to draw a single pixel block
+    function pRect(x, y, w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.floor(x), Math.floor(y), Math.ceil(w), Math.ceil(h));
+    }
+
+    // Draw the Skier (Pixel Art)
+    function drawSkier(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Animation physics
+        const bob = Math.sin(frame * 0.15) * 3;
+        const lean = Math.sin(frame * 0.1) * 0.05;
+        
+        ctx.translate(0, bob);
+        ctx.rotate(lean);
+
+        const s = scale; // Scale multiplier
+
+        // Palette
+        const cSkin = '#fca5a5'; // Pinkish
+        const cHat = '#ef4444';  // Red
+        const cJacket = '#ef4444'; // Red
+        const cPants = '#1e3a8a'; // Blue
+        const cSkis = '#fbbf24'; // Yellow
+        const cPoles = '#94a3b8'; // Grey
+
+        // Draw Skis (Behind legs)
+        pRect(-5*s, 14*s, 2*s, 18*s, cSkis); 
+        pRect(3*s, 14*s, 2*s, 18*s, cSkis);
+
+        // Draw Poles
+        pRect(-7*s, 4*s, 1*s, 20*s, cPoles);
+        pRect(6*s, 4*s, 1*s, 20*s, cPoles);
+
+        // Legs
+        pRect(-4*s, 10*s, 3*s, 6*s, cPants);
+        pRect(1*s, 10*s, 3*s, 6*s, cPants);
+
+        // Body
+        pRect(-4*s, 2*s, 8*s, 9*s, cJacket);
+        // Zipper detail
+        pRect(-1*s, 2*s, 1*s, 9*s, '#991b1b');
+
+        // Head
+        pRect(-2*s, -3*s, 5*s, 5*s, cSkin);
+        
+        // Hat
+        pRect(-3*s, -4*s, 7*s, 2*s, cHat);
+        pRect(-2*s, -6*s, 5*s, 2*s, cHat);
+
+        // Scarf (Flying in wind)
+        pRect(-5*s, 0*s, 4*s, 1*s, '#fbbf24');
+        pRect(-7*s, 1*s, 2*s, 1*s, '#fbbf24');
+
+        ctx.restore();
+    }
+
+    // Draw a Pine Tree
+    function drawTree(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(0, 24*scale, 8*scale, 3*scale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        const s = scale;
+        const cDark = CONFIG.colors.treeDark;
+        const cLight = CONFIG.colors.treeLight;
+        const cHL = CONFIG.colors.treeHighlight;
+
+        // Trunk
+        pRect(-1*s, 18*s, 2*s, 6*s, '#451a03');
+
+        // Foliage Layers (Triangles constructed of rects for pixel look)
+        // Layer 1 (Bottom)
+        pRect(-8*s, 12*s, 16*s, 6*s, cDark);
+        pRect(-6*s, 10*s, 12*s, 2*s, cLight); // Highlight
+
+        // Layer 2 (Middle)
+        pRect(-6*s, 6*s, 12*s, 6*s, cDark);
+        pRect(-4*s, 4*s, 8*s, 2*s, cHL); // Highlight
+
+        // Layer 3 (Top)
+        pRect(-4*s, 0*s, 8*s, 6*s, cDark);
+        pRect(-2*s, -2*s, 4*s, 2*s, cLight);
+
+        // Snow caps on tree
+        ctx.fillStyle = '#fff';
+        pRect(-2*s, -2*s, 4*s, 1*s);
+        pRect(-4*s, 4*s, 2*s, 1*s);
+
+        ctx.restore();
+    }
+
+    // Draw a Snowflake
+    function drawParticle(p) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+    }
+
+    // --- World Logic ---
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Reset world on resize to prevent layout breaks
+        generateWorld();
+    }
+
+    function generateWorld() {
+        trees = [];
+        particles = [];
+
+        // Generate Trees in a "Tunnel" formation
+        // We want a clear path in the center, and dense trees on sides
+        const rows = 30; // Depth
+        const horizonY = height * 0.35; // Vanishing point height
+        const bottomY = height;
+
+        for (let i = 0; i < rows; i++) {
+            // Depth factor 0 (far) to 1 (close)
+            // Exponential spacing for perspective
+            let depth = i / rows;
+            let perspectiveScale = Math.pow(depth, 1.5); // Ease out
+            
+            let y = horizonY + (bottomY - horizonY) * depth;
+            let scale = 1 + (depth * 3); // Trees get bigger
+
+            // Random horizontal placement, but avoid center (the "Opening")
+            // Center is width/2. Gap widens as we get closer.
+            let gap = 100 + (depth * 300); 
+            let centerX = width / 2;
+
+            // Add trees to the left and right of the gap
+            // We add multiple trees per row to create density
+            let treesInRow = Math.floor(2 + (depth * 5));
+            
+            for(let t=0; t<treesInRow; t++) {
+                let side = Math.random() > 0.5 ? 1 : -1;
+                let offset = (gap/2) + (Math.random() * (width/2));
+                let x = centerX + (offset * side);
+
+                // Keep within screen bounds
+                if (x > 0 && x < width) {
+                    trees.push({
+                        x: x,
+                        y: y,
+                        scale: scale,
+                        z: depth // For sorting if needed, though loop order handles it
+                    });
+                }
+            }
+        }
+
+        // Generate Snow Particles
+        for(let i=0; i<150; i++) {
+            particles.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                speed: (Math.random() * 3) + 2, // Fast falling
+                size: Math.random() > 0.9 ? 3 : 2,
+                drift: Math.random() * 2 - 1
+            });
+        }
+    }
+
+    function drawBackground() {
+        // 1. Sky
+        let grad = ctx.createLinearGradient(0, 0, 0, height * 0.5);
+        grad.addColorStop(0, CONFIG.colors.skyTop);
+        grad.addColorStop(1, CONFIG.colors.skyBot);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+
+        // 2. Distant Mountains (Simple geometric shapes)
+        ctx.fillStyle = '#1e293b'; // Darker than sky bottom
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.4);
+        ctx.lineTo(width * 0.2, height * 0.25);
+        ctx.lineTo(width * 0.4, height * 0.35);
+        ctx.lineTo(width * 0.6, height * 0.2);
+        ctx.lineTo(width * 0.8, height * 0.3);
+        ctx.lineTo(width, height * 0.15);
+        ctx.lineTo(width, height * 0.4);
+        ctx.lineTo(0, height * 0.4);
+        ctx.fill();
+
+        // 3. The Slope (Snow)
+        // Perspective plane
+        ctx.fillStyle = CONFIG.colors.snow;
+        ctx.beginPath();
+        // Top point (vanishing point)
+        let vpX = width / 2;
+        let vpY = height * 0.35;
+        
+        ctx.moveTo(vpX - 20, vpY); // Small opening at top
+        ctx.lineTo(vpX + 20, vpY);
+        ctx.lineTo(width, height);
+        ctx.lineTo(0, height);
+        ctx.fill();
+
+        // 4. Slope Shading (To give depth to the snow)
+        // Left side shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.05)';
+        ctx.beginPath();
+        ctx.moveTo(vpX, vpY);
+        ctx.lineTo(0, height);
+        ctx.lineTo(0, vpY);
+        ctx.fill();
+        
+        // Right side shadow (lighter)
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.beginPath();
+        ctx.moveTo(vpX, vpY);
+        ctx.lineTo(width, height);
+        ctx.lineTo(width, vpY);
+        ctx.fill();
+    }
+
+    function animate() {
+        // Clear
+        ctx.clearRect(0, 0, width, height);
+
+        // Draw Environment
+        drawBackground();
+
+        // Draw Trees (Sorted by Y so bottom ones draw on top of top ones)
+        // We generate them in order, but let's ensure strict Z-ordering
+        trees.sort((a, b) => a.y - b.y);
+        
+        trees.forEach(tree => {
+            drawTree(tree.x, tree.y, tree.scale);
+        });
+
+        // Draw Skier
+        // Position: Centered horizontally, slightly above the UI panel
+        // The UI panel is at bottom: 40px + height ~ 250px.
+        // So Y should be around height - 300.
+        const skierY = height - 280; 
+        const skierX = width / 2;
+        drawSkier(skierX, skierY, CONFIG.pixelSize);
+
+        // Draw Particles (Snow)
+        particles.forEach(p => {
+            p.y += p.speed;
+            p.x += p.drift; // Wind
+            
+            // Wrap around
+            if (p.y > height) {
+                p.y = -10;
+                p.x = Math.random() * width;
+            }
+            if (p.x > width) p.x = 0;
+            if (p.x < 0) p.x = width;
+
+            drawParticle(p);
+        });
+
+        frame++;
+        requestAnimationFrame(animate);
+    }
+
+    // --- Interaction ---
+
+    window.addEventListener('resize', resize);
+
+    document.getElementById('startBtn').addEventListener('click', function(e) {
+        // Visual feedback
+        const btn = e.target;
+        btn.innerText = "LOADING...";
+        btn.style.background = "#fff";
+        
+        // Simulate load
+        setTimeout(() => {
+            alert("GAME START! (This is a visual prototype)");
+            btn.innerText = "START RUN";
+            btn.style.background = "var(--ui-accent)";
+        }, 600);
+    });
+
+    // Start
+    resize();
+    animate();
+
+</script>
+</body>
+</html>

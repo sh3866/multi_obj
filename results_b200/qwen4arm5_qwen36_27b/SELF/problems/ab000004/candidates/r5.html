@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+    :root {
+        --cyan: #00e5ff;
+        --cyan-bright: #40f0ff;
+        --cyan-dim: #006978;
+        --cyan-glow: rgba(0, 229, 255, 0.4);
+        --cyan-glow-strong: rgba(0, 229, 255, 0.7);
+        --magenta: #ff2070;
+        --magenta-glow: rgba(255, 32, 112, 0.5);
+        --gold: #ffd600;
+        --gold-glow: rgba(255, 214, 0, 0.4);
+        --bg-deep: #010208;
+        --bg-panel: rgba(2, 10, 30, 0.75);
+        --border-subtle: rgba(0, 229, 255, 0.06);
+        --border-active: rgba(0, 229, 255, 0.25);
+        --text-primary: #e4eaf5;
+        --text-secondary: #5e7190;
+        --text-dim: #2e3f58;
+        --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body {
+        background: var(--bg-deep);
+        color: var(--text-primary);
+        font-family: var(--font-display);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    #bgCanvas {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 0;
+    }
+
+    .overlay-vignette {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background:
+            radial-gradient(ellipse at 50% 20%, transparent 20%, rgba(1,2,8,0.5) 60%, rgba(1,2,8,0.95) 100%),
+            linear-gradient(180deg, rgba(1,2,8,0.2) 0%, transparent 25%, transparent 65%, rgba(1,2,8,0.7) 100%);
+    }
+
+    .overlay-scanlines {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 229, 255, 0.004) 2px,
+            rgba(0, 229, 255, 0.004) 4px
+        );
+    }
+
+    /* HUD Header */
+    .hud-header {
+        position: relative;
+        z-index: 10;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 48px;
+        border-bottom: 1px solid rgba(0, 229, 255, 0.03);
+    }
+
+    .hud-group {
+        display: flex;
+        gap: 48px;
+        align-items: center;
+    }
+
+    .hud-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .hud-item.right {
+        align-items: flex-end;
+    }
+
+    .hud-label {
+        font-family: var(--font-mono);
+        font-size: 0.45rem;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .hud-item.right .hud-label {
+        flex-direction: row-reverse;
+    }
+
+    .hud-dot {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .hud-dot.cyan { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
+    .hud-dot.magenta { background: var(--magenta); box-shadow: 0 0 6px var(--magenta-glow); }
+    .hud-dot.gold { background: var(--gold); box-shadow: 0 0 6px var(--gold-glow); }
+
+    .hud-value {
+        font-family: var(--font-mono);
+        font-size: 1.4rem;
+        font-weight: 800;
+        letter-spacing: 3px;
+        line-height: 1;
+    }
+
+    .hud-value.wave { color: var(--text-primary); }
+    .hud-value.hp { color: var(--magenta); text-shadow: 0 0 20px var(--magenta-glow); }
+    .hud-value.credits { color: var(--gold); text-shadow: 0 0 20px var(--gold-glow); }
+
+    .hp-bar {
+        width: 120px;
+        height: 2px;
+        background: rgba(255, 32, 112, 0.08);
+        border-radius: 1px;
+        margin-top: 6px;
+        overflow: hidden;
+    }
+
+    .hp-bar-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, var(--magenta), #ff5090);
+        border-radius: 1px;
+        box-shadow: 0 0 8px var(--magenta-glow);
+    }
+
+    /* Main Content */
+    .main-content {
+        position: relative;
+        z-index: 10;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+        gap: 0;
+    }
+
+    /* Title */
+    .title-section {
+        text-align: center;
+        margin-bottom: 32px;
+        position: relative;
+    }
+
+    .title-main {
+        font-family: var(--font-display);
+        font-size: clamp(3.2rem, 9vw, 7.5rem);
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        line-height: 0.9;
+        position: relative;
+        user-select: none;
+    }
+
+    .title-main .word-js {
+        background: linear-gradient(180deg, #ffffff 0%, #6a7a90 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .title-main .word-planet {
+        color: var(--cyan);
+        -webkit-text-fill-color: var(--cyan);
+        text-shadow:
+            0 0 60px rgba(0, 229, 255, 0.3),
+            0 0 120px rgba(0, 229, 255, 0.1);
+    }
+
+    .title-main .word-defense {
+        background: linear-gradient(180deg, #ffffff 0%, #6a7a90 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .title-sub {
+        font-family: var(--font-mono);
+        font-size: 0.5rem;
+        letter-spacing: 10px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-top: 16px;
+    }
+
+    .title-accent-line {
+        width: 80px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--cyan-dim), transparent);
+        margin: 14px auto 0;
+    }
+
+    /* Briefing */
+    .briefing-panel {
+        position: relative;
+        width: 100%;
+        max-width: 520px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-subtle);
+        padding: 24px 30px;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        margin-bottom: 28px;
+    }
+
+    .briefing-panel::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(0,229,255,0.015) 0%, transparent 50%);
+        pointer-events: none;
+    }
+
+    /* Corner brackets */
+    .bracket {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+    }
+
+    .bracket::before, .bracket::after {
+        content: '';
+        position: absolute;
+        background: var(--cyan);
+        opacity: 0.5;
+    }
+
+    .bracket-tl { top: -1px; left: -1px; }
+    .bracket-tl::before { top: 0; left: 0; width: 14px; height: 1px; }
+    .bracket-tl::after { top: 0; left: 0; width: 1px; height: 14px; }
+
+    .bracket-tr { top: -1px; right: -1px; }
+    .bracket-tr::before { top: 0; right: 0; width: 14px; height: 1px; }
+    .bracket-tr::after { top: 0; right: 0; width: 1px; height: 14px; }
+
+    .bracket-bl { bottom: -1px; left: -1px; }
+    .bracket-bl::before { bottom: 0; left: 0; width: 14px; height: 1px; }
+    .bracket-bl::after { bottom: 0; left: 0; width: 1px; height: 14px; }
+
+    .bracket-br { bottom: -1px; right: -1px; }
+    .bracket-br::before { bottom: 0; right: 0; width: 14px; height: 1px; }
+    .bracket-br::after { bottom: 0; right: 0; width: 1px; height: 14px; }
+
+    .briefing-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .briefing-icon {
+        width: 12px;
+        height: 12px;
+        color: var(--cyan);
+        animation: pulse-icon 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-icon {
+        0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px var(--cyan-glow)); }
+        50% { opacity: 0.4; filter: drop-shadow(0 0 10px var(--cyan-glow)); }
+    }
+
+    .briefing-label {
+        font-family: var(--font-mono);
+        font-size: 0.45rem;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: var(--cyan);
+    }
+
+    .briefing-text {
+        font-size: 0.82rem;
+        line-height: 1.8;
+        color: var(--text-secondary);
+    }
+
+    .briefing-text strong {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    /* Upgrades */
+    .upgrades-row {
+        display: flex;
+        gap: 12px;
+        width: 100%;
+        max-width: 580px;
+        margin-bottom: 32px;
+    }
+
+    .upgrade-card {
+        flex: 1;
+        position: relative;
+        background: linear-gradient(180deg, rgba(0,229,255,0.02) 0%, rgba(0,229,255,0.003) 100%);
+        border: 1px solid var(--border-subtle);
+        padding: 22px 10px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        overflow: hidden;
+    }
+
+    .upgrade-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 0%, rgba(0,229,255,0.06) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .upgrade-card:hover::before { opacity: 1; }
+
+    .upgrade-card:hover {
+        border-color: var(--border-active);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(0,229,255,0.04), inset 0 1px 0 rgba(0,229,255,0.08);
+    }
+
+    .upgrade-card:active {
+        transform: translateY(0) scale(0.98);
+        transition-duration: 0.1s;
+    }
+
+    .upgrade-icon {
+        width: 32px;
+        height: 32px;
+        margin: 0 auto 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .upgrade-icon svg {
+        width: 24px;
+        height: 24px;
+        stroke: var(--cyan);
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 6px rgba(0,229,255,0.2));
+        transition: filter 0.3s ease;
+    }
+
+    .upgrade-card:hover .upgrade-icon svg {
+        filter: drop-shadow(0 0 14px rgba(0,229,255,0.45));
+    }
+
+    .upgrade-name {
+        font-family: var(--font-mono);
+        font-size: 0.42rem;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--text-primary);
+        margin-bottom: 5px;
+        font-weight: 600;
+    }
+
+    .upgrade-cost {
+        font-family: var(--font-mono);
+        font-size: 0.55rem;
+        color: var(--gold);
+        letter-spacing: 1px;
+    }
+
+    /* Start Button */
+    .btn-start-wrap {
+        position: relative;
+    }
+
+    .btn-start {
+        position: relative;
+        background: transparent;
+        color: var(--cyan);
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 12px;
+        text-transform: uppercase;
+        padding: 20px 64px;
+        border: none;
+        cursor: pointer;
+        overflow: visible;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-start::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border: 1px solid rgba(0,229,255,0.12);
+        clip-path: polygon(
+            0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%,
+            14px 100%, 0 calc(100% - 14px)
+        );
+        transition: border-color 0.4s ease;
+    }
+
+    .btn-start:hover::before {
+        border-color: rgba(0,229,255,0.45);
+    }
+
+    .btn-start::after {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        background: linear-gradient(180deg, rgba(0,229,255,0.06) 0%, transparent 100%);
+        clip-path: polygon(
+            0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%,
+            14px 100%, 0 calc(100% - 14px)
+        );
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover::after { opacity: 1; }
+
+    .btn-start:hover {
+        color: #ffffff;
+        text-shadow: 0 0 24px var(--cyan-glow), 0 0 48px rgba(0,229,255,0.15);
+        transform: scale(1.03);
+    }
+
+    .btn-start:active {
+        transform: scale(0.97);
+        transition-duration: 0.1s;
+    }
+
+    .btn-corner {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+    }
+
+    .btn-corner::before, .btn-corner::after {
+        content: '';
+        position: absolute;
+        background: var(--cyan);
+        opacity: 0.2;
+        transition: opacity 0.4s ease;
+    }
+
+    .btn-start:hover .btn-corner::before,
+    .btn-start:hover .btn-corner::after { opacity: 0.8; }
+
+    .btn-corner.tl { top: -5px; left: -5px; }
+    .btn-corner.tl::before { top: 0; left: 0; width: 6px; height: 1px; }
+    .btn-corner.tl::after { top: 0; left: 0; width: 1px; height: 6px; }
+
+    .btn-corner.br { bottom: -5px; right: -5px; }
+    .btn-corner.br::before { bottom: 0; right: 0; width: 6px; height: 1px; }
+    .btn-corner.br::after { bottom: 0; right: 0; width: 1px; height: 6px; }
+
+    /* Decorative rings */
+    .deco-ring {
+        position: fixed;
+        border-radius: 50%;
+        border: 1px solid rgba(0,229,255,0.015);
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .deco-ring-1 {
+        width: 600px; height: 600px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        animation: rotate-slow 100s linear infinite;
+    }
+
+    .deco-ring-2 {
+        width: 420px; height: 420px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,229,255,0.025);
+        animation: rotate-slow 80s linear infinite reverse;
+    }
+
+    .deco-ring-3 {
+        width: 800px; height: 800px;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        border-color: rgba(0,229,255,0.008);
+        animation: rotate-slow 140s linear infinite;
+    }
+
+    @keyframes rotate-slow {
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .hud-header { padding: 14px 20px; }
+        .hud-group { gap: 24px; }
+        .hud-value { font-size: 1.1rem; }
+        .upgrades-row { flex-direction: column; max-width: 240px; }
+        .briefing-panel { padding: 18px 20px; }
+        .btn-start { padding: 16px 36px; font-size: 0.7rem; letter-spacing: 8px; }
+        .title-main { letter-spacing: 0.04em; }
+    }
+
+    @media (max-width: 480px) {
+        .hud-header { flex-direction: column; gap: 10px; align-items: center; }
+        .hud-group { gap: 14px; }
+        .title-main { font-size: 2.4rem; }
+        .title-sub { letter-spacing: 5px; font-size: 0.45rem; }
+        .upgrades-row { max-width: 200px; }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+
+<div class="overlay-vignette"></div>
+<div class="overlay-scanlines"></div>
+
+<div class="deco-ring deco-ring-1"></div>
+<div class="deco-ring deco-ring-2"></div>
+<div class="deco-ring deco-ring-3"></div>
+
+<header class="hud-header">
+    <div class="hud-group">
+        <div class="hud-item">
+            <span class="hud-label"><span class="hud-dot cyan"></span>Wave Status</span>
+            <span class="hud-value wave" id="waveDisplay">001</span>
+        </div>
+        <div class="hud-item">
+            <span class="hud-label"><span class="hud-dot magenta"></span>Shield Integrity</span>
+            <span class="hud-value hp" id="hpDisplay">100%</span>
+            <div class="hp-bar"><div class="hp-bar-fill" id="hpBar"></div></div>
+        </div>
+    </div>
+    <div class="hud-group">
+        <div class="hud-item right">
+            <span class="hud-label"><span class="hud-dot gold"></span>Credits</span>
+            <span class="hud-value credits" id="creditsDisplay">500</span>
+        </div>
+    </div>
+</header>
+
+<main class="main-content">
+
+    <div class="title-section">
+        <h1 class="title-main">
+            <span class="word-js">JS</span> <span class="word-planet">Planet</span> <span class="word-defense">Defense</span>
+        </h1>
+        <div class="title-sub">Orbital Defense Command v2.4.1</div>
+        <div class="title-accent-line"></div>
+    </div>
+
+    <div class="briefing-panel">
+        <div class="bracket bracket-tl"></div>
+        <div class="bracket bracket-tr"></div>
+        <div class="bracket bracket-bl"></div>
+        <div class="bracket bracket-br"></div>
+        <div class="briefing-header">
+            <svg class="briefing-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span class="briefing-label">Incoming Transmission</span>
+        </div>
+        <p class="briefing-text">
+            Commander, sensors detect a <strong>massive swarm</strong> approaching the sector.
+            Orbital cannons are online but require manual calibration. Optimize your turret systems
+            before the first wave breaches the <strong>perimeter</strong>.
+        </p>
+    </div>
+
+    <div class="upgrades-row">
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon">
+                <svg viewBox="0 0 24 24">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Damage Output</div>
+            <div class="upgrade-cost">150 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon">
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Fire Rate</div>
+            <div class="upgrade-cost">200 Credits</div>
+        </div>
+        <div class="upgrade-card" onclick="cardPulse(this)">
+            <div class="upgrade-icon">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+            </div>
+            <div class="upgrade-name">Projectile Speed</div>
+            <div class="upgrade-cost">100 Credits</div>
+        </div>
+    </div>
+
+    <div class="btn-start-wrap">
+        <button class="btn-start" onclick="startGame()">
+            <span class="btn-corner tl"></span>
+            <span class="btn-corner br"></span>
+            Initialize Defense
+        </button>
+    </div>
+
+</main>
+
+<script>
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let time = 0;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Stars
+const stars = [];
+for (let i = 0; i < 400; i++) {
+    stars.push({
+        x: Math.random() * W * 2 - W * 0.5,
+        y: Math.random() * H * 2 - H * 0.5,
+        z: Math.random() * 3 + 0.3,
+        size: Math.random() * 1.4 + 0.2,
+        twinkleSpeed: Math.random() * 0.01 + 0.003,
+        twinkleOffset: Math.random() * Math.PI * 2,
+        color: Math.random() > 0.85 ? 'cyan' : (Math.random() > 0.5 ? 'warm' : 'white')
+    });
+}
+
+// Floating particles
+const particles = [];
+for (let i = 0; i < 20; i++) {
+    particles.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.12,
+        vy: (Math.random() - 0.5) * 0.12,
+        size: Math.random() * 1.2 + 0.4,
+        opacity: Math.random() * 0.12 + 0.02
+    });
+}
+
+// Shooting stars
+const shootingStars = [];
+function spawnShootingStar() {
+    if (Math.random() < 0.0015 && shootingStars.length < 2) {
+        shootingStars.push({
+            x: Math.random() * W,
+            y: Math.random() * H * 0.3,
+            vx: (Math.random() - 0.3) * 6,
+            vy: Math.random() * 3 + 1.5,
+            life: 1,
+            decay: Math.random() * 0.01 + 0.006,
+            length: Math.random() * 40 + 20
+        });
+    }
+}
+
+function drawBackground() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Deep space gradient
+    const grad = ctx.createRadialGradient(W/2, H * 0.3, 0, W/2, H * 0.3, Math.max(W, H) * 0.9);
+    grad.addColorStop(0, '#060d1a');
+    grad.addColorStop(0.4, '#030812');
+    grad.addColorStop(1, '#010208');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle nebula
+    const nebula = ctx.createRadialGradient(W * 0.35, H * 0.25, 0, W * 0.35, H * 0.25, 400);
+    nebula.addColorStop(0, 'rgba(0, 35, 80, 0.08)');
+    nebula.addColorStop(0.5, 'rgba(0, 20, 50, 0.02)');
+    nebula.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebula;
+    ctx.fillRect(0, 0, W, H);
+
+    const nebula2 = ctx.createRadialGradient(W * 0.7, H * 0.55, 0, W * 0.7, H * 0.55, 300);
+    nebula2.addColorStop(0, 'rgba(40, 0, 60, 0.05)');
+    nebula2.addColorStop(0.5, 'rgba(20, 0, 35, 0.015)');
+    nebula2.addColorStop(1, 'transparent');
+    ctx.fillStyle = nebula2;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    for (const star of stars) {
+        const sx = ((star.x / star.z) % W + W) % W;
+        const sy = ((star.y / star.z) % H + H) % H;
+        const twinkle = Math.sin(time * star.twinkleSpeed + star.twinkleOffset) * 0.5 + 0.5;
+        const alpha = (0.1 + twinkle * 0.7) * Math.min(1, star.z / 2.5);
+
+        let color;
+        if (star.color === 'cyan') {
+            color = `rgba(160, 210, 255, ${alpha})`;
+        } else if (star.color === 'warm') {
+            color = `rgba(255, 220, 180, ${alpha})`;
+        } else {
+            color = `rgba(200, 215, 240, ${alpha})`;
+        }
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, star.size * (1/star.z), 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        if (star.size > 1 && alpha > 0.5) {
+            ctx.beginPath();
+            ctx.arc(sx, sy, star.size * 3 / star.z, 0, Math.PI * 2);
+            ctx.fillStyle = star.color === 'cyan'
+                ? `rgba(0, 229, 255, ${alpha * 0.04})`
+                : `rgba(180, 195, 235, ${alpha * 0.025})`;
+            ctx.fill();
+        }
+    }
+
+    // Shooting stars
+    spawnShootingStar();
+    for (let i = shootingStars.length - 1; i >= 0; i--) {
+        const ss = shootingStars[i];
+        ss.x += ss.vx;
+        ss.y += ss.vy;
+        ss.life -= ss.decay;
+        if (ss.life <= 0) { shootingStars.splice(i, 1); continue; }
+
+        const tailX = ss.x - ss.vx * ss.length / 8;
+        const tailY = ss.y - ss.vy * ss.length / 8;
+        const ssGrad = ctx.createLinearGradient(tailX, tailY, ss.x, ss.y);
+        ssGrad.addColorStop(0, 'rgba(180, 210, 255, 0)');
+        ssGrad.addColorStop(1, `rgba(180, 210, 255, ${ss.life * 0.4})`);
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(ss.x, ss.y);
+        ctx.strokeStyle = ssGrad;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+
+    // Floating particles
+    for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < -10) p.x = W + 10;
+        if (p.x > W + 10) p.x = -10;
+        if (p.y < -10) p.y = H + 10;
+        if (p.y > H + 10) p.y = -10;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 229, 255, ${p.opacity})`;
+        ctx.fill();
+    }
+
+    // Planet
+    const planetX = W * 0.5;
+    const planetY = H * 0.35;
+    const planetR = Math.min(W, H) * 0.28;
+
+    // Outer glow
+    const outerGlow = ctx.createRadialGradient(planetX, planetY, planetR * 0.9, planetX, planetY, planetR * 2.2);
+    outerGlow.addColorStop(0, 'rgba(0, 70, 130, 0.04)');
+    outerGlow.addColorStop(0.5, 'rgba(0, 40, 90, 0.01)');
+    outerGlow.addColorStop(1, 'transparent');
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Atmosphere ring
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.05)';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR + 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Planet body
+    const pBody = ctx.createRadialGradient(
+        planetX - planetR * 0.25, planetY - planetR * 0.25, 0,
+        planetX, planetY, planetR
+    );
+    pBody.addColorStop(0, '#0c1a35');
+    pBody.addColorStop(0.3, '#081225');
+    pBody.addColorStop(0.7, '#040b1a');
+    pBody.addColorStop(1, '#020610');
+    ctx.fillStyle = pBody;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Surface features (clipped to planet)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Continents
+    const continents = [
+        { cx: planetX - planetR * 0.12, cy: planetY - planetR * 0.08, rx: planetR * 0.28, ry: planetR * 0.2, rot: 0.12 },
+        { cx: planetX + planetR * 0.22, cy: planetY + planetR * 0.15, rx: planetR * 0.16, ry: planetR * 0.25, rot: -0.2 },
+        { cx: planetX + planetR * 0.02, cy: planetY - planetR * 0.32, rx: planetR * 0.1, ry: planetR * 0.08, rot: 0.35 },
+    ];
+
+    for (const c of continents) {
+        ctx.save();
+        ctx.translate(c.cx, c.cy);
+        ctx.rotate(c.rot);
+        const cGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(c.rx, c.ry));
+        cGrad.addColorStop(0, 'rgba(0, 60, 100, 0.1)');
+        cGrad.addColorStop(0.5, 'rgba(0, 40, 70, 0.05)');
+        cGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = cGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, c.rx, c.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.025)';
+    ctx.lineWidth = 0.5;
+    for (let i = -4; i <= 4; i++) {
+        const latY = planetY + i * planetR * 0.2;
+        const halfW = Math.sqrt(Math.max(0, planetR * planetR - (latY - planetY) * (latY - planetY)));
+        if (halfW > 0) {
+            ctx.beginPath();
+            ctx.moveTo(planetX - halfW, latY);
+            ctx.lineTo(planetX + halfW, latY);
+            ctx.stroke();
+        }
+    }
+
+    for (let i = -3; i <= 3; i++) {
+        const lonX = planetX + i * planetR * 0.25;
+        const halfH = Math.sqrt(Math.max(0, planetR * planetR - (lonX - planetX) * (lonX - planetX)));
+        if (halfH > 0) {
+            ctx.beginPath();
+            ctx.moveTo(lonX, planetY - halfH);
+            ctx.lineTo(lonX, planetY + halfH);
+            ctx.stroke();
+        }
+    }
+
+    // Cloud bands
+    const cloudOp = 0.03 + Math.sin(time * 0.003) * 0.012;
+    for (let i = 0; i < 3; i++) {
+        const cloudY = planetY - planetR * 0.25 + i * planetR * 0.3;
+        const cloudGrad = ctx.createLinearGradient(planetX - planetR, cloudY, planetX + planetR, cloudY);
+        cloudGrad.addColorStop(0, 'transparent');
+        cloudGrad.addColorStop(0.2, `rgba(80, 160, 200, ${cloudOp})`);
+        cloudGrad.addColorStop(0.5, `rgba(80, 160, 200, ${cloudOp * 1.3})`);
+        cloudGrad.addColorStop(0.8, `rgba(80, 160, 200, ${cloudOp})`);
+        cloudGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = cloudGrad;
+        ctx.fillRect(planetX - planetR, cloudY - 5, planetR * 2, 10);
+    }
+
+    // Specular highlight
+    const specGrad = ctx.createRadialGradient(
+        planetX - planetR * 0.25, planetY - planetR * 0.28, 0,
+        planetX - planetR * 0.25, planetY - planetR * 0.28, planetR * 0.5
+    );
+    specGrad.addColorStop(0, 'rgba(80, 180, 240, 0.05)');
+    specGrad.addColorStop(0.5, 'rgba(40, 130, 180, 0.015)');
+    specGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = specGrad;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Terminator shadow
+    const termGrad = ctx.createLinearGradient(
+        planetX + planetR * 0.2, planetY,
+        planetX + planetR, planetY
+    );
+    termGrad.addColorStop(0, 'transparent');
+    termGrad.addColorStop(1, 'rgba(0, 0, 0, 0.4)');
+    ctx.fillStyle = termGrad;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Planet edge highlight
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR - 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Orbit ring
+    ctx.save();
+    ctx.translate(planetX, planetY);
+    ctx.rotate(0.1);
+    ctx.scale(1, 0.2);
+    const orbitR = planetR * 1.5;
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.04)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, orbitR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2 + time * 0.0012;
+        const rx = Math.cos(angle) * orbitR;
+        const ry = Math.sin(angle) * orbitR;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 229, 255, ${0.1 + Math.sin(time * 0.006 + i) * 0.06})`;
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // Perspective grid floor
+    const horizon = H * 0.65;
+    const gridSpeed = time * 0.2;
+
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.015)';
+    ctx.lineWidth = 0.5;
+
+    const cx = W / 2;
+    for (let i = -14; i <= 14; i++) {
+        const spread = i * 40;
+        ctx.beginPath();
+        ctx.moveTo(cx + spread * 0.015, horizon - 40);
+        ctx.lineTo(cx + spread * 2.2, H + 40);
+        ctx.stroke();
+    }
+
+    const spacing = 28;
+    const offset = gridSpeed % spacing;
+    for (let i = 0; i < 20; i++) {
+        const baseY = horizon + 6 + i * spacing + offset;
+        if (baseY > H + 10) continue;
+        const progress = (baseY - horizon) / (H - horizon);
+        const ySpread = progress * 1100;
+        ctx.beginPath();
+        ctx.moveTo(cx - ySpread, baseY);
+        ctx.lineTo(cx + ySpread, baseY);
+        ctx.stroke();
+    }
+
+    time++;
+    requestAnimationFrame(drawBackground);
+}
+
+drawBackground();
+
+function cardPulse(el) {
+    el.style.transform = 'scale(0.96)';
+    setTimeout(() => { el.style.transform = ''; }, 150);
+}
+
+function startGame() {
+    document.body.style.transition = 'opacity 0.8s ease';
+    document.body.style.opacity = '0';
+    setTimeout(() => {
+        alert('Game Starting! (This is a demo screen)');
+        document.body.style.opacity = '1';
+    }, 800);
+}
+</script>
+</body>
+</html>

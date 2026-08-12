@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SkiFree - Retro Edition</title>
+    <style>
+        :root {
+            --ui-red: #e52521;
+            --ui-red-dark: #8b0000;
+            --ui-red-light: #ff6b6b;
+            --ui-snow: #ffffff;
+            --ui-text: #111111;
+            --ui-border: #000000;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-font-smoothing: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #2d4570; /* Fallback */
+            font-family: 'Courier New', monospace;
+        }
+
+        /* 
+           CONTAINER: The Game Viewport 
+           We use a 4:3 aspect ratio container to enforce the retro shape
+        */
+        #viewport {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+
+        /* 
+           CANVAS: The World
+           Scaled to fit screen, but internal resolution is fixed 320x240
+        */
+        canvas {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Ensures the whole scene is visible */
+            z-index: 1;
+            display: block;
+        }
+
+        /* 
+           UI LAYER: Absolute overlay
+           Uses percentage positioning to stack vertically as requested
+        */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Pass clicks to canvas if needed, though UI captures them */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 
+           TYPOGRAPHY: Pixel Font Simulation
+           We use 'VT323' style fallbacks or just strict Courier New with text-stroke/shadows
+           to mimic bitmap fonts without external network requests.
+        */
+        .pixel-text {
+            font-family: "Courier New", monospace;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: white;
+            /* The "Bitmap" Outline Effect */
+            text-shadow: 
+                -2px -2px 0 #000, 
+                2px -2px 0 #000, 
+                -2px 2px 0 #000, 
+                2px 2px 0 #000,
+                0 4px 0 #000; /* Depth */
+            letter-spacing: 2px;
+            line-height: 1;
+        }
+
+        /* 1. TITLE: Top 10% */
+        .title-block {
+            margin-top: 5vh;
+            text-align: center;
+            pointer-events: auto;
+            z-index: 20;
+        }
+
+        h1 {
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            margin: 0;
+            color: #fff;
+            /* Gradient Text effect for Title */
+            background: -webkit-linear-gradient(#fff, #aaccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            /* We need a solid color for the shadow to work on gradient text, 
+               so we apply shadow to a wrapper or duplicate text. 
+               Simpler: Keep text white, use shadow for contrast. */
+            -webkit-text-fill-color: #ffffff; 
+            filter: drop-shadow(4px 4px 0px rgba(0,0,0,0.5));
+        }
+
+        /* 2. INSTRUCTIONS: Just below title (HUD Style) */
+        .hud-panel {
+            margin-top: 1vh;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #fff;
+            padding: 8px 16px;
+            border-radius: 0; /* Sharp corners */
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
+            pointer-events: auto;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .hud-text {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            color: #fff;
+            text-shadow: none; /* Readable on dark bg */
+            white-space: nowrap;
+        }
+
+        .arrow-icon {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-left: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            transform: rotate(45deg);
+            margin: 0 5px;
+        }
+
+        /* 3. START BUTTON: Anchored near bottom (overlapping the preview visually) */
+        .controls-block {
+            position: absolute;
+            bottom: 15vh;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 30;
+        }
+
+        .pixel-btn {
+            background-color: var(--ui-red);
+            border: none;
+            outline: none;
+            cursor: pointer;
+            position: relative;
+            padding: 15px 40px;
+            font-family: "Courier New", monospace;
+            font-weight: 900;
+            font-size: clamp(1.2rem, 3vw, 1.8rem);
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            
+            /* Pixel Art Bevel */
+            border-top: 4px solid var(--ui-red-light);
+            border-left: 4px solid var(--ui-red-light);
+            border-right: 4px solid var(--ui-red-dark);
+            border-bottom: 4px solid var(--ui-red-dark);
+            
+            box-shadow: 0 10px 0 rgba(0,0,0,0.3);
+            transition: transform 0.1s, box-shadow 0.1s;
+            image-rendering: pixelated;
+        }
+
+        .pixel-btn:hover {
+            filter: brightness(1.1);
+            transform: translateY(-2px);
+            box-shadow: 0 12px 0 rgba(0,0,0,0.3);
+        }
+
+        .pixel-btn:active {
+            transform: translateY(6px);
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+            border-top: 4px solid var(--ui-red-dark);
+            border-left: 4px solid var(--ui-red-dark);
+            border-right: 4px solid var(--ui-red-light);
+            border-bottom: 4px solid var(--ui-red-light);
+        }
+
+        /* CRT Scanlines */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 2px,
+                rgba(0,0,0,0.15) 2px,
+                rgba(0,0,0,0.15) 4px
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.8;
+        }
+        
+        /* Vignette */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, transparent 50%, rgba(0,0,0,0.8) 100%);
+            z-index: 45;
+            pointer-events: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="viewport">
+        <!-- The Retro World -->
+        <canvas id="world"></canvas>
+        
+        <!-- UI Overlay -->
+        <div class="ui-layer">
+            
+            <!-- 1. Title -->
+            <div class="title-block">
+                <h1 class="pixel-text">SKI FREE</h1>
+            </div>
+
+            <!-- 2. Instructions (HUD) -->
+            <div class="hud-panel">
+                <div class="hud-text">
+                    <span class="pixel-text">ARROWS TO STEER</span>
+                    <span style="color:#aaa; margin: 0 5px;">|</span>
+                    <span class="pixel-text">AVOID TREES</span>
+                </div>
+            </div>
+
+            <!-- 3. Start Button -->
+            <div class="controls-block">
+                <button class="pixel-btn" id="startBtn">
+                    START GAME
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Post Processing -->
+        <div class="vignette"></div>
+        <div class="scanlines"></div>
+    </div>
+
+<script>
+    /**
+     * RENDER ENGINE
+     * 320x240 Resolution
+     */
+    const canvas = document.getElementById('world');
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    const WIDTH = 320;
+    const HEIGHT = 240;
+
+    let frame = 0;
+    let trees = [];
+    let snow = [];
+    let skierBob = 0;
+
+    // Palette
+    const C = {
+        skyTop: '#5588cc',
+        skyBot: '#aaddff',
+        mntBack: '#446699',
+        mntFront: '#223355',
+        snow: '#eeeeff',
+        snowShadow: '#99aacc',
+        treeDark: '#005500',
+        treeMid: '#008800',
+        treeLight: '#33cc33',
+        treeHighlight: '#66ff66',
+        skierRed: '#d32f2f',
+        skierBlue: '#1a237e',
+        skierSkin: '#ffcc80',
+        skierYellow: '#ffcc00',
+        skierPole: '#555555'
+    };
+
+    function init() {
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+        
+        // Generate World
+        trees = [];
+        
+        // Create a "Corridor" in the middle (x: 120-200)
+        // We place trees in rows to simulate depth
+        const rows = 15;
+        const horizon = 60;
+        const groundHeight = HEIGHT - horizon;
+
+        for(let i=0; i<rows; i++) {
+            let depth = i / rows;
+            // Exponential spacing for perspective
+            let y = horizon + (Math.pow(depth, 1.5) * groundHeight) + (Math.random() * 10);
+            let scale = 0.3 + (depth * 1.8); // Scale based on depth
+            
+            // Add 1-3 trees per row
+            let count = Math.floor(Math.random() * 3) + 1;
+            for(let t=0; t<count; t++) {
+                let x = Math.random() * WIDTH;
+                
+                // Force away from center (The Ski Lane)
+                // Center is 160. Safe zone 130-190.
+                if (x > 125 && x < 195) {
+                    x = (x < 160) ? (Math.random() * 110) : (200 + Math.random() * 110);
+                }
+                
+                trees.push({
+                    x: x,
+                    y: y,
+                    scale: scale,
+                    z: depth
+                });
+            }
+        }
+        
+        // Sort by Z (painters algorithm: far to near)
+        trees.sort((a,b) => a.z - b.z);
+
+        // Snow particles
+        snow = [];
+        for(let i=0; i<60; i++) {
+            snow.push({
+                x: Math.random() * WIDTH,
+                y: Math.random() * HEIGHT,
+                speed: Math.random() * 1.5 + 0.5,
+                size: Math.random() > 0.8 ? 2 : 1
+            });
+        }
+    }
+
+    // --- Drawing Primitives ---
+
+    function rect(x, y, w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+    }
+
+    // The Skier (Procedural Pixel Art)
+    function drawSkier(x, y) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Animation: Bobbing
+        skierBob = Math.sin(frame * 0.2) * 3;
+        ctx.translate(0, skierBob);
+
+        const s = 2; // Pixel scale
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(-12*s, 24*s, 24*s, 4*s);
+
+        // Skis (Yellow)
+        rect(-8*s, 22*s, 2*s, 12*s, C.skierYellow);
+        rect(6*s, 22*s, 2*s, 12*s, C.skierYellow);
+
+        // Poles
+        rect(-14*s, 2*s, 1*s, 22*s, C.skierPole);
+        rect(13*s, 2*s, 1*s, 22*s, C.skierPole);
+
+        // Legs (Blue)
+        rect(-5*s, 14*s, 4*s, 9*s, C.skierBlue);
+        rect(1*s, 14*s, 4*s, 9*s, C.skierBlue);
+
+        // Body/Jacket (Red)
+        rect(-5*s, 4*s, 10*s, 11*s, C.skierRed);
+        
+        // Arms (Red)
+        rect(-10*s, 4*s, 5*s, 7*s, C.skierRed);
+        rect(5*s, 4*s, 5*s, 7*s, C.skierRed);
+
+        // Head (Skin)
+        rect(-3*s, -1*s, 6*s, 5*s, C.skierSkin);
+
+        // Hat (Red)
+        rect(-3*s, -2*s, 6*s, 2*s, C.skierRed);
+        // Hat Pom
+        rect(-1*s, -4*s, 2*s, 2*s, '#fff');
+
+        ctx.restore();
+    }
+
+    // Procedural Tree
+    function drawTree(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        const s = 3 * scale; // Base pixel size
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.moveTo(-8*s, 0);
+        ctx.lineTo(8*s, 0);
+        ctx.lineTo(5*s, 2*s);
+        ctx.lineTo(-5*s, 2*s);
+        ctx.fill();
+
+        // Trunk
+        rect(-1*s, -3*s, 2*s, 3*s, '#5d4037');
+
+        // Leaves (Layered Triangles)
+        // Bottom Layer
+        rect(-8*s, -8*s, 16*s, 6*s, C.treeDark);
+        // Mid Layer
+        rect(-5*s, -12*s, 10*s, 6*s, C.treeMid);
+        // Top Layer
+        rect(-2*s, -16*s, 4*s, 5*s, C.treeLight);
+
+        // Highlights (Snow on branches)
+        rect(-4*s, -14*s, 2*s, 2*s, '#fff');
+        rect(2*s, -10*s, 2*s, 2*s, '#fff');
+
+        ctx.restore();
+    }
+
+    // Background
+    function drawBackground() {
+        // 1. Sky (Gradient)
+        const bands = 8;
+        const bandH = HEIGHT / bands;
+        for(let i=0; i<bands; i++) {
+            let t = i / bands;
+            // Interpolate manually for retro banded look
+            let r = Math.floor(85 + t * 136);
+            let g = Math.floor(136 + t * 129);
+            let b = Math.floor(204 + t * 51);
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillRect(0, i * bandH, WIDTH, bandH + 1);
+        }
+
+        // 2. Mountains
+        // Back range
+        ctx.fillStyle = C.mntBack;
+        ctx.beginPath();
+        ctx.moveTo(0, 80);
+        ctx.lineTo(60, 40);
+        ctx.lineTo(120, 70);
+        ctx.lineTo(180, 30);
+        ctx.lineTo(240, 60);
+        ctx.lineTo(320, 20);
+        ctx.lineTo(320, 90);
+        ctx.lineTo(0, 90);
+        ctx.fill();
+
+        // Front range
+        ctx.fillStyle = C.mntFront;
+        ctx.beginPath();
+        ctx.moveTo(0, 90);
+        ctx.lineTo(40, 60);
+        ctx.lineTo(100, 85);
+        ctx.lineTo(160, 50);
+        ctx.lineTo(220, 80);
+        ctx.lineTo(320, 40);
+        ctx.lineTo(320, 100);
+        ctx.lineTo(0, 100);
+        ctx.fill();
+
+        // 3. Snow Slope
+        ctx.fillStyle = C.snow;
+        ctx.fillRect(0, 75, WIDTH, HEIGHT - 75);
+
+        // 4. Slope Texture (Speed lines)
+        ctx.fillStyle = C.snowShadow;
+        // Deterministic random for texture to avoid flickering
+        for(let i=0; i<WIDTH; i+=8) {
+            // Pseudo-random based on x
+            if ((i * 7) % 13 > 5) { 
+                let h = ((i * 11) % 100) + 50;
+                ctx.fillRect(i, 75, 2, h);
+            }
+        }
+    }
+
+    // --- Main Loop ---
+
+    function animate() {
+        ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+        drawBackground();
+
+        // Draw Trees
+        trees.forEach(t => drawTree(t.x, t.y, t.scale));
+
+        // Draw Skier (Centered, slightly lower to emphasize the "Hero" status)
+        // 160 is roughly the middle-bottom of the 240px height
+        drawSkier(WIDTH / 2, 160);
+
+        // Draw Snow Particles (Foreground)
+        ctx.fillStyle = '#fff';
+        snow.forEach(p => {
+            p.y += p.speed;
+            p.x -= 0.5; // Wind
+            if(p.y > HEIGHT) p.y = 0;
+            if(p.x < 0) p.x = WIDTH;
+            
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+        });
+        ctx.globalAlpha = 1.0;
+
+        frame++;
+        requestAnimationFrame(animate);
+    }
+
+    // Init
+    window.addEventListener('resize', init);
+    init();
+    animate();
+
+    // Button Interaction
+    const btn = document.getElementById('startBtn');
+    btn.addEventListener('click', () => {
+        // Simple interaction feedback
+        btn.innerHTML = "LOADING...";
+        btn.style.backgroundColor = "#555"; 
+        btn.style.borderColor = "#333";
+        
+        setTimeout(() => {
+            alert("GAME START! (Demo Screen)");
+            btn.innerHTML = "START GAME";
+            btn.style.backgroundColor = ""; 
+            btn.style.borderColor = "";
+        }, 600);
+    });
+
+</script>
+</body>
+</html>

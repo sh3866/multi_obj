@@ -1,0 +1,24 @@
+# ab000006 gold provenance
+
+## Direct visual observation
+Committed pixel snow landscape and readable modal, but the skier glimpse is obscured behind the oversized black start panel. The panel feels pasted on and hides the focal action.
+
+## Independent axis reviews
+- **layout:** Move/resize the start card so title and skier coexist; create a clear slope path into the scene.
+- **spacing:** Give the card tighter proportions and safe bottom margin.
+- **color_type:** Integrate the card with icy navy/cream pixel styling instead of absolute black.
+- **style_orig:** Add a visible skier pose and a few purposeful slope details while reducing random tree scatter.
+
+## MAD cross-critique / resolved trade-off
+More visible scenery can weaken menu legibility. Keep the card compact and high-contrast, but anchor it to a quiet snowbank region rather than covering action.
+
+## Exact revisions sent to Qwen
+
+### GOLD-FUSED
+Keep the strong retro-pixel landscape, but reveal the actual skier and integrate the menu into the scene. Reduce and reposition the black card into a compact icy-navy pixel panel over a quiet snowbank, leaving a visible downhill skier and clear slope path. Improve title/card pixel framing and tree composition while preserving instructions and the yellow Start button.
+
+### GOLD-AXES
+Recompose the screen around a visible skier descending through a deliberate opening in the trees. Reduce random tree scatter and place a compact start panel in a quiet lower corner/edge with consistent safe margins. Replace pure black with deep icy navy, refine pixel borders and type hierarchy, and keep the yellow CTA as the strongest control.
+
+### GOLD-MAD
+Do not add more scenery; reorganize it. Create one readable downhill corridor with a clearly visible pixel skier, and place a smaller high-contrast icy-navy menu on an empty snowbank so it never covers the character. Cluster trees to frame the corridor, keep the title/instructions/Start content, and preserve strict pixel-art edges and limited palette.

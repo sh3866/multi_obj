@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lumina: Capture & Collection</title>
+<style>
+  :root {
+    --bg-deep: #020205;
+    --bg-mid: #060918;
+    --accent-cyan: #00f2ff;
+    --accent-magenta: #ff00aa;
+    --accent-lime: #ccff00;
+    --accent-purple: #bd00ff;
+    --glass-surface: rgba(10, 14, 23, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-display: "Trebuchet MS", "Lucida Sans Unicode", "Lucida Grande", "Lucida Sans", Geneva, Verdana, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: var(--bg-deep);
+    color: white;
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+
+  /* --- Atmosphere & Background --- */
+  .scene-container {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Starfield Background */
+  .bg-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    background: 
+      radial-gradient(circle at 50% 120%, rgba(20, 30, 60, 0.6) 0%, transparent 60%),
+      radial-gradient(circle at 20% 20%, rgba(189, 0, 255, 0.1) 0%, transparent 40%),
+      radial-gradient(circle at 80% 30%, rgba(0, 242, 255, 0.1) 0%, transparent 40%),
+      linear-gradient(180deg, var(--bg-deep) 0%, #040610 100%);
+  }
+
+  /* Mid-ground Terrain */
+  #bgCanvas {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* Foreground Depth (Grass/Rocks) */
+  #fgCanvas {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 10; /* Above creatures for depth */
+    pointer-events: none;
+  }
+
+  /* Game Canvas (Creatures/Player) */
+  #gameCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 5;
+    cursor: none;
+  }
+
+  /* Vignette Overlay */
+  .vignette {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.8) 100%);
+    z-index: 4;
+    pointer-events: none;
+  }
+
+  /* --- UI Layer --- */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 20;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 1.5rem;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+    width: 100%;
+    padding-top: 0.5rem;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: 2.2rem;
+    margin: 0;
+    line-height: 0.9;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 800;
+    /* Metallic/Ethereal Gradient Text */
+    background: linear-gradient(180deg, #fff 0%, #a5f3fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.4));
+  }
+
+  .subtitle {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    margin-top: 0.3rem;
+    opacity: 0.9;
+  }
+
+  /* HUD Panel - Diegetic Scanner Look */
+  .hud-panel {
+    background: linear-gradient(90deg, rgba(0, 242, 255, 0.05), transparent);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border-left: 2px solid var(--accent-cyan);
+    border-top: 1px solid rgba(0, 242, 255, 0.2);
+    border-bottom: 1px solid rgba(0, 242, 255, 0.2);
+    padding: 0.4rem 1.5rem 0.4rem 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 0 15px rgba(0, 242, 255, 0.05);
+    clip-path: polygon(0 0, 100% 0, 100% 80%, 95% 100%, 0 100%);
+  }
+
+  .stat-icon {
+    width: 24px; height: 24px;
+    fill: var(--accent-lime);
+    filter: drop-shadow(0 0 5px var(--accent-lime));
+    animation: pulse-icon 2s infinite ease-in-out;
+  }
+
+  @keyframes pulse-icon {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+
+  .stat-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    color: white;
+    line-height: 1;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+
+  .stat-label {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  /* Footer / Actions */
+  .footer {
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    padding-bottom: 1rem;
+  }
+
+  /* Tactile/Magical Button */
+  .btn-main {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: 1rem 3rem;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+
+  /* Rune/Glow effect on hover */
+  .btn-main::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(45deg, transparent, rgba(0, 242, 255, 0.2), transparent);
+    transform: translateX(-100%);
+    transition: 0.6s;
+  }
+  
+  .btn-main::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border: 1px solid rgba(0, 242, 255, 0.1);
+    pointer-events: none;
+  }
+
+  .btn-main:hover {
+    background: rgba(0, 242, 255, 0.1);
+    border-color: var(--accent-cyan);
+    color: #fff;
+    text-shadow: 0 0 8px var(--accent-cyan);
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+    transform: translateY(-2px);
+  }
+  
+  .btn-main:hover::before {
+    transform: translateX(100%);
+  }
+
+  /* Notification Toast */
+  .toast {
+    position: absolute;
+    top: 40%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--accent-lime);
+    color: var(--accent-lime);
+    padding: 1rem 2.5rem;
+    border-radius: 2px;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 30;
+    text-transform: uppercase;
+    box-shadow: 0 0 40px rgba(204, 255, 0, 0.15);
+    font-weight: 700;
+  }
+  
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  @media (max-width: 600px) {
+    h1 { font-size: 1.6rem; }
+    .ui-layer { padding: 1rem; }
+    .btn-main { padding: 0.8rem 2rem; font-size: 0.75rem; }
+    .hud-panel { padding: 0.3rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene-container">
+  <!-- Background Layers -->
+  <div class="bg-layer"></div>
+  <canvas id="bgCanvas"></canvas> <!-- Midground Mountains -->
+  <div class="vignette"></div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+  
+  <!-- Foreground Layer (Grass/Rocks) -->
+  <canvas id="fgCanvas"></canvas>
+
+  <!-- UI Overlay -->
+  <div class="ui-layer">
+    <header class="header">
+      <div class="brand">
+        <h1>Lumina</h1>
+        <div class="subtitle">Capture & Collection</div>
+      </div>
+      <div class="hud-panel">
+        <svg class="stat-icon" viewBox="0 0 24 24">
+          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z" />
+        </svg>
+        <div class="stat-group">
+          <div class="stat-value" id="scoreDisplay">0</div>
+          <div class="stat-label">Specimens</div>
+        </div>
+      </div>
+    </header>
+
+    <div id="toast" class="toast">Specimen Captured</div>
+
+    <footer class="footer">
+      <button class="btn-main" onclick="resetGame()">New Collection</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+  /**
+   * Game Logic & Rendering
+   */
+  
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: true });
+  
+  const bgCanvas = document.getElementById('bgCanvas');
+  const bgCtx = bgCanvas.getContext('2d');
+  
+  const fgCanvas = document.getElementById('fgCanvas');
+  const fgCtx = fgCanvas.getContext('2d');
+
+  const scoreEl = document.getElementById('scoreDisplay');
+  const toastEl = document.getElementById('toast');
+
+  let width, height;
+  let score = 0;
+  let particles = [];
+  let creatures = [];
+  let mouse = { x: -1000, y: -1000 };
+  let isMouseDown = false;
+  let frameCount = 0;
+  let stars = [];
+
+  // Configuration
+  const COLORS = ['#00f2ff', '#ff00aa', '#ccff00', '#bd00ff'];
+  const CREATURE_COUNT = 8;
+
+  // Resize Handling
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    
+    bgCanvas.width = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+    drawTerrain();
+    
+    fgCanvas.width = window.innerWidth;
+    fgCanvas.height = window.innerHeight;
+    drawForeground();
+    
+    generateStars();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Input Handling
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+  
+  window.addEventListener('touchmove', e => {
+    e.preventDefault(); 
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+
+  // --- Visuals: Background ---
+  function generateStars() {
+    stars = [];
+    for(let i=0; i<150; i++) {
+      stars.push({
+        x: Math.random() * width,
+        y: Math.random() * (height * 0.7), // Keep stars in sky
+        size: Math.random() * 1.5,
+        alpha: Math.random(),
+        pulse: Math.random() * 0.02 + 0.005
+      });
+    }
+  }
+
+  function drawTerrain() {
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+    
+    // Layer 1: Distant Mountains (Blue/Purple Tint)
+    bgCtx.fillStyle = '#0a0f24';
+    bgCtx.beginPath();
+    bgCtx.moveTo(0, bgCanvas.height);
+    for(let i=0; i<=bgCanvas.width; i+=20) {
+      bgCtx.lineTo(i, bgCanvas.height - 120 - Math.sin(i * 0.005) * 60 - Math.random() * 15);
+    }
+    bgCtx.lineTo(bgCanvas.width, bgCanvas.height);
+    bgCtx.fill();
+
+    // Layer 2: Closer Hills (Darker)
+    bgCtx.fillStyle = '#040610';
+    bgCtx.beginPath();
+    bgCtx.moveTo(0, bgCanvas.height);
+    for(let i=0; i<=bgCanvas.width; i+=15) {
+      bgCtx.lineTo(i, bgCanvas.height - 60 - Math.sin(i * 0.01 + 2) * 40 - Math.random() * 10);
+    }
+    bgCtx.lineTo(bgCanvas.width, bgCanvas.height);
+    bgCtx.fill();
+  }
+
+  function drawForeground() {
+    fgCtx.clearRect(0, 0, fgCanvas.width, fgCanvas.height);
+    
+    // Draw some "grass blades" or rocks at the very bottom
+    fgCtx.fillStyle = '#020308';
+    fgCtx.beginPath();
+    fgCtx.moveTo(0, fgCanvas.height);
+    // Create jagged bottom edge
+    for(let i=0; i<=fgCanvas.width; i+=10) {
+      let h = Math.random() * 30;
+      fgCtx.lineTo(i, fgCanvas.height - h);
+    }
+    fgCtx.lineTo(fgCanvas.width, fgCanvas.height);
+    fgCtx.fill();
+    
+    // Add some glowing "grass" tips
+    fgCtx.fillStyle = 'rgba(0, 242, 255, 0.1)';
+    for(let i=0; i<fgCanvas.width; i+=30) {
+      if(Math.random() > 0.7) {
+        let h = Math.random() * 20 + 10;
+        fgCtx.fillRect(i, fgCanvas.height - h, 2, h);
+      }
+    }
+  }
+
+  // --- Classes ---
+
+  class Particle {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 4 + 1;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.02 + 0.01;
+      this.size = Math.random() * 4 + 2;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= 0.95;
+      this.vy *= 0.95;
+      this.life -= this.decay;
+    }
+
+    draw(ctx) {
+      ctx.globalAlpha = this.life;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  class Creature {
+    constructor() {
+      this.reset();
+      this.x = Math.random() * width;
+      this.y = Math.random() * (height - 200) + 50;
+    }
+
+    reset() {
+      this.x = Math.random() < 0.5 ? -50 : width + 50;
+      this.y = Math.random() * (height - 250) + 50; 
+      this.vx = (Math.random() - 0.5) * 1.5;
+      this.vy = (Math.random() - 0.5) * 1.5;
+      this.baseRadius = Math.random() * 15 + 18;
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.angle = Math.random() * Math.PI * 2;
+      this.spinSpeed = (Math.random() - 0.5) * 0.02;
+      this.wobble = Math.random() * Math.PI * 2;
+      this.wobbleSpeed = Math.random() * 0.03 + 0.01;
+      this.isCaught = false;
+      
+      // Morphology: 0 = Jellyfish, 1 = Moth/Spirit
+      this.type = Math.random() > 0.5 ? 'jelly' : 'moth';
+      
+      this.tentacles = [];
+      for(let i=0; i<5; i++) {
+        this.tentacles.push({
+          angleOffset: (Math.PI * 2 / 5) * i,
+          length: Math.random() * 15 + 10,
+          phase: Math.random() * Math.PI * 2
+        });
+      }
+      
+      this.history = [];
+      this.maxHistory = 15;
+    }
+
+    update() {
+      if (this.isCaught) return;
+
+      this.x += this.vx;
+      this.y += this.vy;
+      this.wobble += this.wobbleSpeed;
+      
+      // Organic floating drift
+      this.x += Math.sin(this.wobble) * 0.3;
+      this.y += Math.cos(this.wobble * 0.8) * 0.2;
+
+      this.angle += this.spinSpeed;
+
+      // Bounce off walls
+      if (this.x < 0 || this.x > width) this.vx *= -1;
+      if (this.y < 0 || this.y > height - 150) this.vy *= -1;
+
+      // Avoid Mouse (Net)
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      
+      if (dist < 200) {
+        // Flee behavior
+        const force = (200 - dist) / 200;
+        this.vx += (dx / dist) * force * 1.2;
+        this.vy += (dy / dist) * force * 1.2;
+      }
+
+      // Speed limiter
+      const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+      if (speed > 4) {
+        this.vx = (this.vx / speed) * 4;
+        this.vy = (this.vy / speed) * 4;
+      }
+
+      // Update Trail
+      this.history.push({x: this.x, y: this.y});
+      if (this.history.length > this.maxHistory) this.history.shift();
+    }
+
+    draw(ctx) {
+      if (this.isCaught) return;
+
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      
+      // 1. Draw Trail (Ghostly afterimage)
+      // Only draw trail if moving fast enough or always faint
+      ctx.save();
+      for (let i = 0; i < this.history.length - 1; i++) {
+        const point = this.history[i];
+        const rx = point.x - this.x;
+        const ry = point.y - this.y;
+        const progress = i / this.history.length;
+        const size = this.baseRadius * 0.4 * progress;
+        
+        ctx.globalAlpha = progress * 0.15;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(rx, ry, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      ctx.rotate(this.angle);
+      
+      // 2. Draw Morphology
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = this.color;
+      ctx.fillStyle = this.color;
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 2;
+
+      if (this.type === 'jelly') {
+        // Draw Jellyfish
+        // Tentacles
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        this.tentacles.forEach(t => {
+          const tLen = t.length + Math.sin(this.wobble * 2 + t.phase) * 5;
+          const tAngle = t.angleOffset + Math.sin(this.wobble + t.phase) * 0.2;
+          const endX = Math.cos(tAngle) * tLen;
+          const endY = Math.sin(tAngle) * tLen;
+          const cpX = Math.cos(tAngle + 0.5) * (tLen * 0.6);
+          const cpY = Math.sin(tAngle + 0.5) * (tLen * 0.6);
+          ctx.moveTo(0, 0);
+          ctx.quadraticCurveTo(cpX, cpY, endX, endY);
+        });
+        ctx.stroke();
+
+        // Bell
+        ctx.globalAlpha = 1.0;
+        const grad = ctx.createRadialGradient(0, 0, this.baseRadius * 0.2, 0, 0, this.baseRadius);
+        grad.addColorStop(0, 'rgba(255,255,255,0.8)');
+        grad.addColorStop(0.4, this.color);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, -this.baseRadius * 0.2, this.baseRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+      } else {
+        // Draw Moth / Spirit
+        // Wings
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        // Left Wing
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(-this.baseRadius * 1.5, -this.baseRadius, -this.baseRadius * 2, this.baseRadius, 0, this.baseRadius * 0.5);
+        // Right Wing
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(this.baseRadius * 1.5, -this.baseRadius, this.baseRadius * 2, this.baseRadius, 0, this.baseRadius * 0.5);
+        ctx.fill();
+        
+        // Body
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, this.baseRadius * 0.3, this.baseRadius * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Eyes
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(-3, -this.baseRadius * 0.4, 2, 0, Math.PI * 2);
+        ctx.arc(3, -this.baseRadius * 0.4, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  // --- Player Character (The "Collector") ---
+  function drawPlayer() {
+    const playerX = width / 2;
+    const playerY = height - 40; // Anchored near bottom
+    
+    ctx.save();
+    ctx.translate(playerX, playerY);
+    
+    // 1. Draw Silhouette (Hooded Figure)
+    // Body
+    ctx.fillStyle = '#010205';
+    ctx.beginPath();
+    ctx.moveTo(-30, 0); // Bottom Left
+    ctx.lineTo(-25, -50); // Shoulder L
+    ctx.lineTo(0, -65); // Head top
+    ctx.lineTo(25, -50); // Shoulder R
+    ctx.lineTo(30, 0); // Bottom R
+    ctx.fill();
+    
+    // Hood opening (face shadow)
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(0, -55, 10, 0, Math.PI*2);
+    ctx.fill();
+
+    // Glowing Eyes
+    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = '#fff';
+    ctx.fillRect(-4, -56, 2, 2);
+    ctx.fillRect(2, -56, 2, 2);
+    ctx.shadowBlur = 0;
+
+    // 2. Draw Arm & Net Pole pointing to mouse
+    const dx = mouse.x - playerX;
+    const dy = mouse.y - playerY;
+    const angle = Math.atan2(dy, dx);
+    
+    ctx.rotate(angle);
+    
+    // Pole
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(10, -20); // Shoulder joint
+    ctx.lineTo(200, -20); // Pole length
+    ctx.stroke();
+    
+    // Net Handle
+    ctx.translate(200, -20);
+    
+    // Draw Net at Mouse
+    drawNet(0, 0); // Draw relative to translated handle
+    ctx.restore();
+    
+    // Draw Connection Beam (Diegetic visual)
+    // We draw this separately to ensure it stays behind the net but connects to the player
+    // Actually, simpler to just draw the net at the mouse coordinates directly in world space
+    // and draw the pole from player to mouse.
+  }
+  
+  // Redefining player drawing to be simpler and more robust:
+  function drawPlayerScene() {
+    const playerX = width / 2;
+    const playerY = height - 40;
+
+    // Draw Character Silhouette
+    ctx.save();
+    ctx.translate(playerX, playerY);
+    
+    // Body
+    ctx.fillStyle = '#000';
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; // Subtle outline
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-25, 0);
+    ctx.lineTo(-20, -50);
+    ctx.lineTo(0, -65);
+    ctx.lineTo(20, -50);
+    ctx.lineTo(25, 0);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = '#fff';
+    ctx.fillRect(-3, -56, 2, 2);
+    ctx.fillRect(1, -56, 2, 2);
+    ctx.shadowBlur = 0;
+    
+    ctx.restore();
+
+    // Draw Pole connecting character to net
+    const dx = mouse.x - playerX;
+    const dy = mouse.y - (playerY - 30); // Aim from shoulder height
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const angle = Math.atan2(dy, dx);
+    
+    ctx.save();
+    ctx.translate(playerX, playerY - 30);
+    ctx.rotate(angle);
+    
+    // Pole
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(dist, 0);
+    ctx.stroke();
+    
+    // Net attachment
+    ctx.translate(dist, 0);
+    
+    // Draw Net (Centered at 0,0 relative to pole end)
+    drawNet(0, 0);
+    
+    ctx.restore();
+  }
+
+  function drawNet(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Pulse animation
+    const pulse = Math.sin(frameCount * 0.1) * 3;
+    const baseRadius = 50;
+    
+    // Net Mesh (Concentric circles)
+    ctx.strokeStyle = 'rgba(0, 242, 255, 0.3)';
+    ctx.lineWidth = 1;
+    
+    // Grid lines (Crosshatch)
+    for(let i=-baseRadius; i<=baseRadius; i+=10) {
+        ctx.beginPath();
+        ctx.moveTo(i, -baseRadius);
+        ctx.lineTo(i, baseRadius);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-baseRadius, i);
+        ctx.lineTo(baseRadius, i);
+        ctx.stroke();
+    }
+    
+    // Outer Glow Ring
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#00f2ff';
+    ctx.strokeStyle = isMouseDown ? '#fff' : 'rgba(0, 242, 255, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, baseRadius + pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Sucking effect (Concentric rings when held)
+    if (isMouseDown) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.beginPath();
+      ctx.arc(0, 0, baseRadius + 15 + pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // Inner suction swirl
+      ctx.beginPath();
+      ctx.arc(0, 0, baseRadius - 10, frameCount*0.2, frameCount*0.2 + 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // --- Game Functions ---
+
+  function init() {
+    creatures = [];
+    for(let i=0; i<CREATURE_COUNT; i++) {
+      creatures.push(new Creature());
+    }
+    score = 0;
+    scoreEl.innerText = score;
+  }
+
+  function checkCatch() {
+    const catchRadius = 60; 
+
+    creatures.forEach(c => {
+      if (c.isCaught) return;
+      
+      const dx = c.x - mouse.x;
+      const dy = c.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < catchRadius) {
+        catchCreature(c);
+      }
+    });
+  }
+
+  function catchCreature(creature) {
+    creature.isCaught = true;
+    score++;
+    scoreEl.innerText = score;
+    
+    // Visual FX
+    for(let i=0; i<30; i++) {
+      particles.push(new Particle(creature.x, creature.y, creature.color));
+    }
+
+    // Show Toast
+    toastEl.classList.add('active');
+    setTimeout(() => toastEl.classList.remove('active'), 1200);
+
+    // Respawn logic
+    setTimeout(() => {
+      creature.reset();
+    }, 2500);
+  }
+
+  function resetGame() {
+    init();
+  }
+
+  function loop() {
+    frameCount++;
+    
+    // Clear Game Canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw Stars (Background layer on Game Canvas for twinkling)
+    ctx.fillStyle = '#fff';
+    stars.forEach(s => {
+        s.alpha += s.pulse;
+        if(s.alpha > 1 || s.alpha < 0.2) s.pulse *= -1;
+        ctx.globalAlpha = s.alpha;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1.0;
+
+    // Update & Draw Creatures
+    creatures.forEach(c => {
+      c.update();
+      c.draw(ctx);
+    });
+
+    // Update & Draw Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update();
+      p.draw(ctx);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Draw Player (Character + Net)
+    drawPlayerScene();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  init();
+  loop();
+
+</script>
+</body>
+</html>

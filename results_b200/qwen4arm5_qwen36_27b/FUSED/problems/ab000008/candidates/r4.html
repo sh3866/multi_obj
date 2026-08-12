@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIXEL DANCE // RHYTHM REVOLUTION</title>
+    <style>
+        :root {
+            --c-bg-deep: #050014;
+            --c-bg-light: #1a0033;
+            --c-purple: #b026ff;
+            --c-pink: #ff0055;
+            --c-cyan: #00f3ff;
+            --c-yellow: #ffee00;
+            --c-white: #ffffff;
+            
+            /* 
+               Using a stack of monospace fonts. 
+               We force a "pixelated" look via image-rendering and sizing.
+            */
+            --font-pixel: 'Courier New', 'Lucida Console', monospace;
+            
+            --glow-text: 0 0 10px rgba(255,255,255,0.8), 0 0 20px var(--c-cyan);
+            --glow-box: 0 0 15px var(--c-pink), 0 0 30px var(--c-purple);
+            
+            --lane-colors: var(--c-cyan), var(--c-purple), var(--c-pink), var(--c-yellow);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--c-bg-deep);
+            color: var(--c-white);
+            font-family: var(--font-pixel);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- VISUAL LAYERS --- */
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* CRT / Retro Overlay */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 50;
+            pointer-events: none;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 2px,
+                rgba(0,0,0,0.3) 2px,
+                rgba(0,0,0,0.3) 4px
+            );
+            background-size: 100% 4px;
+            animation: scanScroll 10s linear infinite;
+        }
+
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 49;
+            pointer-events: none;
+            background: radial-gradient(circle at center, transparent 60%, rgba(5,0,20,0.9) 100%);
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+        }
+
+        /* --- HIGHWAY (3D Perspective) --- */
+        .highway-container {
+            position: absolute;
+            bottom: -20%; 
+            left: 0;
+            width: 100%;
+            height: 70vh;
+            z-index: 10;
+            perspective: 800px;
+            overflow: hidden;
+        }
+
+        .highway-plane {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 200%; 
+            height: 100%;
+            transform: translateX(-50%) rotateX(60deg);
+            transform-style: preserve-3d;
+            background: linear-gradient(to top, var(--c-bg-deep) 0%, rgba(157, 0, 255, 0.1) 100%);
+            display: flex;
+            justify-content: center;
+        }
+
+        /* The Grid */
+        .grid-floor {
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--c-purple) 2px, transparent 2px),
+                linear-gradient(90deg, var(--c-purple) 2px, transparent 2px);
+            background-size: 100px 100px;
+            background-position: center bottom;
+            mask-image: linear-gradient(to top, black 0%, transparent 70%);
+            -webkit-mask-image: linear-gradient(to top, black 0%, transparent 70%);
+            animation: gridScroll 1s linear infinite;
+            opacity: 0.5;
+            box-shadow: 0 0 50px var(--c-purple);
+        }
+
+        /* Lanes (Distinct & Colored) */
+        .lanes {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 0px; /* Tight fit */
+            z-index: 11;
+            pointer-events: none;
+            /* Create perspective tapering for the lanes themselves */
+            transform: perspective(500px) rotateX(20deg) scale(1.2);
+            transform-origin: center bottom;
+        }
+
+        .lane {
+            width: 100px;
+            height: 100%;
+            position: relative;
+            /* Dashed borders for retro feel */
+            border-left: 2px dashed rgba(255,255,255,0.2);
+            border-right: 2px dashed rgba(255,255,255,0.2);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        /* Specific Lane Colors */
+        .lane:nth-child(1) { background: linear-gradient(to bottom, transparent, rgba(0, 243, 255, 0.1)); border-color: var(--c-cyan); }
+        .lane:nth-child(2) { background: linear-gradient(to bottom, transparent, rgba(176, 38, 255, 0.1)); border-color: var(--c-purple); }
+        .lane:nth-child(3) { background: linear-gradient(to bottom, transparent, rgba(255, 0, 85, 0.1)); border-color: var(--c-pink); }
+        .lane:nth-child(4) { background: linear-gradient(to bottom, transparent, rgba(255, 238, 0, 0.1)); border-color: var(--c-yellow); }
+
+        /* The Hit Line */
+        .hit-zone {
+            position: absolute;
+            bottom: 15%;
+            left: 50%;
+            transform: translateX(-50%) perspective(500px) rotateX(20deg) scale(1.2);
+            width: 400px; /* 4 * 100px */
+            height: 20px;
+            z-index: 20;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .hit-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--c-white);
+            box-shadow: 0 0 15px var(--c-white), 0 0 30px var(--c-cyan);
+            border: 2px solid var(--c-bg-deep);
+        }
+
+        /* --- UI LAYER --- */
+        .ui-layer {
+            position: relative;
+            z-index: 30;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none; 
+        }
+
+        /* Title */
+        .title-wrapper {
+            margin-bottom: 60px;
+            text-align: center;
+            position: relative;
+            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.8));
+        }
+
+        h1 {
+            font-size: 4.5rem;
+            font-weight: 900;
+            line-height: 0.9;
+            text-transform: uppercase;
+            color: var(--c-white);
+            position: relative;
+            letter-spacing: -2px;
+            /* Make text render sharply like pixels */
+            text-rendering: crispEdges; 
+        }
+
+        /* Title Glitch/Chromatic Effect */
+        h1 .layer {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            mix-blend-mode: screen;
+        }
+
+        h1 .l-base {
+            color: var(--c-white);
+            z-index: 2;
+            text-shadow: 4px 4px 0px var(--c-purple);
+        }
+
+        h1 .l-cyan {
+            color: var(--c-cyan);
+            z-index: 1;
+            transform: translate(-4px, -4px);
+            opacity: 0.8;
+        }
+
+        h1 .l-pink {
+            color: var(--c-pink);
+            z-index: 1;
+            transform: translate(4px, 4px);
+            opacity: 0.8;
+        }
+
+        .subtitle {
+            display: block;
+            margin-top: 15px;
+            font-size: 1.5rem;
+            letter-spacing: 4px;
+            color: var(--c-yellow);
+            text-shadow: 0 0 10px var(--c-yellow);
+            transform: skewX(-10deg);
+            animation: flicker 3s infinite;
+            /* Pixelated text look */
+            image-rendering: pixelated; 
+        }
+
+        /* Menu Buttons - PIXELATED STYLE */
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            pointer-events: auto;
+            width: 100%;
+            align-items: center;
+        }
+
+        .btn {
+            background: rgba(0,0,0,0.8);
+            /* Pixelated border effect using box-shadow steps */
+            border: 4px solid var(--c-white);
+            color: var(--c-white);
+            padding: 15px 0;
+            font-family: var(--font-pixel);
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.1s steps(1); /* Snappy transition */
+            
+            /* Pixel Shape via Clip Path */
+            clip-path: polygon(
+                10px 0, 100% 0, 
+                100% calc(100% - 10px), calc(100% - 10px) 100%, 
+                0 100%, 0 10px
+            );
+            
+            min-width: 260px;
+            text-align: center;
+            box-shadow: 
+                inset -4px -4px 0px rgba(0,0,0,0.5),
+                0 0 10px var(--c-cyan);
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        /* Unified Style with Variations */
+        .btn-primary {
+            border-color: var(--c-pink);
+            color: var(--c-white);
+            box-shadow: 
+                inset -4px -4px 0px rgba(0,0,0,0.5),
+                0 0 15px var(--c-pink);
+            background: rgba(255, 0, 85, 0.2);
+        }
+
+        .btn:hover {
+            transform: scale(1.05) translateY(-2px);
+            background: var(--c-white);
+            color: var(--c-bg-deep);
+            box-shadow: 
+                inset -4px -4px 0px rgba(0,0,0,0.2),
+                0 0 25px var(--c-white);
+            text-shadow: none;
+        }
+
+        .btn-primary:hover {
+            background: var(--c-pink);
+            box-shadow: 
+                inset -4px -4px 0px rgba(0,0,0,0.2),
+                0 0 30px var(--c-pink);
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        /* --- ANIMATED NOTES (DOM) --- */
+        .note {
+            position: absolute;
+            width: 80px; /* Fits inside 100px lane */
+            height: 20px;
+            z-index: 15;
+            border: 2px solid var(--c-white);
+            /* Pixelated corners for notes */
+            box-shadow: 0 0 10px currentColor;
+            /* Start off screen top */
+            top: -50px; 
+            /* Animation set in JS */
+        }
+        
+        .note-inner {
+            width: 100%;
+            height: 100%;
+            background: currentColor;
+            opacity: 0.9;
+            /* Pixelate the note content */
+            image-rendering: pixelated;
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes gridScroll {
+            0% { background-position: center 0; }
+            100% { background-position: center 100px; }
+        }
+
+        @keyframes scanScroll {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+
+        @keyframes flicker {
+            0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+            20%, 24%, 55% { opacity: 0.3; }
+        }
+
+        @keyframes noteFall {
+            0% { top: -5%; transform: scale(0.6); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 115%; transform: scale(1.2); opacity: 0; }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            h1 { font-size: 3rem; }
+            .lanes { transform: perspective(500px) rotateX(20deg) scale(0.8); }
+            .hit-zone { transform: translateX(-50%) perspective(500px) rotateX(20deg) scale(0.8); width: 320px; }
+            .lane { width: 80px; }
+            .note { width: 60px; }
+            .btn { min-width: 200px; font-size: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. Canvas Background (Sun, Stars) -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- 2. The 3D Highway -->
+    <div class="highway-container">
+        <div class="highway-plane">
+            <div class="grid-floor"></div>
+            <!-- Distinct Lanes -->
+            <div class="lanes">
+                <div class="lane"></div>
+                <div class="lane"></div>
+                <div class="lane"></div>
+                <div class="lane"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Hit Line (Foreground Anchor) -->
+    <div class="hit-zone">
+        <div class="hit-bar"></div>
+    </div>
+
+    <!-- 4. UI Layer -->
+    <div class="ui-layer">
+        
+        <div class="title-wrapper">
+            <h1>
+                <span class="layer l-cyan">PIXEL<br>DANCE</span>
+                <span class="layer l-pink">PIXEL<br>DANCE</span>
+                <span class="layer l-base">PIXEL<br>DANCE</span>
+            </h1>
+            <!-- Replaced filler text with thematic subtitle -->
+            <span class="subtitle">NEON RHYTHM EDITION</span>
+        </div>
+
+        <div class="controls">
+            <!-- Pixelated, Unified Buttons -->
+            <button class="btn btn-primary" id="btn-start">START GAME</button>
+            <button class="btn" id="btn-opt">OPTIONS</button>
+        </div>
+
+    </div>
+
+    <!-- 5. Overlays -->
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <script>
+        /**
+         * ENGINE: Visuals & Interaction
+         */
+
+        // --- 1. CANVAS BACKGROUND (Sun & Stars) ---
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let time = 0;
+
+        const CONFIG = {
+            sunColorTop: '#ff0055',
+            sunColorBot: '#ffcc00',
+            starCount: 80
+        };
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function drawBackground() {
+            time += 0.02;
+            ctx.clearRect(0, 0, width, height);
+
+            // 1. Sky Gradient
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+            skyGrad.addColorStop(0, '#050014');
+            skyGrad.addColorStop(0.4, '#1a0033');
+            skyGrad.addColorStop(1, '#4a0066');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // 2. Stars (Pixelated)
+            ctx.fillStyle = '#ffffff';
+            for(let i=0; i<CONFIG.starCount; i++) {
+                // Pseudo-random deterministic positions based on index
+                const x = (Math.sin(i * 132.1) * 0.5 + 0.5) * width;
+                const y = (Math.cos(i * 453.2) * 0.5 + 0.5) * (height * 0.4);
+                
+                // Twinkle
+                const size = (Math.sin(time * 2 + i) + 1) / 2; 
+                ctx.globalAlpha = 0.3 + size * 0.7;
+                // Draw square pixels for stars
+                ctx.fillRect(Math.floor(x), Math.floor(y), 2, 2);
+            }
+            ctx.globalAlpha = 1;
+
+            // 3. Synthwave Sun
+            const sunY = height * 0.35;
+            const sunR = Math.min(width, height) * 0.2;
+            
+            // Sun Glow
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = CONFIG.sunColorTop;
+            
+            // Sun Gradient
+            const sunGrad = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+            sunGrad.addColorStop(0, CONFIG.sunColorTop);
+            sunGrad.addColorStop(1, CONFIG.sunColorBot);
+
+            ctx.beginPath();
+            ctx.arc(width/2, sunY, sunR, 0, Math.PI*2);
+            ctx.fillStyle = sunGrad;
+            ctx.fill();
+
+            // Sun Stripes (The "Blinds" effect)
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#1a0033'; // Match horizon sky color
+            ctx.beginPath();
+            
+            for(let i=1; i<12; i++) {
+                // Exponential spacing
+                const yStart = sunY + (i * 6) + (i*i*0.5); 
+                const h = 2 + i;
+                if(yStart < sunY + sunR) {
+                    ctx.fillRect(width/2 - sunR, yStart, sunR*2, h);
+                }
+            }
+        }
+
+        // --- 2. NOTE SPAWNER (The "Preview") ---
+        const laneElements = document.querySelectorAll('.lane');
+        
+        // Colors for notes matching lanes
+        const noteColors = ['#00f3ff', '#b026ff', '#ff0055', '#ffee00'];
+
+        function spawnNote() {
+            const note = document.createElement('div');
+            note.className = 'note';
+            
+            // Inner glow
+            const inner = document.createElement('div');
+            inner.className = 'note-inner';
+            note.appendChild(inner);
+
+            // Pick a random lane (0-3)
+            const laneIndex = Math.floor(Math.random() * 4);
+            const laneRect = laneElements[laneIndex].getBoundingClientRect();
+            
+            // Position note to match the lane exactly
+            note.style.left = (laneRect.left + (laneRect.width/2) - 40) + 'px'; // Center in lane (40 is half note width)
+            note.style.width = '80px';
+            
+            // Color
+            const color = noteColors[laneIndex];
+            note.style.color = color; 
+            inner.style.backgroundColor = color;
+
+            // Animation Duration
+            const duration = 1.5 + Math.random() * 0.5; // seconds
+            note.style.animation = `noteFall ${duration}s linear forwards`;
+
+            document.body.appendChild(note);
+
+            // Cleanup
+            setTimeout(() => {
+                if(note.parentNode) note.parentNode.removeChild(note);
+            }, duration * 1000);
+        }
+
+        // --- 3. LOOP & INTERACTION ---
+        
+        // Animation Loop
+        function loop() {
+            drawBackground();
+            requestAnimationFrame(loop);
+        }
+        loop();
+
+        // Note Spawning Loop (Rhythm simulation)
+        // Spawn a note every 300-600ms
+        function scheduleNextNote() {
+            spawnNote();
+            const nextSpawn = 300 + Math.random() * 400;
+            setTimeout(scheduleNextNote, nextSpawn);
+        }
+        // Start spawner
+        setTimeout(scheduleNextNote, 500);
+
+
+        // Button Logic
+        document.getElementById('btn-start').addEventListener('click', function() {
+            const btn = this;
+            btn.innerText = "LOADING...";
+            
+            // Simple visual feedback
+            btn.style.transform = "scale(0.95)";
+            
+            setTimeout(() => {
+                alert("ENTERING THE GRID...");
+                btn.innerText = "START GAME";
+                btn.style.transform = "";
+            }, 800);
+        });
+
+        document.getElementById('btn-opt').addEventListener('click', function() {
+            alert("OPTIONS MENU:\n- SENSITIVITY: 80%\n- SCROLL SPEED: FAST\n- THEME: NEON");
+        });
+
+    </script>
+</body>
+</html>

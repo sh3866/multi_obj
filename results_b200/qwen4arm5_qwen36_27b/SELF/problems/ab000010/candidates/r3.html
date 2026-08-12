@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spherical Life</title>
+<style>
+  :root {
+    --bg-deep: #020208;
+    --bg-mid: #06060f;
+    --panel-bg: rgba(8, 10, 24, 0.75);
+    --panel-border: rgba(255, 255, 255, 0.06);
+    --panel-surface: rgba(255, 255, 255, 0.03);
+    --panel-surface-hover: rgba(255, 255, 255, 0.06);
+    --text-bright: #e8e6f0;
+    --text-mid: rgba(180, 180, 210, 0.6);
+    --text-dim: rgba(120, 120, 160, 0.3);
+    --accent-cyan: #00f0ff;
+    --accent-violet: #8b5cf6;
+    --accent-gold: #f5c542;
+    --accent-rose: #f43f5e;
+    --mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Courier New", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-bright);
+    font-family: var(--sans);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #canvas-container {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    cursor: grab;
+  }
+  #canvas-container:active { cursor: grabbing; }
+
+  #ui-layer {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .header {
+    position: absolute;
+    top: 2.5rem;
+    left: 3rem;
+    pointer-events: auto;
+  }
+  .header .label {
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+  }
+  .header .brand {
+    font-size: 2rem;
+    font-weight: 200;
+    letter-spacing: -0.04em;
+    color: var(--text-bright);
+    line-height: 1.1;
+  }
+  .header .brand strong {
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .panel {
+    position: absolute;
+    top: 2rem;
+    right: 2.5rem;
+    width: 290px;
+    pointer-events: auto;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 1.6rem;
+    backdrop-filter: blur(40px) saturate(1.2);
+    -webkit-backdrop-filter: blur(40px) saturate(1.2);
+    box-shadow:
+      0 20px 80px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(255,255,255,0.02) inset,
+      0 1px 0 rgba(255,255,255,0.04) inset;
+  }
+
+  .section-label {
+    font-size: 0.5rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+    margin-bottom: 0.2rem;
+  }
+  .stat-card {
+    background: var(--panel-surface);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    transition: all 0.3s ease;
+  }
+  .stat-card:hover {
+    background: var(--panel-surface-hover);
+    border-color: rgba(255,255,255,0.08);
+  }
+  .stat-card .stat-label {
+    font-size: 0.48rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.35rem;
+  }
+  .stat-card .stat-value {
+    font-family: var(--mono);
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: -0.03em;
+  }
+  .stat-card.accent .stat-value {
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .pop-track {
+    width: 100%;
+    height: 3px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 2px;
+    margin-top: 0.8rem;
+    margin-bottom: 1.2rem;
+    overflow: hidden;
+    position: relative;
+  }
+  .pop-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-violet), var(--accent-gold));
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-bottom: 1.1rem;
+  }
+  .slider-row .slider-val {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-mid);
+    min-width: 24px;
+    text-align: right;
+    font-weight: 500;
+  }
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+    position: relative;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-bright);
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(255,255,255,0.2), 0 0 24px rgba(0,240,255,0.15);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 2px solid rgba(0,240,255,0.3);
+  }
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+    box-shadow: 0 0 16px rgba(255,255,255,0.35), 0 0 32px rgba(0,240,255,0.25);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-bright);
+    cursor: pointer;
+    border: 2px solid rgba(0,240,255,0.3);
+    box-shadow: 0 0 12px rgba(255,255,255,0.2), 0 0 24px rgba(0,240,255,0.15);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 0.55rem;
+    margin-bottom: 0.55rem;
+  }
+  button {
+    font-family: var(--sans);
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  button::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  button.btn-primary {
+    background: linear-gradient(135deg, var(--accent-cyan), #00c8d4);
+    color: #000;
+    box-shadow: 0 2px 24px rgba(0, 240, 255, 0.25), 0 0 0 1px rgba(0,240,255,0.1) inset;
+  }
+  button.btn-primary:hover {
+    box-shadow: 0 4px 32px rgba(0, 240, 255, 0.4), 0 0 0 1px rgba(0,240,255,0.2) inset;
+    transform: translateY(-1px);
+  }
+  button.btn-primary:active { transform: translateY(0); }
+  button.btn-secondary {
+    background: var(--panel-surface);
+    color: var(--text-mid);
+    border: 1px solid var(--panel-border);
+  }
+  button.btn-secondary:hover {
+    background: var(--panel-surface-hover);
+    color: var(--text-bright);
+    border-color: rgba(255,255,255,0.1);
+  }
+  button.btn-danger {
+    background: rgba(244, 63, 94, 0.08);
+    color: var(--accent-rose);
+    border: 1px solid rgba(244, 63, 94, 0.15);
+  }
+  button.btn-danger:hover {
+    background: rgba(244, 63, 94, 0.15);
+    border-color: rgba(244, 63, 94, 0.3);
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.1);
+  }
+  button.btn-full { width: 100%; }
+
+  .footer {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 3rem;
+    font-size: 0.5rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+  .footer::before {
+    content: '';
+    display: block;
+    width: 16px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--text-dim), transparent);
+  }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--panel-border), transparent);
+    margin: 1rem 0;
+  }
+
+  @media (max-width: 768px) {
+    .header { top: 1.25rem; left: 1.25rem; }
+    .panel { top: auto; bottom: 1.25rem; right: 1.25rem; left: 1.25rem; width: auto; }
+    .footer { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <canvas id="sphereCanvas"></canvas>
+</div>
+
+<div id="ui-layer">
+  <div class="header">
+    <div class="label">Conway's Game of Life</div>
+    <div class="brand">Spherical <strong>Life</strong></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-label">Simulation Stats</div>
+    <div class="stat-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">Generation</div>
+        <div class="stat-value" id="gen-count">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Population</div>
+        <div class="stat-value" id="pop-count">0</div>
+      </div>
+    </div>
+    <div class="pop-track">
+      <div class="pop-fill" id="pop-bar" style="width:0%"></div>
+    </div>
+
+    <div class="section-label">Simulation Speed</div>
+    <div class="slider-row">
+      <span class="slider-val" id="speed-val">12</span>
+      <input type="range" id="speed-slider" min="1" max="60" value="12">
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section-label">Controls</div>
+    <div class="btn-row">
+      <button id="btn-pause" class="btn-primary">Pause</button>
+      <button id="btn-reset" class="btn-danger">Reset</button>
+    </div>
+    <button id="btn-step" class="btn-secondary btn-full">Step Once</button>
+  </div>
+
+  <div class="footer">
+    Drag to rotate &bull; Scroll to zoom
+  </div>
+</div>
+
+<script>
+const CONFIG = {
+  cellCount: 5200,
+  sphereRadius: 240,
+  cellBaseSize: 2.2,
+  rotationSpeed: 0.0006,
+  neighborThreshold: 1.25,
+};
+
+let state = {
+  cells: [],
+  generation: 0,
+  isRunning: true,
+  speed: 12,
+  lastStepTime: 0,
+  rotation: { x: 0.35, y: 0 },
+  zoom: 1,
+  isDragging: false,
+  lastMouse: { x: 0, y: 0 },
+  velocity: { x: 0, y: 0 },
+  time: 0,
+};
+
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+let width, height;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  const dpr = Math.min(devicePixelRatio, 2);
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const V = {
+  dist: (a, b) => {
+    const dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z;
+    return Math.sqrt(dx*dx+dy*dy+dz*dz);
+  },
+};
+
+function createSpherePoints(count, radius) {
+  const pts = [];
+  const ga = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (i / (count - 1)) * 2;
+    const rY = Math.sqrt(1 - y * y);
+    const theta = ga * i;
+    pts.push({ x: Math.cos(theta)*rY*radius, y: y*radius, z: Math.sin(theta)*rY*radius });
+  }
+  return pts;
+}
+
+function initGame() {
+  const pts = createSpherePoints(CONFIG.cellCount, CONFIG.sphereRadius);
+  const avgDist = (2 * Math.PI * CONFIG.sphereRadius) / Math.sqrt(CONFIG.cellCount);
+  const threshold = avgDist * CONFIG.neighborThreshold;
+
+  state.cells = pts.map((p, i) => {
+    const neighbors = [];
+    for (let j = 0; j < pts.length; j++) {
+      if (i === j) continue;
+      if (V.dist(p, pts[j]) < threshold) neighbors.push(j);
+    }
+    return {
+      pos: p,
+      neighbors,
+      alive: Math.random() > 0.6,
+      bornGen: 0,
+      age: 0,
+    };
+  });
+
+  state.generation = 0;
+  updateStats();
+}
+
+function stepGame() {
+  const next = state.cells.map(cell => {
+    const n = cell.neighbors.reduce((a, idx) => a + (state.cells[idx].alive ? 1 : 0), 0);
+    let alive = false;
+    let born = false;
+    if (cell.alive) {
+      if (n === 2 || n === 3) alive = true;
+    } else {
+      if (n === 3) { alive = true; born = true; }
+    }
+    return { alive, bornGen: born ? state.generation : cell.bornGen, age: alive ? (cell.alive ? cell.age + 1 : 0) : 0 };
+  });
+
+  state.cells.forEach((c, i) => {
+    c.alive = next[i].alive;
+    c.bornGen = next[i].bornGen;
+    c.age = next[i].age;
+  });
+
+  state.generation++;
+  updateStats();
+}
+
+function project(p, rx, ry, zoom) {
+  let x = p.x * Math.cos(ry) - p.z * Math.sin(ry);
+  let z = p.z * Math.cos(ry) + p.x * Math.sin(ry);
+  let y = p.y * Math.cos(rx) - z * Math.sin(rx);
+  let zf = z * Math.cos(rx) + p.y * Math.sin(rx);
+
+  const fov = 900 * zoom;
+  const scale = fov / (fov + zf);
+
+  return { x: x * scale + width/2, y: y * scale + height/2, scale, z: zf };
+}
+
+function getAliveColor(cell, depthFactor) {
+  const t = (state.time * 0.25 + cell.age * 0.12) % 1;
+  const hueShift = Math.sin(t * Math.PI * 2) * 30;
+
+  const baseHue = 180 + hueShift;
+  const sat = 90 + depthFactor * 10;
+  const light = 50 + depthFactor * 40 + Math.sin(t * Math.PI * 4) * 8;
+  const alpha = 0.3 + depthFactor * 0.7;
+
+  return { h: baseHue, s: sat, l: light, a: alpha };
+}
+
+function getDeadColor(depthFactor) {
+  const alpha = 0.02 + depthFactor * 0.06;
+  return { h: 220, s: 25, l: 40, a: alpha };
+}
+
+function draw() {
+  state.time += 0.016;
+
+  // Deep space background
+  ctx.fillStyle = '#020208';
+  ctx.fillRect(0, 0, width, height);
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = CONFIG.sphereRadius * state.zoom;
+
+  // Ambient space glow
+  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.6);
+  bgGrad.addColorStop(0, 'rgba(10, 8, 35, 0.4)');
+  bgGrad.addColorStop(0.3, 'rgba(5, 4, 20, 0.15)');
+  bgGrad.addColorStop(1, 'rgba(2, 2, 8, 0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Sphere outer atmosphere
+  const atmosGrad = ctx.createRadialGradient(cx, cy, r * 0.85, cx, cy, r * 2.2);
+  atmosGrad.addColorStop(0, 'rgba(0, 240, 255, 0.0)');
+  atmosGrad.addColorStop(0.2, 'rgba(0, 200, 255, 0.012)');
+  atmosGrad.addColorStop(0.5, 'rgba(100, 60, 200, 0.015)');
+  atmosGrad.addColorStop(0.8, 'rgba(50, 30, 120, 0.008)');
+  atmosGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = atmosGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sphere inner glow
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.05);
+  coreGrad.addColorStop(0, 'rgba(20, 15, 60, 0.12)');
+  coreGrad.addColorStop(0.4, 'rgba(15, 10, 45, 0.05)');
+  coreGrad.addColorStop(0.7, 'rgba(10, 8, 35, 0.02)');
+  coreGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rim light - cyan
+  const rimGrad = ctx.createRadialGradient(cx, cy, r * 0.78, cx, cy, r * 1.05);
+  rimGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  rimGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
+  rimGrad.addColorStop(0.85, 'rgba(0, 240, 255, 0.04)');
+  rimGrad.addColorStop(0.97, 'rgba(0, 240, 255, 0.07)');
+  rimGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = rimGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rim light - violet
+  const rimGrad2 = ctx.createRadialGradient(cx, cy, r * 0.75, cx, cy, r * 1.08);
+  rimGrad2.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  rimGrad2.addColorStop(0.7, 'rgba(0, 0, 0, 0)');
+  rimGrad2.addColorStop(0.9, 'rgba(139, 92, 246, 0.03)');
+  rimGrad2.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = rimGrad2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.08, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Project cells
+  const projected = state.cells.map(cell => ({
+    cell,
+    proj: project(cell.pos, state.rotation.x, state.rotation.y, state.zoom),
+  }));
+
+  projected.sort((a, b) => b.proj.z - a.proj.z);
+
+  // Draw subtle wireframe grid
+  ctx.lineWidth = 0.4;
+  const gridOpacity = 0.02;
+
+  // Latitude lines
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const phi = (lat * Math.PI) / 180;
+    const ringR = CONFIG.sphereRadius * Math.cos(phi);
+    const ringY = CONFIG.sphereRadius * Math.sin(phi);
+
+    ctx.strokeStyle = `rgba(100, 160, 255, ${gridOpacity})`;
+    ctx.beginPath();
+    let started = false;
+    for (let lon = 0; lon <= 360; lon += 3) {
+      const theta = (lon * Math.PI) / 180;
+      let px = ringR * Math.cos(theta);
+      let py = ringY;
+      let pz = ringR * Math.sin(theta);
+
+      let x = px * Math.cos(state.rotation.y) - pz * Math.sin(state.rotation.y);
+      let z = pz * Math.cos(state.rotation.y) + px * Math.sin(state.rotation.y);
+      let y = py * Math.cos(state.rotation.x) - z * Math.sin(state.rotation.x);
+      let zf = z * Math.cos(state.rotation.x) + py * Math.sin(state.rotation.x);
+
+      const fov = 900 * state.zoom;
+      const sc = fov / (fov + zf);
+      const sx = x * sc + width/2;
+      const sy = y * sc + height/2;
+
+      if (!started) { ctx.moveTo(sx, sy); started = true; }
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+  }
+
+  // Longitude lines
+  for (let lon = 0; lon < 360; lon += 30) {
+    const theta = (lon * Math.PI) / 180;
+    ctx.strokeStyle = `rgba(100, 160, 255, ${gridOpacity})`;
+    ctx.beginPath();
+    let started = false;
+    for (let phi = -90; phi <= 90; phi += 3) {
+      const phiRad = (phi * Math.PI) / 180;
+      let px = CONFIG.sphereRadius * Math.cos(phiRad) * Math.cos(theta);
+      let py = CONFIG.sphereRadius * Math.sin(phiRad);
+      let pz = CONFIG.sphereRadius * Math.cos(phiRad) * Math.sin(theta);
+
+      let x = px * Math.cos(state.rotation.y) - pz * Math.sin(state.rotation.y);
+      let z = pz * Math.cos(state.rotation.y) + px * Math.sin(state.rotation.y);
+      let y = py * Math.cos(state.rotation.x) - z * Math.sin(state.rotation.x);
+      let zf = z * Math.cos(state.rotation.x) + py * Math.sin(state.rotation.x);
+
+      const fov = 900 * state.zoom;
+      const sc = fov / (fov + zf);
+      const sx = x * sc + width/2;
+      const sy = y * sc + height/2;
+
+      if (!started) { ctx.moveTo(sx, sy); started = true; }
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+  }
+
+  // Draw dead cells
+  projected.forEach(({ cell, proj }) => {
+    if (cell.alive) return;
+    const size = CONFIG.cellBaseSize * proj.scale * 0.4;
+    if (size < 0.15) return;
+    const depthFactor = (CONFIG.sphereRadius - proj.z) / (CONFIG.sphereRadius * 2);
+    const color = getDeadColor(depthFactor);
+    ctx.fillStyle = `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw alive cells - outer glow (additive blending)
+  ctx.globalCompositeOperation = 'lighter';
+  projected.forEach(({ cell, proj }) => {
+    if (!cell.alive) return;
+    const pulse = 1 + Math.sin(state.time * 1.8 + cell.age * 0.25) * 0.1;
+    const size = CONFIG.cellBaseSize * proj.scale * pulse;
+    if (size < 0.3) return;
+
+    const depthFactor = (CONFIG.sphereRadius - proj.z) / (CONFIG.sphereRadius * 2);
+    const color = getAliveColor(cell, depthFactor);
+
+    if (size > 0.8) {
+      const glowSize = size * (4 + depthFactor * 3);
+      const glowGrad = ctx.createRadialGradient(proj.x, proj.y, 0, proj.x, proj.y, glowSize);
+      glowGrad.addColorStop(0, `hsla(${color.h}, ${color.s}%, ${color.l + 15}%, ${color.a * 0.4})`);
+      glowGrad.addColorStop(0.2, `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a * 0.15})`);
+      glowGrad.addColorStop(0.5, `hsla(${color.h}, ${color.s}%, ${color.l - 5}%, ${color.a * 0.04})`);
+      glowGrad.addColorStop(1, `hsla(${color.h}, ${color.s}%, ${color.l}%, 0)`);
+      ctx.fillStyle = glowGrad;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, glowSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Draw alive cells - inner glow
+  projected.forEach(({ cell, proj }) => {
+    if (!cell.alive) return;
+    const pulse = 1 + Math.sin(state.time * 1.8 + cell.age * 0.25) * 0.1;
+    const size = CONFIG.cellBaseSize * proj.scale * pulse;
+    if (size < 0.3) return;
+
+    const depthFactor = (CONFIG.sphereRadius - proj.z) / (CONFIG.sphereRadius * 2);
+    const color = getAliveColor(cell, depthFactor);
+
+    if (size > 1) {
+      const innerGlowSize = size * 2.5;
+      const innerGlow = ctx.createRadialGradient(proj.x, proj.y, 0, proj.x, proj.y, innerGlowSize);
+      innerGlow.addColorStop(0, `hsla(${color.h}, ${color.s}%, ${color.l + 20}%, ${color.a * 0.5})`);
+      innerGlow.addColorStop(0.5, `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a * 0.15})`);
+      innerGlow.addColorStop(1, `hsla(${color.h}, ${color.s}%, ${color.l}%, 0)`);
+      ctx.fillStyle = innerGlow;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, innerGlowSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Draw alive cell cores
+  ctx.globalCompositeOperation = 'source-over';
+  projected.forEach(({ cell, proj }) => {
+    if (!cell.alive) return;
+    const pulse = 1 + Math.sin(state.time * 1.8 + cell.age * 0.25) * 0.1;
+    const size = CONFIG.cellBaseSize * proj.scale * pulse;
+    if (size < 0.3) return;
+
+    const depthFactor = (CONFIG.sphereRadius - proj.z) / (CONFIG.sphereRadius * 2);
+    const color = getAliveColor(cell, depthFactor);
+
+    // Main cell body
+    ctx.fillStyle = `hsla(${color.h}, ${color.s}%, ${color.l + 20}%, ${Math.min(1, color.a * 1.2)})`;
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bright center highlight
+    if (size > 1.2) {
+      const centerAlpha = Math.min(0.9, color.a * 0.7 * depthFactor);
+      ctx.fillStyle = `hsla(${color.h}, ${Math.max(10, color.s - 50)}%, ${Math.min(98, color.l + 40)}%, ${centerAlpha})`;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, size * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Sphere outline ring
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.03)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Subtle inner edge highlight
+  const edgeGrad = ctx.createRadialGradient(cx, cy, r * 0.93, cx, cy, r);
+  edgeGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  edgeGrad.addColorStop(1, 'rgba(0, 240, 255, 0.015)');
+  ctx.strokeStyle = edgeGrad;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function updateStats() {
+  document.getElementById('gen-count').textContent = state.generation.toLocaleString();
+  const pop = state.cells.filter(c => c.alive).length;
+  document.getElementById('pop-count').textContent = pop.toLocaleString();
+  const pct = (pop / state.cells.length) * 100;
+  document.getElementById('pop-bar').style.width = pct + '%';
+}
+
+function loop(timestamp) {
+  if (state.isRunning) {
+    state.rotation.y += CONFIG.rotationSpeed;
+
+    const interval = 1000 / state.speed;
+    if (timestamp - state.lastStepTime >= interval) {
+      stepGame();
+      state.lastStepTime = timestamp;
+    }
+  }
+
+  if (!state.isDragging) {
+    state.rotation.y += state.velocity.y;
+    state.rotation.x += state.velocity.x;
+    state.velocity.x *= 0.95;
+    state.velocity.y *= 0.95;
+  }
+
+  draw();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('btn-pause').addEventListener('click', function(e) {
+  state.isRunning = !state.isRunning;
+  e.target.textContent = state.isRunning ? 'Pause' : 'Resume';
+  e.target.className = state.isRunning ? 'btn-primary' : 'btn-secondary';
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  initGame();
+});
+
+document.getElementById('btn-step').addEventListener('click', () => {
+  state.isRunning = false;
+  const btn = document.getElementById('btn-pause');
+  btn.textContent = 'Resume';
+  btn.className = 'btn-secondary';
+  stepGame();
+  draw();
+});
+
+document.getElementById('speed-slider').addEventListener('input', function(e) {
+  state.speed = parseInt(e.target.value);
+  document.getElementById('speed-val').textContent = state.speed;
+});
+
+const container = document.getElementById('canvas-container');
+
+container.addEventListener('mousedown', e => {
+  state.isDragging = true;
+  state.velocity.x = 0;
+  state.velocity.y = 0;
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mousemove', e => {
+  if (!state.isDragging) return;
+  const dx = e.clientX - state.lastMouse.x;
+  const dy = e.clientY - state.lastMouse.y;
+  state.rotation.y += dx * 0.005;
+  state.rotation.x += dy * 0.005;
+  state.velocity.y = dx * 0.0003;
+  state.velocity.x = dy * 0.0003;
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => { state.isDragging = false; });
+
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  state.zoom -= e.deltaY * 0.0008;
+  state.zoom = Math.max(0.4, Math.min(3, state.zoom));
+}, { passive: false });
+
+let lastTouchDist = null;
+
+container.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    state.isDragging = true;
+    state.lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    lastTouchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+  }
+}, { passive: true });
+
+container.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && state.isDragging) {
+    const dx = e.touches[0].clientX - state.lastMouse.x;
+    const dy = e.touches[0].clientY - state.lastMouse.y;
+    state.rotation.y += dx * 0.005;
+    state.rotation.x += dy * 0.005;
+    state.velocity.y = dx * 0.0003;
+    state.velocity.x = dy * 0.0003;
+    state.lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    if (lastTouchDist) {
+      const delta = (dist - lastTouchDist) * 0.005;
+      state.zoom = Math.max(0.4, Math.min(3, state.zoom + delta));
+    }
+    lastTouchDist = dist;
+  }
+}, { passive: false });
+
+container.addEventListener('touchend', () => {
+  state.isDragging = false;
+  lastTouchDist = null;
+});
+
+initGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

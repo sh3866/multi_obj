@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Silhouette Catch</title>
+<style>
+  :root {
+    --bg-void: #030405;
+    --text-primary: #ffffff;
+    --text-dim: #888888;
+    --glow-core: rgba(0, 240, 255, 0.8);
+    --glow-aura: rgba(0, 240, 255, 0.15);
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: var(--bg-void);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+
+  /* --- Layout --- */
+  .game-container {
+    position: relative;
+    width: 100%; height: 100%;
+    overflow: hidden;
+  }
+
+  /* --- Canvas --- */
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    cursor: none;
+  }
+
+  /* --- UI Overlay --- */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none; /* Pass clicks to canvas */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 2rem;
+  }
+
+  /* Top Bar: Title + HUD */
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    opacity: 0.8;
+  }
+
+  /* HUD & Action Group */
+  .hud-group {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    pointer-events: auto; /* Re-enable clicks for button */
+  }
+
+  .counter {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1;
+  }
+
+  .count-val {
+    font-size: 2rem;
+    font-weight: 200;
+    letter-spacing: -0.05em;
+    text-shadow: 0 0 20px var(--glow-aura);
+  }
+
+  .count-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    margin-top: 0.25rem;
+  }
+
+  /* Action Button */
+  .btn-action {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text-primary);
+    padding: 0.6rem 1.2rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(4px);
+  }
+
+  .btn-action:hover {
+    border-color: var(--glow-core);
+    background: rgba(0, 240, 255, 0.05);
+    box-shadow: 0 0 15px var(--glow-aura);
+  }
+
+  /* Bottom Space (Empty for composition) */
+  .bottom-spacer {
+    height: 2rem;
+    width: 100%;
+  }
+
+  /* Toast */
+  .toast {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.4s ease;
+    text-shadow: 0 0 10px var(--glow-core);
+  }
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  @media (max-width: 600px) {
+    .ui-layer { padding: 1.5rem; }
+    .count-val { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="game-container">
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="ui-layer">
+    <div class="top-bar">
+      <div class="brand">
+        <h1>Void Catch</h1>
+      </div>
+      
+      <div class="hud-group">
+        <div class="counter">
+          <span class="count-val" id="scoreDisplay">0</span>
+          <span class="count-label">Collected</span>
+        </div>
+        <button class="btn-action" onclick="resetGame()">Collection</button>
+      </div>
+    </div>
+
+    <div id="toast" class="toast">Specimen Acquired</div>
+    
+    <div class="bottom-spacer"></div>
+  </div>
+</div>
+
+<script>
+  /**
+   * VISUAL DESIGN FOCUS:
+   * 1. Silhouette Identity: Creatures are black shapes (#000) with colored glows.
+   * 2. Depth: Three specific creatures at different scales/speeds.
+   * 3. Terrain: A faint path drawn on canvas.
+   * 4. Player: A recognizable net shape.
+   */
+
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('scoreDisplay');
+  const toastEl = document.getElementById('toast');
+
+  let width, height;
+  let score = 0;
+  let mouse = { x: -1000, y: -1000 };
+  let isMouseDown = false;
+  
+  // Game Objects
+  let particles = [];
+  let creatures = [];
+
+  // --- Setup ---
+
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    initCreatures(); // Re-position on resize
+  }
+  window.addEventListener('resize', resize);
+
+  // --- Input ---
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+  
+  // Touch
+  window.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+
+  // --- Classes ---
+
+  class Particle {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 2 + 0.5;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.02 + 0.01;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.life -= this.decay;
+    }
+    draw(ctx) {
+      ctx.globalAlpha = this.life;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  class Creature {
+    constructor(type, depth, startX, startY) {
+      this.type = type; // 'moth', 'wing', 'orb'
+      this.depth = depth; // 0.5 (far) to 1.5 (close)
+      
+      this.x = startX;
+      this.y = startY;
+      
+      // Movement logic
+      this.baseX = startX;
+      this.baseY = startY;
+      this.offset = Math.random() * 1000;
+      this.wobbleSpeed = 0.002 + (Math.random() * 0.002);
+      
+      this.isCaught = false;
+      this.capturedScale = 1;
+    }
+
+    update() {
+      if (this.isCaught) {
+        this.capturedScale *= 0.9;
+        return;
+      }
+      this.capturedScale = 1;
+
+      // Organic drifting movement
+      const t = Date.now() * this.wobbleSpeed + this.offset;
+      this.x = this.baseX + Math.sin(t) * (20 * this.depth);
+      this.y = this.baseY + Math.cos(t * 0.7) * (15 * this.depth);
+
+      // Flee logic (subtle)
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      
+      if (dist < 100 * this.depth) {
+        const force = (100 - dist) / 100;
+        this.baseX += (dx / dist) * force * 2;
+        this.baseY += (dy / dist) * force * 2;
+      }
+    }
+
+    draw(ctx) {
+      if (this.isCaught && this.capturedScale < 0.1) return;
+
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.scale(this.depth * this.capturedScale, this.depth * this.capturedScale);
+      
+      // Face direction of movement slightly
+      const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+      ctx.rotate(angle + Math.PI / 2);
+
+      // The Silhouette Style
+      ctx.shadowBlur = 25;
+      ctx.shadowColor = 'rgba(0, 240, 255, 0.6)'; // Cyan Glow
+      ctx.fillStyle = '#030405'; // Pitch black body
+      
+      ctx.beginPath();
+      if (this.type === 'moth') {
+        // Moth shape
+        ctx.moveTo(0, 15);
+        ctx.bezierCurveTo(10, 10, 15, -5, 0, -15); // Right wing
+        ctx.bezierCurveTo(-15, -5, -10, 10, 0, 15); // Left wing
+        ctx.moveTo(0, -15);
+        ctx.lineTo(2, -25); // Antenna R
+        ctx.moveTo(0, -15);
+        ctx.lineTo(-2, -25); // Antenna L
+      } else if (this.type === 'wing') {
+        // Glider shape
+        ctx.moveTo(0, 20);
+        ctx.lineTo(25, 0);
+        ctx.lineTo(0, -10);
+        ctx.lineTo(-25, 0);
+      } else {
+        // Orb shape
+        ctx.arc(0, 0, 12, 0, Math.PI*2);
+      }
+      
+      ctx.fill();
+
+      // Localized "Eye" or Core
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(0, -5, 2, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // --- Core Logic ---
+
+  function initCreatures() {
+    creatures = [];
+    // 3 Distinct creatures at varied depths
+    // 1. Large Moth (Close)
+    creatures.push(new Creature('moth', 1.5, width * 0.3, height * 0.4));
+    // 2. Small Wing (Far)
+    creatures.push(new Creature('wing', 0.6, width * 0.7, height * 0.3));
+    // 3. Orb (Mid)
+    creatures.push(new Creature('orb', 1.0, width * 0.5, height * 0.6));
+  }
+
+  function drawTerrain() {
+    // Draw a faint, winding path connecting the depths
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    ctx.bezierCurveTo(width * 0.3, height * 0.8, width * 0.7, height * 0.5, width, height * 0.2);
+    ctx.stroke();
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.015)';
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    ctx.bezierCurveTo(width * 0.4, height * 0.7, width * 0.6, height * 0.4, width * 0.8, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawNet() {
+    ctx.save();
+    ctx.translate(mouse.x, mouse.y);
+
+    // The Net Silhouette
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(0, 240, 255, 0.3)';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    
+    // Net Head (Oval)
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 40, 50, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Net Grid lines
+    ctx.beginPath();
+    ctx.moveTo(-30, -40); ctx.lineTo(30, 40);
+    ctx.moveTo(30, -40); ctx.lineTo(-30, 40);
+    ctx.moveTo(0, -50); ctx.lineTo(0, 50);
+    ctx.moveTo(-40, 0); ctx.lineTo(40, 0);
+    ctx.stroke();
+
+    // Handle
+    ctx.beginPath();
+    ctx.moveTo(0, 50);
+    ctx.lineTo(0, 120); // Long handle going down
+    ctx.stroke();
+
+    // Handle Grip
+    ctx.beginPath();
+    ctx.rect(-4, 100, 8, 20);
+    ctx.fillStyle = '#111';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function checkCatch() {
+    let caughtAny = false;
+    creatures.forEach(c => {
+      if (c.isCaught) return;
+      
+      const dx = c.x - mouse.x;
+      const dy = c.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      // Catch radius depends on depth (easier to catch big ones)
+      if (dist < 60 * c.depth) {
+        c.isCaught = true;
+        caughtAny = true;
+        score++;
+        scoreEl.innerText = score;
+        
+        // Particles
+        for(let i=0; i<8; i++) particles.push(new Particle(c.x, c.y));
+        
+        // Toast
+        toastEl.classList.add('active');
+        setTimeout(() => toastEl.classList.remove('active'), 1000);
+      }
+    });
+
+    if (caughtAny) {
+      setTimeout(() => {
+        initCreatures(); // Respawn all in new spots
+      }, 1500);
+    }
+  }
+
+  function resetGame() {
+    score = 0;
+    scoreEl.innerText = '0';
+    initCreatures();
+  }
+
+  // --- Loop ---
+
+  function loop() {
+    // Clear with transparency for trails? No, keep it crisp per brief.
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Terrain
+    drawTerrain();
+
+    // 2. Creatures (Draw order: Far to Close)
+    creatures.sort((a, b) => a.depth - b.depth);
+    creatures.forEach(c => {
+      c.update();
+      c.draw(ctx);
+    });
+
+    // 3. Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update();
+      p.draw(ctx);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // 4. Player Net
+    drawNet();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  resize();
+  loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIXEL DANCE</title>
+    <style>
+        :root {
+            --c-bg-top: #050011;
+            --c-bg-bot: #1a0033;
+            --c-grid: #ff00ff;
+            --c-primary: #ff0055; /* Magenta-Red */
+            --c-secondary: #00ffff; /* Cyan */
+            --c-accent: #ffcc00; /* Gold */
+            --c-text-shadow: #0044ff;
+            --c-ui-bg: #0a0a1a;
+            
+            --font-pixel: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-font-smoothing: none;
+        }
+
+        body {
+            background-color: var(--c-bg-top);
+            color: white;
+            font-family: var(--font-pixel);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            /* Subtle perspective for the whole stage */
+            perspective: 1200px; 
+        }
+
+        /* --- BACKGROUND CANVAS --- */
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        /* --- CRT SCANLINES & VIGNETTE --- */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+            background: 
+                /* Scanlines */
+                linear-gradient(
+                    to bottom,
+                    rgba(255,255,255,0),
+                    rgba(255,255,255,0) 50%,
+                    rgba(0,0,0,0.3) 50%,
+                    rgba(0,0,0,0.3)
+                ),
+                /* Vignette */
+                radial-gradient(
+                    circle at center,
+                    transparent 60%,
+                    rgba(0,0,0,0.8) 100%
+                );
+            background-size: 100% 4px, 100% 100%;
+        }
+
+        /* --- MAIN STAGE --- */
+        .main-stage {
+            position: relative;
+            z-index: 5;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            height: 90vh; /* Occupy most of screen */
+            padding: 20px 0;
+        }
+
+        /* --- TITLE SECTION --- */
+        .title-container {
+            text-align: center;
+            transform: translateZ(40px); /* Pop out slightly */
+            margin-top: 20px;
+        }
+
+        h1 {
+            font-size: clamp(4rem, 8vw, 7rem);
+            font-weight: 900;
+            text-transform: uppercase;
+            line-height: 0.85;
+            letter-spacing: -4px;
+            color: white;
+            /* Reduced Chromatic Aberration: 1-2px offset */
+            text-shadow: 
+                2px 2px 0px var(--c-text-shadow),
+                -2px -2px 0px var(--c-primary),
+                0 0 30px rgba(255, 0, 85, 0.6);
+            animation: float 4s ease-in-out infinite;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        /* Subtitle */
+        .subtitle {
+            display: block;
+            font-size: clamp(1rem, 2.5vw, 1.8rem);
+            letter-spacing: 8px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 
+                0 0 10px var(--c-secondary),
+                0 0 20px var(--c-secondary);
+            margin-top: 10px;
+            transform: skewX(-10deg);
+            background: rgba(0, 255, 255, 0.1);
+            padding: 5px 20px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        /* --- HIGHWAY PREVIEW --- */
+        .highway-wrapper {
+            position: relative;
+            width: 100%;
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            perspective: 600px;
+            transform-style: preserve-3d;
+            margin-bottom: 20px;
+        }
+
+        .highway-container {
+            position: relative;
+            width: 320px;
+            height: 300px;
+            /* Distinct perspective tilt */
+            transform: rotateX(55deg) rotateZ(0deg);
+            transform-origin: bottom center;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid var(--c-secondary);
+            box-shadow: 0 0 40px rgba(0, 255, 255, 0.2);
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Lane styling */
+        .lane {
+            flex: 1;
+            border-right: 1px solid rgba(255,255,255,0.15);
+            position: relative;
+            background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,255,255,0.05) 100%);
+        }
+        .lane:last-child { border-right: none; }
+
+        /* Moving Grid Lines on Highway */
+        .grid-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: rgba(0, 255, 255, 0.4);
+            box-shadow: 0 0 8px var(--c-secondary);
+            animation: gridMove 1.2s linear infinite;
+        }
+
+        /* Hit Line */
+        .hit-zone {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: white;
+            box-shadow: 0 0 15px 2px white, 0 0 30px var(--c-secondary);
+            z-index: 10;
+        }
+
+        /* Notes */
+        .note {
+            position: absolute;
+            width: 70%;
+            height: 16px;
+            left: 15%;
+            /* Pixelated blocks */
+            border: 2px solid rgba(255,255,255,0.8);
+            box-shadow: 0 0 10px currentColor;
+            animation: fall linear forwards;
+        }
+
+        /* --- UI CONTROLS --- */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 40px; /* Spacing >= 32px */
+            transform: translateZ(60px);
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            font-family: var(--font-pixel);
+            text-transform: uppercase;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.1s;
+            outline: none;
+            /* Standardized Padding */
+            padding: 16px 32px; 
+            border: 4px solid;
+            /* Pixelated corners */
+            border-radius: 0; 
+        }
+
+        /* START BUTTON - Dominant */
+        .btn-start {
+            background: var(--c-primary);
+            color: white;
+            border-color: white;
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+            box-shadow: 8px 8px 0px rgba(0,0,0,0.5), 0 0 20px var(--c-primary);
+            transform: scale(1.1);
+        }
+        
+        .btn-start:hover {
+            background: white;
+            color: var(--c-primary);
+            transform: scale(1.15) translateY(-4px);
+            box-shadow: 12px 12px 0px rgba(0,0,0,0.5), 0 0 30px white;
+        }
+
+        .btn-start:active {
+            transform: scale(1.05) translateY(2px);
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+        }
+
+        /* OPTIONS BUTTON - Subdued */
+        .btn-options {
+            background: transparent;
+            color: var(--c-secondary);
+            border-color: var(--c-secondary);
+            font-size: 1rem;
+            font-weight: bold;
+            opacity: 0.8;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+        }
+
+        .btn-options:hover {
+            background: rgba(0, 255, 255, 0.1);
+            opacity: 1;
+            transform: translateY(-2px);
+            box-shadow: 6px 6px 0px rgba(0,0,0,0.5);
+        }
+
+        .btn-options:active {
+            transform: translateY(2px);
+            box-shadow: 2px 2px 0px rgba(0,0,0,0.5);
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-12px) rotate(1deg); }
+        }
+
+        @keyframes gridMove {
+            0% { top: -50px; opacity: 0; }
+            10% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        @keyframes fall {
+            0% { top: -20px; }
+            100% { top: 100%; }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            h1 { font-size: 3.5rem; letter-spacing: -2px; }
+            .subtitle { font-size: 0.9rem; letter-spacing: 4px; }
+            .highway-container { width: 260px; height: 220px; }
+            .controls { gap: 20px; }
+            .btn-start { padding: 12px 24px; font-size: 1.2rem; }
+            .btn-options { padding: 10px 20px; font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background rendering -->
+    <canvas id="bg-canvas"></canvas>
+    
+    <!-- CRT Overlay -->
+    <div class="overlay"></div>
+
+    <div class="main-stage">
+        <div class="title-container">
+            <h1>PIXEL<br>DANCE</h1>
+            <span class="subtitle">RHYTHM EDITION</span>
+        </div>
+
+        <!-- The 3D Highway Preview -->
+        <div class="highway-wrapper">
+            <div class="highway-container" id="highway">
+                <!-- Lanes -->
+                <div class="lane" id="l1"><div class="grid-line" style="animation-delay: 0s"></div></div>
+                <div class="lane" id="l2"><div class="grid-line" style="animation-delay: 0.3s"></div></div>
+                <div class="lane" id="l3"><div class="grid-line" style="animation-delay: 0.6s"></div></div>
+                <div class="lane" id="l4"><div class="grid-line" style="animation-delay: 0.9s"></div></div>
+                <!-- Hit Line -->
+                <div class="hit-zone"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" onclick="alert('Game Starting...')">START GAME</button>
+            <button class="btn btn-options" onclick="alert('Options Menu')">OPTIONS</button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * VISUAL ENGINE
+         * Draws the Synthwave Grid, Pixel Sun, and Stars
+         */
+
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // State
+        let time = 0;
+        let gridOffset = 0;
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Colors
+        const COL_BG_TOP = '#050011';
+        const COL_BG_BOT = '#1a0033';
+        const COL_GRID = '#ff00ff'; // Magenta Grid
+        const COL_SUN_TOP = '#ffcc00'; // Gold Top
+        const COL_SUN_BOT = '#ff0055'; // Red Bottom
+
+        function drawBackground() {
+            // Clear & Sky Gradient
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, COL_BG_TOP);
+            grad.addColorStop(0.5, COL_BG_BOT);
+            grad.addColorStop(1, '#330055');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+
+            // --- PIXELATED SUN ---
+            const cx = width / 2;
+            const cy = height * 0.35;
+            const r = Math.min(width, height) * 0.18;
+            
+            // Pixelate Sun by drawing a circle, getting image data, and resizing? 
+            // Simpler approach for offline canvas: Draw geometric shapes that look pixelated
+            // Or just draw a standard circle with a "crisp" filter simulation.
+            
+            ctx.save();
+            ctx.translate(cx, cy);
+            
+            // Sun Glow (Blurred)
+            ctx.shadowBlur = 50;
+            ctx.shadowColor = COL_SUN_BOT;
+
+            // Create Gradient
+            const sunGrad = ctx.createLinearGradient(0, -r, 0, r);
+            sunGrad.addColorStop(0, COL_SUN_TOP);
+            sunGrad.stop(1, COL_SUN_BOT);
+
+            // Draw Sun Body
+            ctx.beginPath();
+            // To make it "pixelated", we can use a low-res drawing technique or just rely on the "grid" stripes
+            // Let's draw the circle normally but add hard horizontal cutouts
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fillStyle = sunGrad;
+            ctx.fill();
+
+            // Retro Sun Stripes (Hard edges)
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.shadowBlur = 0; // No blur on stripes
+            const stripeCount = 8;
+            const stripeSpacing = r * 2 / stripeCount;
+            
+            for(let i = 0; i < stripeCount; i++) {
+                let y = -r + (i * stripeSpacing);
+                let h = (i * 1.5) + 2; // Increasing thickness
+                if (y + h > 0) { // Only cut bottom half
+                    ctx.fillRect(-r, y, r * 2, h);
+                }
+            }
+            
+            ctx.restore();
+
+            // --- PIXELATED STARS ---
+            ctx.fillStyle = 'white';
+            ctx.shadowBlur = 0;
+            for(let i = 0; i < 60; i++) {
+                // Deterministic random
+                const seed = i * 1234.5;
+                const sx = (Math.sin(seed) * 0.5 + 0.5) * width;
+                const sy = (Math.cos(seed * 0.7) * 0.5 + 0.5) * (height * 0.45);
+                
+                // Twinkle
+                const alpha = Math.abs(Math.sin(time * 0.05 + i));
+                ctx.globalAlpha = alpha;
+                
+                // Draw square pixels for stars
+                const size = (i % 4 === 0) ? 3 : 2;
+                ctx.fillRect(Math.floor(sx / 4) * 4, Math.floor(sy / 4) * 4, size, size);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // --- PERSPECTIVE GRID ---
+            // Reduced opacity for background grid to prevent clutter
+            const horizonY = height * 0.5;
+            const vanishX = width / 2;
+            
+            // Grid speed
+            gridOffset = (gridOffset + 2) % 40; 
+
+            ctx.strokeStyle = COL_GRID;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.3; // Lower opacity per critique
+            
+            ctx.beginPath();
+
+            // Vertical Lines
+            // Fan out logic
+            const fov = width * 0.8;
+            for (let i = -15; i <= 15; i++) {
+                let x1 = vanishX + (i * 10); // Near vanish point
+                let x2 = vanishX + (i * fov * 0.15); // Spread at bottom
+                
+                ctx.moveTo(x1, horizonY);
+                ctx.lineTo(x2, height);
+            }
+
+            // Horizontal Lines (Moving)
+            // Exponential spacing for depth
+            const segments = 20;
+            for (let i = 0; i < segments; i++) {
+                // Map i to z-space
+                // z goes from 0 (far) to 1 (near)
+                // We want lines to move towards camera (increase y)
+                
+                // Base position based on perspective curve
+                // y = h + (H * 1/(z))
+                // Simplified loop:
+                let z = (i * 40) - gridOffset; 
+                if (z <= 0) continue; // Behind camera
+
+                // Perspective formula: y = horizon + (height / (z * factor))
+                // Or simpler: y = horizon + (height - horizon) * (1 - 1/(z*factor + 1))
+                
+                let p = (z * 0.02); // Perspective factor
+                let y = horizonY + (height - horizonY) * (1 - (1 / (p + 1)));
+                
+                if (y > horizonY && y < height) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width, y);
+                }
+            }
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+        }
+
+        // --- NOTE SPAWNER LOGIC ---
+        // Spawns visual notes on the HTML highway
+        const highway = document.getElementById('highway');
+        const lanes = [
+            document.getElementById('l1'),
+            document.getElementById('l2'),
+            document.getElementById('l3'),
+            document.getElementById('l4')
+        ];
+        const colors = ['#ff00ff', '#00ffff', '#ffcc00', '#ff00ff']; // Magenta, Cyan, Gold, Magenta
+
+        function spawnNote() {
+            const laneIdx = Math.floor(Math.random() * 4);
+            const lane = lanes[laneIdx];
+            
+            const note = document.createElement('div');
+            note.className = 'note';
+            note.style.backgroundColor = colors[laneIdx];
+            note.style.color = colors[laneIdx]; 
+            
+            // Randomize speed slightly for organic feel
+            const duration = 1.2 + Math.random() * 0.4;
+            note.style.animationDuration = `${duration}s`;
+            
+            lane.appendChild(note);
+
+            // Cleanup
+            setTimeout(() => {
+                if(note.parentNode) note.remove();
+            }, duration * 1000);
+        }
+
+        // Main Loop
+        function loop() {
+            time++;
+            drawBackground();
+            
+            // Random note spawning
+            // Spawn roughly 1 note every 0.5-1 seconds
+            if (Math.random() < 0.04) {
+                spawnNote();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+
+    </script>
+</body>
+</html>

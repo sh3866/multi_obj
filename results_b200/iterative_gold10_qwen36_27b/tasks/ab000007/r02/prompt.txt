@@ -1,0 +1,708 @@
+You are a senior front-end engineer AND a strong visual designer, revising a web page/screen to improve its DESIGN.
+
+ORIGINAL BRIEF:
+Design the main screen (a single page) for a "Capture & Collection" creature-catching game. Include: a title and HUD (collected count), a play field with a few drifting creatures and the player with a net, and a Collection button. Put strong emphasis on the visual design: a distinct, cohesive identity and a play area that reads as a living scene — careful layout, color, typography and finish. Make this screen look genuinely polished.
+
+DESIGN CRITIQUE & CHANGES TO APPLY (from the design reviewers — apply these; keep what already works well):
+The required player and net are now clearly present and the scene reads much better. Preserve them, the neon creatures, terrain silhouette, title and counter. Fix three visible issues only: move the Collection button away from the net/player interaction so it sits as a compact bottom-left or bottom-center HUD control without overlapping the net rim; move the cyan creature at the top fully inside the viewport; give the player a slightly more readable head/torso/arm silhouette and the net a shorter handle so the capture gesture feels intentional. Add a few extremely subtle foreground reeds for depth, but do not darken, remove, or redesign the successful scene.
+
+
+Focus on making the VISUAL DESIGN stronger per the critique — identity, layout & hierarchy, color, typography,
+and craft. Feel free to restructure or redraw as needed; do not just tweak.
+
+Technical constraints:
+- Output ONE self-contained HTML document (inline CSS and JS, no external files or network requests).
+- The page runs in a FULLY OFFLINE sandbox — every network request is BLOCKED. No external CDNs/fonts/images/APIs (React, Tailwind, three.js, Google Fonts, remote images all fail and render BLANK). Inline everything; draw graphics with CSS/SVG/canvas; use system fonts.
+- Never gate the content behind a loading/"initializing" overlay — show the real content immediately.
+
+CURRENT HTML:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lumina - Capture & Collection</title>
+<style>
+  :root {
+    --bg-deep: #020205;
+    --bg-layer-1: #060612;
+    --bg-layer-2: #0a0a1a;
+    --accent-cyan: #00f0ff;
+    --accent-magenta: #ff0055;
+    --accent-lime: #ccff00;
+    --glass-surface: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --font-display: 'Impact', 'Arial Black', system-ui, sans-serif;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background-color: var(--bg-deep);
+    color: white;
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+
+  /* --- Scene Container --- */
+  .scene-container {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* --- Background Atmosphere --- */
+  .atmosphere {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 50% 100%, #1a1a3a 0%, var(--bg-deep) 70%);
+  }
+
+  /* --- Canvas Layer --- */
+  #gameCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 2; /* Above background, below UI */
+    cursor: none;
+  }
+
+  /* --- UI Layer --- */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 2rem;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: auto;
+    /* Allow clicks to pass through header area if not on elements */
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    text-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: 3rem;
+    margin: 0;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: linear-gradient(to bottom, #fff, #ccc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.4));
+  }
+
+  .subtitle {
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 600;
+    opacity: 0.8;
+  }
+
+  /* HUD */
+  .hud-panel {
+    background: var(--glass-surface);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    padding: 0.75rem 2rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .hud-panel::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+    opacity: 0.5;
+  }
+
+  .stat-icon {
+    width: 28px; height: 28px;
+    fill: var(--accent-cyan);
+    filter: drop-shadow(0 0 8px var(--accent-cyan));
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    line-height: 1;
+    color: white;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 2px;
+  }
+
+  /* Footer / Actions */
+  .footer {
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    margin-bottom: 2rem;
+  }
+
+  .btn-main {
+    background: rgba(0, 240, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    color: var(--accent-cyan);
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    padding: 1rem 4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+  }
+
+  .btn-main:hover {
+    background: rgba(0, 240, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.3);
+    border-color: var(--accent-cyan);
+    text-shadow: 0 0 8px var(--accent-cyan);
+  }
+
+  /* Notification Toast */
+  .toast {
+    position: absolute;
+    top: 40%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(0,0,0,0.85);
+    border: 1px solid var(--accent-lime);
+    color: var(--accent-lime);
+    padding: 1rem 3rem;
+    border-radius: 4px;
+    font-family: var(--font-display);
+    letter-spacing: 0.15em;
+    opacity: 0;
+    pointer-events: none;
+    transition: 0.2s;
+    z-index: 20;
+    text-transform: uppercase;
+    box-shadow: 0 0 40px rgba(204, 255, 0, 0.2);
+  }
+  
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Mobile adjustments */
+  @media (max-width: 600px) {
+    h1 { font-size: 2rem; }
+    .ui-layer { padding: 1rem; }
+    .btn-main { padding: 0.8rem 2rem; font-size: 1rem; width: 100%; }
+    .hud-panel { padding: 0.5rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene-container">
+  <!-- Visual Backgrounds -->
+  <div class="atmosphere"></div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- UI Overlay -->
+  <div class="ui-layer">
+    <header class="header">
+      <div class="brand">
+        <h1>Lumina</h1>
+        <div class="subtitle">Capture & Collection</div>
+      </div>
+      <div class="hud-panel">
+        <svg class="stat-icon" viewBox="0 0 24 24">
+          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z" />
+        </svg>
+        <div>
+          <div class="stat-value" id="scoreDisplay">0</div>
+          <div class="stat-label">Collected</div>
+        </div>
+      </div>
+    </header>
+
+    <div id="toast" class="toast">Specimen Captured!</div>
+
+    <footer class="footer">
+      <button class="btn-main" onclick="resetGame()">Collection</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+  /**
+   * Game Logic & Rendering
+   * Pure Canvas implementation for smooth 60fps rendering.
+   */
+  
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: true });
+  const scoreEl = document.getElementById('scoreDisplay');
+  const toastEl = document.getElementById('toast');
+
+  let width, height;
+  let score = 0;
+  let particles = [];
+  let creatures = [];
+  let mouse = { x: window.innerWidth / 2, y: window.innerHeight - 200 };
+  let isMouseDown = false;
+  let time = 0;
+
+  // Configuration
+  const COLORS = ['#00f0ff', '#ff0055', '#ccff00', '#bd00ff'];
+  const CREATURE_COUNT = 5;
+
+  // Resize Handling
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    // Reposition mouse if off screen
+    if (mouse.x > width) mouse.x = width / 2;
+    if (mouse.y > height) mouse.y = height / 2;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Input Handling
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mousedown', () => isMouseDown = true);
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+  // Touch support
+  window.addEventListener('touchmove', e => {
+    e.preventDefault(); 
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }, { passive: false });
+  window.addEventListener('touchstart', e => {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+    isMouseDown = true;
+  });
+  window.addEventListener('touchend', () => {
+    isMouseDown = false;
+    checkCatch();
+  });
+
+  // --- Classes ---
+
+  class Particle {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 4 + 1;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.decay = Math.random() * 0.02 + 0.01;
+      this.size = Math.random() * 4 + 2;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.life -= this.decay;
+      this.size *= 0.95;
+    }
+
+    draw(ctx) {
+      ctx.globalAlpha = this.life;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  class Creature {
+    constructor(startNearNet = false) {
+      this.reset(startNearNet);
+      // Start at random positions initially if not near net
+      if (!startNearNet) {
+        this.x = Math.random() * width;
+        this.y = Math.random() * (height * 0.6); // Keep in upper area
+      }
+    }
+
+    reset(startNearNet = false) {
+      // Spawn away from center
+      this.x = startNearNet ? mouse.x + 150 : (Math.random() < 0.5 ? -100 : width + 100);
+      this.y = startNearNet ? mouse.y - 50 : Math.random() * (height * 0.6);
+      
+      this.vx = (Math.random() - 0.5) * 1.5;
+      this.vy = (Math.random() - 0.5) * 1.5;
+      this.radius = Math.random() * 25 + 20;
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.angle = 0;
+      this.wobble = Math.random() * Math.PI * 2;
+      this.wobbleSpeed = Math.random() * 0.03 + 0.01;
+      this.isCaught = false;
+    }
+
+    update() {
+      if (this.isCaught) return;
+
+      // Movement
+      this.x += this.vx;
+      this.y += this.vy;
+      this.wobble += this.wobbleSpeed;
+      
+      // Organic drift
+      this.x += Math.sin(this.wobble) * 0.3;
+      this.y += Math.cos(this.wobble * 0.8) * 0.3;
+
+      // Bounce off walls (softly)
+      if (this.x < 0 || this.x > width) this.vx *= -1;
+      if (this.y < 0 || this.y > height * 0.7) this.vy *= -1; // Keep mostly in upper view
+
+      // Avoid Mouse (Net) - flee if too close
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      
+      if (dist < 200) {
+        // Flee behavior
+        const force = (200 - dist) / 200;
+        this.vx += (dx / dist) * force * 0.8;
+        this.vy += (dy / dist) * force * 0.8;
+      }
+
+      // Speed limiter
+      const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+      if (speed > 3) {
+        this.vx = (this.vx / speed) * 3;
+        this.vy = (this.vy / speed) * 3;
+      }
+    }
+
+    draw(ctx) {
+      if (this.isCaught) return;
+
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      
+      // Intense Glow
+      ctx.shadowBlur = 30;
+      ctx.shadowColor = this.color;
+      
+      // Body
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      
+      // Draw a slightly organic blob shape
+      const r = this.radius;
+      const wobbleOffset = Math.sin(this.wobble * 2) * 5;
+      
+      ctx.moveTo(r + wobbleOffset, 0);
+      ctx.bezierCurveTo(r, r, 0, r, -r - wobbleOffset, 0);
+      ctx.bezierCurveTo(-r, -r, 0, -r, r + wobbleOffset, 0);
+      
+      ctx.fill();
+
+      // Inner Core (Bright white center)
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // "Tentacles" or trailing bits
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(0, r);
+      ctx.quadraticCurveTo(Math.sin(this.wobble)*20, r+20, Math.sin(this.wobble)*10, r+30);
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+  }
+
+  // --- Game Functions ---
+
+  function init() {
+    creatures = [];
+    // Ensure one creature starts near the player for the "visual relationship"
+    creatures.push(new Creature(true));
+    for(let i=0; i<CREATURE_COUNT-1; i++) {
+      creatures.push(new Creature(false));
+    }
+    score = 0;
+    scoreEl.innerText = score;
+  }
+
+  function checkCatch() {
+    // Simple collision detection with the "Net" radius
+    const catchRadius = 80; // Size of the net capture zone
+
+    let caughtSomething = false;
+    creatures.forEach(c => {
+      if (c.isCaught) return;
+      
+      const dx = c.x - mouse.x;
+      const dy = c.y - mouse.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < catchRadius) {
+        catchCreature(c);
+        caughtSomething = true;
+      }
+    });
+    
+    if (!caughtSomething) {
+        // Empty swipe effect
+        createSwipeEffect();
+    }
+  }
+  
+  function createSwipeEffect() {
+      // Create a few faint particles around the net to show movement
+      for(let i=0; i<5; i++) {
+        let p = new Particle(mouse.x, mouse.y, '#ffffff');
+        p.color = 'rgba(255,255,255,0.5)';
+        p.decay = 0.05;
+        particles.push(p);
+      }
+  }
+
+  function catchCreature(creature) {
+    creature.isCaught = true;
+    score++;
+    scoreEl.innerText = score;
+    
+    // Visual FX
+    for(let i=0; i<25; i++) {
+      particles.push(new Particle(creature.x, creature.y, creature.color));
+    }
+
+    // Show Toast
+    toastEl.classList.add('active');
+    setTimeout(() => toastEl.classList.remove('active'), 1200);
+
+    // Respawn logic (delayed)
+    setTimeout(() => {
+      creature.reset();
+    }, 3000);
+  }
+
+  function resetGame() {
+    init();
+  }
+
+  function drawPlayerAndNet() {
+    // We draw the player silhouette and the net in the foreground
+    // The "Player" is a silhouette in the bottom right/center
+    
+    const playerX = width * 0.75; // Position player in lower right foreground
+    const playerY = height * 0.85;
+    
+    // 1. Draw Player Silhouette (Static in scene)
+    ctx.save();
+    ctx.translate(playerX, playerY);
+    
+    // Silhouette Color
+    ctx.fillStyle = '#050508';
+    ctx.shadowColor = 'rgba(0, 240, 255, 0.3)';
+    ctx.shadowBlur = 20; // Rim light
+    
+    // Draw simple humanoid shape
+    ctx.beginPath();
+    // Head
+    ctx.arc(0, -80, 20, 0, Math.PI*2);
+    // Torso
+    ctx.moveTo(0, -60);
+    ctx.lineTo(30, 0); // Right shoulder
+    ctx.lineTo(20, 100); // Right hip
+    ctx.lineTo(-20, 100); // Left hip
+    ctx.lineTo(-30, 0); // Left shoulder
+    ctx.fill();
+    
+    // Arm reaching out towards mouse
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = '#050508';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(30, -10); // Shoulder
+    
+    // Calculate angle to mouse
+    const dx = mouse.x - playerX;
+    const dy = mouse.y - playerY;
+    const angle = Math.atan2(dy, dx);
+    
+    // Arm joint
+    const armLen = 80;
+    const elbowX = Math.cos(angle) * armLen;
+    const elbowY = Math.sin(angle) * armLen;
+    
+    ctx.lineTo(elbowX, elbowY);
+    ctx.stroke();
+    
+    // Forearm to Net
+    ctx.beginPath();
+    ctx.moveTo(elbowX, elbowY);
+    ctx.lineTo(mouse.x - playerX, mouse.y - playerY);
+    ctx.stroke();
+    
+    ctx.restore();
+
+    // 2. Draw The Net (Follows Mouse)
+    ctx.save();
+    ctx.translate(mouse.x, mouse.y);
+    
+    // Net Glow
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = isMouseDown ? '#fff' : '#00f0ff';
+    
+    // Net Shape (Circle with dashed rim)
+    ctx.strokeStyle = isMouseDown ? '#fff' : '#00f0ff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 70, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Net Grid (Spider web style)
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+    ctx.lineWidth = 1;
+    for(let i=0; i<6; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.lineTo(Math.cos(i * Math.PI / 3) * 70, Math.sin(i * Math.PI / 3) * 70);
+        ctx.stroke();
+    }
+    // Rings
+    ctx.beginPath(); ctx.arc(0,0, 20, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0, 40, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2); ctx.stroke();
+
+    // Handle connection point
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(0,0, 5, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawTerrain() {
+    // Draw layered silhouettes at the bottom to create depth
+    ctx.save();
+    
+    // Layer 1 (Far)
+    ctx.fillStyle = '#080812';
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    ctx.lineTo(0, height - 100);
+    for(let i=0; i<=width; i+=50) {
+        ctx.lineTo(i, height - 100 + Math.sin(i*0.01 + time*0.5)*20);
+    }
+    ctx.lineTo(width, height);
+    ctx.fill();
+
+    // Layer 2 (Mid) - Foliage shapes
+    ctx.fillStyle = '#030306';
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    ctx.lineTo(0, height - 50);
+    // Jagged foliage
+    for(let i=0; i<=width; i+=20) {
+        let h = Math.sin(i*0.05 + time*0.2) * 15 + Math.cos(i*0.02) * 20;
+        ctx.lineTo(i, height - 50 - h);
+    }
+    ctx.lineTo(width, height);
+    ctx.fill();
+    
+    // Rim light on terrain
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.1)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function loop() {
+    time += 0.01;
+    
+    // Clear
+    ctx.clearRect(0, 0, width, height);
+
+    // Update & Draw Creatures (Behind terrain/player)
+    creatures.forEach(c => {
+      c.update();
+      c.draw(ctx);
+    });
+
+    // Draw Terrain (Foreground layers)
+    drawTerrain();
+
+    // Update & Draw Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update();
+      p.draw(ctx);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Draw Player & Net (Top Layer)
+    drawPlayerAndNet();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  init();
+  loop();
+
+</script>
+</body>
+</html>
+
+Return ONLY the full revised self-contained HTML, starting with <!DOCTYPE html>. No prose, no markdown fences.
