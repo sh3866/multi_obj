@@ -27,6 +27,7 @@ SELF_T = _r("critic_prompts/self.txt")
 MODERATOR_T = _r("critic_prompts/moderator.txt")
 DEBATE_T = _r("critic_prompts/debate_template.txt")
 FUSED_T = {2: _r("critic_prompts/fused/fused2.txt"),
+           3: _r("critic_prompts/fused/fused3.txt"),
            4: _r("critic_prompts/fused/fused4.txt"),
            10: _r("critic_prompts/fused/fused10.txt")}
 
@@ -36,6 +37,7 @@ _SETS = {
     "design4": ["layout", "spacing", "color_type", "style_orig"],
     "design10": ["hierarchy", "composition", "spacing", "alignment", "color",
                  "typography", "imagery", "mood", "originality", "finish"],
+    "conflict3": ["spec_fidelity", "unity", "variety"],
 }
 AXIS_META = {}   # set_name -> list of (key, name, persona, full_prompt)
 for _s, _keys in _SETS.items():

@@ -52,7 +52,7 @@ _PROBE_JS = """
 """
 
 
-def _score(rendered, page_errors, console_errors, struct, click_errors, n_clicked):
+def _score(rendered, page_errors, console_errors, struct):
     if not rendered:
         return 0.0
     s = 1.0
@@ -60,26 +60,23 @@ def _score(rendered, page_errors, console_errors, struct, click_errors, n_clicke
         s -= 0.4
     if console_errors:
         s -= 0.2
-    if struct.get("n_clickable", 0) == 0:
-        s -= 0.3
     if struct.get("body_len", 0) < 30:
         s -= 0.2
-    if n_clicked > 0:
-        s -= 0.4 * (click_errors / n_clicked)
     return max(0.0, min(1.0, s))
 
 
 async def render_and_probe(html: str, out_png: str,
                            viewport: Tuple[int, int] = (1280, 800),
-                           full_page: bool = True, settle_ms: int = 500,
-                           max_clicks: int = 8, n_shots: int = 1) -> dict:
-    """Render + active verification. n_shots=3 additionally captures the
-    ArtifactsBench-style temporal series (t0 right after load, t1 after settle
-    = out_png, t2 after interactions) so judges can see dynamic behavior."""
+                           full_page: bool = True, settle_ms: int = 500, n_shots: int = 1) -> dict:
+    """Render one settled screenshot (t1) and collect passive load diagnostics.
+
+    n_shots remains only for call-site compatibility; t0/t2 are no longer
+    captured or stored in new experiments.
+    """
     os.makedirs(os.path.dirname(out_png) or ".", exist_ok=True)
     info = {"rendered": False, "png": out_png, "pngs": [out_png],
             "console_errors": [], "page_errors": [],
-            "structure": {}, "n_clicked": 0, "click_errors": 0, "func_objective": 0.0,
+            "structure": {}, "func_objective": 0.0,
             "html_bytes": len(html.encode("utf-8")), "dom_nodes": None, "load_ms": None}
     if not playwright_available():
         logger.warning("Playwright unavailable — skipping render.")
@@ -90,7 +87,12 @@ async def render_and_probe(html: str, out_png: str,
     from playwright.async_api import async_playwright
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+            browser_env = {k: v for k, v in os.environ.items()
+                           if k not in {"DISPLAY", "WAYLAND_DISPLAY"}}
+            browser = await p.chromium.launch(
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+                      "--disable-software-rasterizer"],
+                env=browser_env)
             page = await browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
             page.on("console", lambda m: (
                 info["console_errors"].append(m.text) if m.type == "error" else None))
@@ -98,36 +100,17 @@ async def render_and_probe(html: str, out_png: str,
             t0 = time.perf_counter()
             await page.set_content(html, wait_until="networkidle")
             info["load_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-            if n_shots >= 3:
-                await page.screenshot(path=f"{base}_t0{ext}", full_page=full_page)
             await page.wait_for_timeout(settle_ms)
-            await page.screenshot(path=out_png, full_page=full_page)
+            await page.screenshot(path=out_png, full_page=full_page, timeout=120000)
             info["rendered"] = True
             try:
                 info["structure"] = await page.evaluate(_PROBE_JS)
                 info["dom_nodes"] = info["structure"].get("dom_nodes")
             except Exception as exc:
                 info["structure"] = {"probe_error": str(exc)}
-            # active verification: click controls, watch for JS errors
-            clickable = await page.query_selector_all(
-                "button, [onclick], [role=button], input[type=submit], input[type=button]")
-            errs_before = len(info["page_errors"])
-            for el in clickable[:max_clicks]:
-                try:
-                    await el.click(timeout=800, no_wait_after=True)
-                    await page.wait_for_timeout(60)
-                except Exception:
-                    pass
-                info["n_clicked"] += 1
-            info["click_errors"] = len(info["page_errors"]) - errs_before
-            if n_shots >= 3:
-                await page.wait_for_timeout(200)
-                await page.screenshot(path=f"{base}_t2{ext}", full_page=full_page)
-                info["pngs"] = [f"{base}_t0{ext}", out_png, f"{base}_t2{ext}"]
             await browser.close()
         info["func_objective"] = _score(info["rendered"], info["page_errors"],
-                                        info["console_errors"], info["structure"],
-                                        info["click_errors"], info["n_clicked"])
+                                        info["console_errors"], info["structure"])
     except Exception as exc:
         logger.error("Render failed: %s", exc)
         info["error"] = str(exc)

@@ -88,3 +88,22 @@ def extract_html(text: Optional[str]) -> str:
     if m:
         return t[m.start():]
     return t  # last resort: whatever came back
+
+
+def validate_complete_html(text: Optional[str]) -> tuple[bool, list[str]]:
+    """Reject truncated page artifacts before a browser silently repairs them."""
+    html = extract_html(text)
+    problems: list[str] = []
+    low = html.lower().strip()
+    if not re.search(r"<(?:!doctype\s+html|html[\s>])", low):
+        problems.append("missing_html_start")
+    if not low.endswith("</html>"):
+        problems.append("missing_html_end")
+    if "<body" not in low or "</body>" not in low:
+        problems.append("incomplete_body")
+    for tag in ("script", "style"):
+        opened = len(re.findall(rf"<{tag}(?:\s|>)", low))
+        closed = len(re.findall(rf"</{tag}\s*>", low))
+        if opened != closed:
+            problems.append(f"unbalanced_{tag}")
+    return not problems, problems

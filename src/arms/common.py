@@ -59,18 +59,18 @@ async def gen_initial(instruction: str, spec: str, gen_c, cfg, usage,
         prompt = sp.gen_initial_prompt(instruction)
     else:
         prompt = prompts.initial_generation_prompt(instruction, spec)
-    raw = await gen_c.generate(
+    result = await gen_c.generate_complete_html(
         prompt, max_tokens=cfg.max_tokens,
         temperature=cfg.gen_temperature if temperature is None else temperature,
         usage_stats=usage, tag="gen:init")
-    return extract_html(raw)
+    return result["html"]
 
 
 # chars (~14k tokens at 2.5c/t); with the 32k-context gen server + 16k output
 # this leaves headroom (14k prompt-html + ~2k instruction + 16k output < 32k).
 # Raised from 20k after pilot attempt-5 showed pages of 30-37k chars hitting
 # the cap every self-refine round.
-HTML_PROMPT_CAP = 35000
+HTML_PROMPT_CAP = 100000
 
 logger = logging.getLogger("arms")
 
@@ -97,10 +97,10 @@ async def gen_revision(instruction: str, prev_html: str, revision_spec: str,
     else:
         prompt = prompts.revision_generation_prompt(
             instruction, _capped(prev_html, "revise"), revision_spec)
-    raw = await gen_c.generate(prompt, max_tokens=cfg.max_tokens,
-                               temperature=cfg.gen_temperature,
-                               usage_stats=usage, tag="gen:revise")
-    return extract_html(raw)
+    result = await gen_c.generate_complete_html(
+        prompt, max_tokens=cfg.max_tokens, temperature=cfg.gen_temperature,
+        usage_stats=usage, tag="gen:revise")
+    return result["html"]
 
 
 async def gen_self_refine(instruction: str, prev_html: str, gen_c, cfg, usage,
@@ -114,21 +114,21 @@ async def gen_self_refine(instruction: str, prev_html: str, gen_c, cfg, usage,
         prompt = sp.self_refine_prompt(instruction, _capped(prev_html, "self_refine"))
         client = vlm_c if (vlm_c is not None and png) else gen_c
         if client is vlm_c:
-            raw = await client.generate_vlm(prompt, [png], max_tokens=cfg.max_tokens,
-                                            temperature=cfg.gen_temperature,
-                                            usage_stats=usage, tag="gen:self_refine")
+            result = await client.generate_complete_html(
+                prompt, image_paths=[png], max_tokens=cfg.max_tokens,
+                temperature=cfg.gen_temperature, usage_stats=usage,
+                tag="gen:self_refine")
         else:
-            raw = await client.generate(prompt, max_tokens=cfg.max_tokens,
-                                        temperature=cfg.gen_temperature,
-                                        usage_stats=usage, tag="gen:self_refine")
-        return extract_html(raw), False
-    raw = await gen_c.generate(
+            result = await client.generate_complete_html(
+                prompt, max_tokens=cfg.max_tokens,
+                temperature=cfg.gen_temperature, usage_stats=usage,
+                tag="gen:self_refine")
+        return result["html"], False
+    result = await gen_c.generate_complete_html(
         prompts.self_refine_prompt(instruction, _capped(prev_html, "self_refine")),
         max_tokens=cfg.max_tokens, temperature=cfg.gen_temperature,
         usage_stats=usage, tag="gen:self_refine")
-    if raw and "GOOD_ENOUGH" in raw.strip()[:40] and "<html" not in raw.lower():
-        return "", True
-    return extract_html(raw), False
+    return result["html"], False
 
 
 def load_init(workdir: str, cfg) -> Optional[dict]:
@@ -174,12 +174,11 @@ async def probe_and_select(cands: CandidateSet, workdir: str,
         if cfg.render:
             png = os.path.join(cdir, f"{c['id']}.png")
             info = await render.render_and_probe(c["html"], png, viewport=cfg.viewport,
-                                                 n_shots=3)
+                                                 n_shots=1)
             c["png"] = png if info.get("rendered") else None
             c["pngs"] = info.get("pngs") if info.get("rendered") else None
             c["probe"] = {k: info.get(k) for k in
-                          ("rendered", "func_objective", "dom_nodes", "html_bytes",
-                           "load_ms", "n_clicked", "click_errors")}
+                          ("rendered", "func_objective", "dom_nodes", "html_bytes", "load_ms")}
             c["probe"]["n_page_errors"] = len(info.get("page_errors", []))
             c["probe"]["n_console_errors"] = len(info.get("console_errors", []))
         else:

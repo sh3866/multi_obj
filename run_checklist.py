@@ -32,10 +32,9 @@ def discover_arms(run_dir):
 
 
 def final_images(base: str, mock: bool):
-    seq = [os.path.join(base, n) for n in ("final_t0.png", "final_t1.png", "final_t2.png")]
-    seq = [p for p in seq if os.path.exists(p)]
-    if seq:
-        return seq
+    settled = os.path.join(base, "final_t1.png")
+    if os.path.exists(settled):
+        return [settled]
     if mock:
         h = os.path.join(base, "final.html")
         return [h] if os.path.exists(h) else []
@@ -45,7 +44,7 @@ def final_images(base: str, mock: bool):
 def candidate_images(base: str, cand: dict, mock: bool):
     pngs = [p for p in (cand.get("pngs") or []) if p and os.path.exists(p)]
     if pngs:
-        return pngs
+        return [cand.get("png")] if cand.get("png") in pngs else [pngs[0]]
     if cand.get("png") and os.path.exists(cand["png"]):
         return [cand["png"]]
     if mock and cand.get("html_path") and os.path.exists(cand["html_path"]):

@@ -23,9 +23,7 @@ def shots(pdir, app, rnd):
     settled = os.path.join(base, f"{rnd}.png")
     if not os.path.exists(settled):
         return None
-    series = [os.path.join(base, f"{rnd}_t0.png"), settled,
-              os.path.join(base, f"{rnd}_t2.png")]
-    return series if all(os.path.exists(p) for p in series) else [settled]
+    return [settled]
 
 
 async def main_async(a):

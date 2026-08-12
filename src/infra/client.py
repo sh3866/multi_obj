@@ -14,8 +14,8 @@ import base64
 import json
 import logging
 import re
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
 
 import aiohttp
 
@@ -30,11 +30,15 @@ class UsageStats:
     n_failed: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    call_records: List[dict] = field(default_factory=list)
 
-    def record(self, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+    def record(self, prompt_tokens: int = 0, completion_tokens: int = 0,
+               call_record: Optional[dict] = None) -> None:
         self.n_calls += 1
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
+        if call_record is not None:
+            self.call_records.append(call_record)
 
     def record_failure(self) -> None:
         self.n_failed += 1
@@ -49,6 +53,7 @@ class UsageStats:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
+            "call_records": self.call_records,
         }
 
 
@@ -148,11 +153,19 @@ class VLLMClient:
                             raise RuntimeError(f"400 Bad Request: {body[:300]}")
                         resp.raise_for_status()
                         data = await resp.json()
-                        text = data["choices"][0]["message"]["content"]
+                        choice = data["choices"][0]
+                        text = choice["message"]["content"]
                         if usage_stats is not None:
-                            u = data.get("usage", {})
+                            u = data.get("usage", {}) or {}
                             usage_stats.record(u.get("prompt_tokens", 0),
-                                               u.get("completion_tokens", 0))
+                                               u.get("completion_tokens", 0), {
+                                "tag": tag,
+                                "finish_reason": choice.get("finish_reason"),
+                                "effective_max_tokens": payload.get("max_tokens"),
+                                "prompt_tokens": u.get("prompt_tokens", 0),
+                                "completion_tokens": u.get("completion_tokens", 0),
+                                "response_chars": len(text or ""),
+                            })
                         return text
             except asyncio.CancelledError:
                 raise
@@ -167,7 +180,7 @@ class VLLMClient:
         return None
 
     # serving max-model-len; override per machine via $GEN_CONTEXT_LIMIT
-    CONTEXT_LIMIT = int(__import__("os").environ.get("GEN_CONTEXT_LIMIT", 16384))
+    CONTEXT_LIMIT = int(__import__("os").environ.get("GEN_CONTEXT_LIMIT", 65536))
 
     async def generate(self, prompt: str, max_tokens: int = 4096,
                        temperature: float = 0.7,
@@ -220,6 +233,30 @@ class VLLMClient:
         if think is not None and any(t in self.model_name for t in ("Qwen3", "qwen3")):
             payload["chat_template_kwargs"] = {"enable_thinking": think}
         return await self._post(payload, usage_stats, tag=tag)
+
+
+    async def generate_complete_html(self, prompt: str, max_tokens: int = 16384, temperature: float = 0.7, usage_stats: Optional[UsageStats] = None, tag: str = "gen:html", think: bool = False, image_paths: Optional[List[str]] = None, max_attempts: int = 3) -> dict:
+        """Reject truncated HTML, retry concisely, then fail loudly."""
+        from .parse import extract_html, validate_complete_html
+        retry_prompt = prompt
+        audit = []
+        for attempt in range(1, max_attempts + 1):
+            attempt_tag = f"{tag}:attempt{attempt}"
+            if image_paths:
+                raw = await self.generate_vlm(retry_prompt, image_paths, max_tokens=max_tokens, temperature=temperature, usage_stats=usage_stats, tag=attempt_tag, think=think)
+            else:
+                raw = await self.generate(retry_prompt, max_tokens=max_tokens, temperature=temperature, usage_stats=usage_stats, tag=attempt_tag, think=think)
+            ok, problems = validate_complete_html(raw)
+            meta = usage_stats.call_records[-1] if usage_stats and usage_stats.call_records else {}
+            if meta.get("tag") == attempt_tag and meta.get("finish_reason") == "length":
+                ok = False
+                problems = ["finish_reason_length", *problems]
+            audit.append({"attempt": attempt, "problems": problems, "metadata": meta})
+            if ok:
+                return {"html": extract_html(raw), "raw": raw, "attempts": audit}
+            logger.warning("[%s] rejected HTML attempt %d: %s", tag, attempt, problems)
+            retry_prompt = prompt + "\n\nCRITICAL RETRY: Rebuild more concisely. Return the complete self-contained document from DOCTYPE through the final HTML closing tag, close all style/script tags, and include no prose."
+        raise RuntimeError(f"{tag}: incomplete HTML after {max_attempts} attempts: {audit}")
 
 
 class APIClient(VLLMClient):
@@ -292,10 +329,10 @@ class MockClient:
         return int(hashlib.md5(prompt.encode()).hexdigest(), 16) % mod
 
     def _reply(self, prompt: str) -> str:
-        # absolute judge -> per-axis 0-10 scores
+        # absolute judge -> per-axis 0-100 scores
         if '"scores"' in prompt:
-            axes = re.findall(r'"(\w+)": <0-10 int>', prompt)
-            return json.dumps({"scores": {a: 4 + self._h(prompt + a, 6)
+            axes = re.findall(r'"(\w+)": <0-(?:10|100) int>', prompt)
+            return json.dumps({"scores": {a: 40 + self._h(prompt + a, 61)
                                           for a in axes},
                                "reason": "[mock] deterministic absolute scores"})
         # pairwise judge -> forced choice
@@ -362,6 +399,9 @@ class MockClient:
         # include image identities in the routing hash so a swapped pair (B,A)
         # can produce a different (order-consistent) mock verdict than (A,B)
         return self._reply(prompt + "|" + "|".join(image_paths or []))
+
+
+MockClient.generate_complete_html = VLLMClient.generate_complete_html
 
 
 def make_client(ports, model, concurrency, mock: bool, role: str = "gen"):

@@ -50,7 +50,6 @@ def func_evidence(probe: Optional[dict]) -> str:
     fo = probe.get("func_objective")
     fo_s = f"{fo:.2f}" if isinstance(fo, (int, float)) else "n/a"
     out = (f"rendered={probe.get('rendered')}, func_objective={fo_s}, "
-           f"clicked={probe.get('n_clicked')}, click_errors={probe.get('click_errors')}, "
            f"page_errors={len(probe.get('page_errors', []))}")
     # verbatim error texts: counts alone let critics say "add features" while
     # the real problem is e.g. a blocked CDN script (pilot blank-final cause)

@@ -207,7 +207,7 @@ class ExperimentConfig:
     gen_temperature: float = 0.7
     bon_temperature: float = 0.9     # extra diversity for BON drafts
     critic_temperature: float = 0.2
-    max_tokens: int = 8192
+    max_tokens: int = 16384
 
     # infra
     concurrency: int = 4

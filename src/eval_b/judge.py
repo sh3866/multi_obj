@@ -1,6 +1,6 @@
 """Layer-B held-out judge (evidence, NOT optimization signal).
 
-PRIMARY MODE (user decision 2026-07-15): ABSOLUTE per-axis scoring (0-10),
+PRIMARY MODE (user decision 2026-07-15): ABSOLUTE per-axis scoring (0-100),
 ArtifactsBench-style — one artifact at a time, no cross-arm comparison.
 judge_pair (pairwise forced choice, Arena-style) is kept below for optional
 post-hoc use if absolute scores fail to separate the arms; artifacts are all
@@ -58,31 +58,35 @@ REQUEST: {instruction}
 
 {series}
 
-Score the artifact on EACH criterion independently, 0-10:
+Score the artifact on EACH criterion independently, 0-100:
 {crits}
-0-2 = broken/unacceptable, 3-4 = poor, 5-6 = mediocre, 7-8 = good, 9-10 =
+0-20 = broken/unacceptable, 21-40 = poor, 41-60 = mediocre, 61-80 = good, 81-100 =
 exceptional (rare — reserve for truly outstanding work). Be harsh; do not
-cluster scores at 7. Use the full scale.
+cluster scores at 70. Use the full scale.
 
 Return JSON only:
-{{"scores": {{ {", ".join(f'"{a}": <0-10 int>' for a in axes)} }},
+{{"scores": {{ {", ".join(f'"{a}": <0-100 int>' for a in axes)} }},
   "reason": "<one sentence overall>"}}"""
 
 
 async def judge_scores(instruction: str, pngs: List[str], axes: List[str],
-                       judge_c, usage=None) -> Optional[dict]:
-    """ABSOLUTE scoring (primary). Returns {axis: float 0-10} or None."""
+                       judge_c, usage=None, audit: Optional[dict] = None) -> Optional[dict]:
+    """ABSOLUTE scoring (primary). Returns {axis: float 0-100} or None."""
+    runtime_prompt = absolute_prompt(instruction, axes, len(pngs))
     raw = await judge_c.generate_vlm(
-        absolute_prompt(instruction, axes, len(pngs)), list(pngs),
+        runtime_prompt, list(pngs),
         max_tokens=384, temperature=0.0, usage_stats=usage, tag="judge:abs")
     p = extract_json(raw) or {}
+    if audit is not None:
+        audit.update({"runtime_prompt": runtime_prompt, "raw_response": raw,
+                      "reason": p.get("reason"), "parsed": p})
     s = p.get("scores")
     if not isinstance(s, dict):
         return None
     out = {}
     for a in axes:
         try:
-            out[a] = max(0.0, min(10.0, float(s[a])))
+            out[a] = max(0.0, min(100.0, float(s[a])))
         except (KeyError, TypeError, ValueError):
             return None
     return out

@@ -51,11 +51,9 @@ async def run_task(item, gen_c, vlm_c, cfg) -> dict:
 
     final = await probe_and_select(cands, workdir, cfg)
     atomic_write_text(os.path.join(workdir, "final.html"), final.get("html", ""))
-    for src_p, dst in zip(final.get("pngs") or ([final["png"]] if final.get("png") else []),
-                          ("final_t0.png", "final_t1.png", "final_t2.png")
-                          if len(final.get("pngs") or []) == 3 else ("final_t1.png",)):
-        if src_p and os.path.exists(src_p):
-            shutil.copyfile(src_p, os.path.join(workdir, dst))
+    src_p = final.get("png")
+    if src_p and os.path.exists(src_p):
+        shutil.copyfile(src_p, os.path.join(workdir, "final_t1.png"))
 
     atomic_write_json(os.path.join(workdir, "candidates.json"),
                       [{k: v for k, v in c.items() if k != "html"}

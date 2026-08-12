@@ -51,14 +51,11 @@ def discover_arms(run_dir: str) -> list:
 
 
 def final_visual(run_dir: str, arm: str, app: str, mock: bool) -> list | None:
-    """Temporal screenshot series [t0, settled, t2] when available, else the
-    single settled shot. Judges see dynamic behavior, not one static frame."""
+    """Return only the settled t1 screenshot."""
     base = os.path.join(run_dir, arm, "problems", app)
     png = os.path.join(base, "final_t1.png")
     if os.path.exists(png):
-        series = [os.path.join(base, "final_t0.png"), png,
-                  os.path.join(base, "final_t2.png")]
-        return series if all(os.path.exists(p) for p in series) else [png]
+        return [png]
     if mock:  # mock judge only hashes the path; html file is a fine stand-in
         html = os.path.join(base, "final.html")
         return [html] if os.path.exists(html) else None
@@ -66,8 +63,7 @@ def final_visual(run_dir: str, arm: str, app: str, mock: bool) -> list | None:
 
 
 def candidate_visuals(run_dir: str, arm: str, app: str) -> list:
-    """[(cand_id, [pngs])] for every stored candidate (quality-vs-round curve;
-    deep-loop ablation). Candidate shots: r{k}_t0.png / r{k}.png / r{k}_t2.png."""
+    """Return each candidate with only its settled screenshot."""
     cdir = os.path.join(run_dir, arm, "problems", app, "candidates")
     out = []
     if not os.path.isdir(cdir):
@@ -76,10 +72,7 @@ def candidate_visuals(run_dir: str, arm: str, app: str) -> list:
         if fn.endswith(".png") and "_t" not in fn:
             cid = fn[:-4]
             settled = os.path.join(cdir, fn)
-            series = [os.path.join(cdir, f"{cid}_t0.png"), settled,
-                      os.path.join(cdir, f"{cid}_t2.png")]
-            out.append((cid, series if all(os.path.exists(p) for p in series)
-                        else [settled]))
+            out.append((cid, [settled]))
     return out
 
 
@@ -129,7 +122,11 @@ async def main_async(a):
     async with judge_c as jc:
         async def one(arm, app, instruction, cand_id, pngs):
             async with sem:
-                scores = await judge_scores(instruction, pngs, axes, jc, usage)
+                audit = {}
+                scores = await judge_scores(instruction, pngs, axes, jc, usage, audit)
+            audit_path = os.path.join(jdir, "audit", arm, app, f"{cand_id}.json")
+            os.makedirs(os.path.dirname(audit_path), exist_ok=True)
+            atomic_write_json(audit_path, audit)
             rows = [{"app": app, "arm": arm, "cand_id": cand_id,
                      "axis": ax, "score": None if scores is None else scores[ax]}
                     for ax in axes]
