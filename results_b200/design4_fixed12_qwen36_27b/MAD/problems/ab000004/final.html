@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+    :root {
+        /* Palette: Deep Space & Electric Neon */
+        --c-bg-deep: #030405;
+        --c-bg-panel: rgba(12, 18, 26, 0.6);
+        --c-bg-panel-hover: rgba(12, 18, 26, 0.8);
+        
+        /* Shifted Cyan to Electric Blue/Neon Teal */
+        --c-cyan: #00eaff; 
+        --c-cyan-dim: rgba(0, 234, 255, 0.15);
+        --c-cyan-glow: rgba(0, 234, 255, 0.5);
+        
+        /* Alert: Hot Pink/Magenta */
+        --c-alert: #ff0055;
+        --c-alert-glow: rgba(255, 0, 85, 0.4);
+        
+        /* Resource: Amber/Gold */
+        --c-gold: #ffcc00;
+        
+        /* Text */
+        --c-text-main: #ffffff;
+        --c-text-muted: #a0aab5;
+
+        /* Typography - System fallbacks for 'Orbitron' and 'Space Mono' */
+        --font-display: 'Orbitron', 'Rajdhani', 'Impact', 'Arial Black', sans-serif;
+        --font-ui: 'Space Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+        
+        /* Dimensions */
+        --master-width: 960px;
+        --safe-zone: 40px; /* Consistent margin for HUD and Content */
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--c-bg-deep);
+        color: var(--c-text-main);
+        font-family: var(--font-ui);
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* --- BACKGROUND LAYERS --- */
+    .bg-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+    }
+
+    #starfield { z-index: 0; opacity: 0.7; }
+    
+    /* Grid Overlay */
+    #gridCanvas { 
+        z-index: 1; 
+        opacity: 0.1; 
+        mix-blend-mode: screen;
+    }
+    
+    /* Vignette & Scanlines */
+    .vignette {
+        background: radial-gradient(circle at center, transparent 30%, var(--c-bg-deep) 90%);
+        z-index: 2;
+    }
+    
+    /* CRT Scanline Effect */
+    .scanlines {
+        background: linear-gradient(
+            to bottom,
+            rgba(255,255,255,0),
+            rgba(255,255,255,0) 2px,
+            rgba(0,0,0,0.2) 2px,
+            rgba(0,0,0,0.2) 4px
+        );
+        background-size: 100% 4px;
+        opacity: 0.6;
+        z-index: 10;
+        position: fixed;
+        pointer-events: none;
+    }
+
+    /* --- HUD HEADER --- */
+    /* Matches content container margins for alignment */
+    .hud-header {
+        position: relative;
+        z-index: 5;
+        width: 100%;
+        max-width: var(--master-width);
+        margin: 0 auto;
+        padding: 30px var(--safe-zone) 10px var(--safe-zone); /* Top padding, side padding matching safe zone */
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        border-bottom: 1px solid var(--c-cyan-dim);
+        background: linear-gradient(180deg, rgba(3,4,5,0.9) 0%, transparent 100%);
+    }
+
+    .hud-group { display: flex; gap: 50px; }
+    .hud-item { display: flex; flex-direction: column; }
+
+    .hud-label {
+        font-family: var(--font-display);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--c-cyan);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+        opacity: 0.8;
+        text-shadow: 0 0 5px var(--c-cyan-dim);
+    }
+
+    .hud-value {
+        font-family: var(--font-ui);
+        font-size: 1.6rem;
+        line-height: 1;
+        font-weight: 400;
+        color: #fff;
+        text-shadow: 0 0 8px var(--c-cyan-dim);
+    }
+
+    .hud-value.credits { color: var(--c-gold); text-shadow: 0 0 8px rgba(255, 204, 0, 0.3); }
+    .hud-value.hp { color: var(--c-alert); text-shadow: 0 0 8px var(--c-alert-glow); }
+
+    /* --- MASTER CONTAINER --- */
+    .master-container {
+        position: relative;
+        z-index: 4;
+        flex: 1;
+        width: 100%;
+        max-width: var(--master-width);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 0 var(--safe-zone); /* Matches HUD */
+        gap: 40px; 
+    }
+
+    /* --- 1. TITLE --- */
+    .game-title {
+        font-family: var(--font-display);
+        font-size: 4rem;
+        line-height: 1;
+        text-transform: uppercase;
+        text-align: center;
+        color: #fff;
+        margin: 0;
+        font-weight: 900;
+        letter-spacing: 6px;
+        position: relative;
+        text-shadow: 0 0 20px rgba(0, 234, 255, 0.3);
+    }
+    
+    .game-title span {
+        display: block;
+        font-family: var(--font-ui);
+        font-size: 0.3em;
+        font-weight: 400;
+        letter-spacing: 8px;
+        color: var(--c-cyan);
+        margin-top: 10px;
+        text-shadow: 0 0 10px var(--c-cyan);
+    }
+
+    /* Glitch Effect */
+    .game-title::before, .game-title::after {
+        content: attr(data-text);
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: var(--c-bg-deep);
+        overflow: hidden;
+        opacity: 0.8;
+    }
+    .game-title::before {
+        left: 2px;
+        text-shadow: -2px 0 #ff00c1;
+        clip: rect(20px, 450px, 80px, 0);
+        animation: glitch-anim 4s infinite linear alternate-reverse;
+    }
+    .game-title::after {
+        left: -2px;
+        text-shadow: -2px 0 #00fff9;
+        clip: rect(80px, 450px, 20px, 0);
+        animation: glitch-anim2 4s infinite linear alternate-reverse;
+    }
+
+    /* --- 2. COMMAND CENTER CLUSTER (Briefing + Button) --- */
+    /* Stacked vertically for clear hierarchy */
+    .command-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        max-width: 500px; /* Constrain width for readability */
+        gap: 20px;
+        position: relative;
+    }
+
+    /* Briefing Panel - Glassmorphism & Tech Borders */
+    .briefing-panel {
+        width: 100%;
+        background: var(--c-bg-panel);
+        border: 1px solid var(--c-cyan-dim);
+        border-left: 3px solid var(--c-cyan);
+        padding: 20px;
+        position: relative;
+        backdrop-filter: blur(5px);
+    }
+
+    /* Decorative corner brackets */
+    .briefing-panel::after {
+        content: '';
+        position: absolute;
+        top: -1px; right: -1px;
+        width: 10px; height: 10px;
+        border-top: 2px solid var(--c-cyan);
+        border-right: 2px solid var(--c-cyan);
+    }
+
+    .briefing-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        color: var(--c-cyan);
+        font-family: var(--font-display);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 8px;
+    }
+
+    .status-dot {
+        width: 6px; height: 6px;
+        background: var(--c-cyan);
+        box-shadow: 0 0 8px var(--c-cyan);
+        animation: blink 1.5s infinite;
+    }
+
+    /* Updated line-height for readability */
+    .briefing-text {
+        font-family: var(--font-ui);
+        font-size: 0.9rem;
+        line-height: 1.6;
+        font-weight: 400;
+        color: var(--c-text-muted);
+        margin: 0;
+    }
+
+    /* Start Button - Glass & Glowing Border */
+    .btn-start {
+        width: 100%;
+        height: 60px;
+        background: rgba(10, 12, 16, 0.8);
+        border: 1px solid var(--c-alert);
+        color: var(--c-alert);
+        font-family: var(--font-display);
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.2s ease;
+        box-shadow: 0 0 10px var(--c-alert-glow), inset 0 0 20px rgba(255, 0, 85, 0.1);
+        text-shadow: 0 0 5px var(--c-alert-glow);
+        
+        /* Subtle shape */
+        clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    }
+
+    .btn-start:hover {
+        background: var(--c-alert);
+        color: #fff;
+        box-shadow: 0 0 30px var(--c-alert-glow);
+        text-shadow: none;
+        transform: translateY(-2px);
+    }
+
+    .btn-start:active {
+        transform: translateY(1px);
+    }
+
+    /* --- 3. UPGRADE CARDS --- */
+    /* Tighter layout, modular tools */
+    .upgrades-wrapper {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px; 
+    }
+
+    .upgrade-card {
+        background: var(--c-bg-panel);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 15px 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+        backdrop-filter: blur(4px);
+    }
+
+    /* Tactile Corner Brackets */
+    .upgrade-card::before {
+        content: '';
+        position: absolute;
+        bottom: 2px; left: 2px;
+        width: 6px; height: 6px;
+        border-left: 1px solid var(--c-cyan);
+        border-bottom: 1px solid var(--c-cyan);
+        transition: all 0.2s ease;
+    }
+    .upgrade-card::after {
+        content: '';
+        position: absolute;
+        top: 2px; right: 2px;
+        width: 6px; height: 6px;
+        border-right: 1px solid var(--c-cyan);
+        border-top: 1px solid var(--c-cyan);
+        transition: all 0.2s ease;
+    }
+
+    .upgrade-card:hover {
+        background: var(--c-bg-panel-hover);
+        border-color: var(--c-cyan);
+        transform: translateY(-3px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+    }
+
+    .upgrade-card:hover::before, .upgrade-card:hover::after {
+        width: 100%; height: 100%;
+        opacity: 0.3;
+    }
+
+    .upgrade-icon {
+        width: 32px;
+        height: 32px;
+        stroke: var(--c-cyan);
+        stroke-width: 1.5;
+        fill: none;
+        transition: stroke 0.2s ease;
+    }
+    
+    .upgrade-card:hover .upgrade-icon {
+        stroke: #fff;
+        filter: drop-shadow(0 0 5px var(--c-cyan));
+    }
+    
+    .upgrade-name {
+        font-family: var(--font-display);
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--c-text-main);
+    }
+    
+    .upgrade-cost {
+        font-family: var(--font-ui);
+        font-size: 0.75rem;
+        color: var(--c-gold);
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+
+    /* --- ANIMATIONS --- */
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    
+    @keyframes glitch-anim {
+        0% { clip: rect(30px, 9999px, 10px, 0); }
+        5% { clip: rect(5px, 9999px, 85px, 0); }
+        10% { clip: rect(60px, 9999px, 5px, 0); }
+        15% { clip: rect(0, 0, 0, 0); }
+        100% { clip: rect(0, 0, 0, 0); }
+    }
+    @keyframes glitch-anim2 {
+        0% { clip: rect(10px, 9999px, 90px, 0); }
+        5% { clip: rect(80px, 9999px, 10px, 0); }
+        10% { clip: rect(30px, 9999px, 50px, 0); }
+        15% { clip: rect(0, 0, 0, 0); }
+        100% { clip: rect(0, 0, 0, 0); }
+    }
+
+    /* --- RESPONSIVE --- */
+    @media (max-width: 768px) {
+        :root { --master-width: 100%; --safe-zone: 20px; }
+        
+        .game-title { font-size: 2.5rem; letter-spacing: 2px; }
+        .game-title span { letter-spacing: 3px; }
+        
+        /* Stack Command Center */
+        .command-center { width: 100%; max-width: 100%; }
+        
+        .hud-header { padding: 20px var(--safe-zone); flex-direction: row; gap: 20px; }
+        .hud-group { gap: 20px; }
+        .hud-value { font-size: 1.2rem; }
+        
+        .upgrades-wrapper { gap: 8px; }
+        .upgrade-card { padding: 10px 5px; }
+        .upgrade-name { font-size: 0.7rem; }
+    }
+</style>
+</head>
+<body>
+
+    <!-- Visual Effects Backgrounds -->
+    <canvas id="starfield" class="bg-layer"></canvas>
+    <canvas id="gridCanvas" class="bg-layer"></canvas>
+    <div class="bg-layer vignette"></div>
+    <div class="bg-layer scanlines"></div>
+
+    <!-- HUD Header (Aligned with Master Container) -->
+    <header class="hud-header">
+        <div class="hud-group">
+            <div class="hud-item">
+                <span class="hud-label">Wave Index</span>
+                <span class="hud-value" id="wave-display">001</span>
+            </div>
+            <div class="hud-item">
+                <span class="hud-label">Shield Integrity</span>
+                <span class="hud-value hp" id="hp-display">100%</span>
+            </div>
+        </div>
+        <div class="hud-group">
+            <div class="hud-item" style="align-items: flex-end;">
+                <span class="hud-label">Resource Credits</span>
+                <span class="hud-value credits" id="credits-display">500</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Master Container -->
+    <main class="master-container">
+        
+        <!-- 1. Title -->
+        <h1 class="game-title" data-text="PLANET DEFENSE">PLANET DEFENSE<span>Command Interface</span></h1>
+
+        <!-- 2. Command Center Cluster (Vertical Stack) -->
+        <div class="command-center">
+            
+            <!-- Briefing Panel (Top) -->
+            <div class="briefing-panel">
+                <div class="briefing-header">
+                    <div class="status-dot"></div>
+                    Incoming Transmission
+                </div>
+                <p class="briefing-text">
+                    > CMDR, sensors detect a massive swarm approaching the sector.<br>
+                    > Orbital cannons are online but require manual calibration.<br>
+                    > Optimize turret systems before the perimeter is breached.
+                </p>
+            </div>
+
+            <!-- Start Button (Bottom) -->
+            <button class="btn-start" onclick="startGame()">INITIALIZE DEFENSE</button>
+        </div>
+
+        <!-- 3. Upgrades (Tight Grid) -->
+        <div class="upgrades-wrapper">
+            <div class="upgrade-card" onclick="simulateClick(this)">
+                <!-- Schematic Crosshair/Target Icon -->
+                <svg class="upgrade-icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <line x1="12" y1="2" x2="12" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <div class="upgrade-name">Damage</div>
+                <div class="upgrade-cost">150 CR</div>
+            </div>
+            <div class="upgrade-card" onclick="simulateClick(this)">
+                <!-- Schematic Pulse/Radar Icon -->
+                <svg class="upgrade-icon" viewBox="0 0 24 24">
+                    <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path>
+                    <path d="M12 12m-8 0a8 8 0 1 0 16 0a8 8 0 1 0 -16 0"></path>
+                    <path d="M12 12m-13 0a13 13 0 1 0 26 0a13 13 0 1 0 -26 0"></path>
+                </svg>
+                <div class="upgrade-name">Fire Rate</div>
+                <div class="upgrade-cost">200 CR</div>
+            </div>
+            <div class="upgrade-card" onclick="simulateClick(this)">
+                <!-- Schematic Vector/Speed Icon -->
+                <svg class="upgrade-icon" viewBox="0 0 24 24">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                </svg>
+                <div class="upgrade-name">Speed</div>
+                <div class="upgrade-cost">100 CR</div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- VISUAL EFFECTS SCRIPT ---
+
+        // 1. Topographic Grid Animation
+        const gridCanvas = document.getElementById('gridCanvas');
+        const gridCtx = gridCanvas.getContext('2d');
+        
+        let width, height;
+        let time = 0;
+
+        function resizeGrid() {
+            width = gridCanvas.width = window.innerWidth;
+            height = gridCanvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resizeGrid);
+        resizeGrid();
+
+        function drawGrid() {
+            gridCtx.clearRect(0, 0, width, height);
+            
+            const horizon = height * 0.4;
+            const gridSpacing = 100;
+            const speed = 0.3;
+            
+            gridCtx.strokeStyle = 'rgba(0, 234, 255, 0.4)'; // Electric Blue
+            gridCtx.lineWidth = 1;
+
+            // Vertical lines (perspective)
+            const centerX = width / 2;
+            for (let i = -20; i <= 20; i++) {
+                gridCtx.beginPath();
+                const xTop = centerX + (i * gridSpacing * 0.05); 
+                const xBottom = centerX + (i * gridSpacing * 4);
+                
+                gridCtx.moveTo(xTop, 0);
+                gridCtx.lineTo(xBottom, height);
+                gridCtx.stroke();
+            }
+
+            // Horizontal lines (moving down)
+            const offset = (time * speed * 2) % gridSpacing;
+            
+            for (let i = 0; i < 20; i++) {
+                let y = horizon + Math.pow(i, 2.2) + offset;
+                if (y > height) continue;
+
+                gridCtx.globalAlpha = Math.min(1, (y - horizon) / (height - horizon)); 
+                gridCtx.beginPath();
+                gridCtx.moveTo(0, y);
+                gridCtx.lineTo(width, y);
+                gridCtx.stroke();
+            }
+            gridCtx.globalAlpha = 1;
+
+            time++;
+            requestAnimationFrame(drawGrid);
+        }
+
+        drawGrid();
+
+        // 2. Starfield
+        const starCanvas = document.getElementById('starfield');
+        const starCtx = starCanvas.getContext('2d');
+        let stars = [];
+
+        function resizeStars() {
+            starCanvas.width = window.innerWidth;
+            starCanvas.height = window.innerHeight;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            for(let i=0; i<200; i++) {
+                stars.push({
+                    x: Math.random() * starCanvas.width,
+                    y: Math.random() * starCanvas.height,
+                    size: Math.random() * 1.5,
+                    opacity: Math.random(),
+                    speed: Math.random() * 0.05 + 0.01
+                });
+            }
+        }
+
+        function drawStars() {
+            starCtx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+            starCtx.fillStyle = '#fff';
+            
+            stars.forEach(star => {
+                starCtx.globalAlpha = star.opacity;
+                starCtx.beginPath();
+                starCtx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                starCtx.fill();
+                
+                star.y -= star.speed;
+                if(star.y < 0) star.y = starCanvas.height;
+                
+                star.opacity += (Math.random() - 0.5) * 0.02;
+                if(star.opacity < 0.2) star.opacity = 0.2;
+                if(star.opacity > 1) star.opacity = 1;
+            });
+            requestAnimationFrame(drawStars);
+        }
+
+        window.addEventListener('resize', resizeStars);
+        resizeStars();
+        drawStars();
+
+        // 3. Interactivity
+        function simulateClick(element) {
+            element.style.background = 'var(--c-cyan)';
+            element.style.borderColor = 'var(--c-cyan)';
+            element.style.color = '#000';
+            
+            const icon = element.querySelector('.upgrade-icon');
+            if(icon) {
+                icon.style.stroke = '#000';
+                icon.style.filter = 'none';
+            }
+
+            setTimeout(() => {
+                element.style.background = '';
+                element.style.borderColor = '';
+                element.style.color = '';
+                if(icon) {
+                    icon.style.stroke = '';
+                    icon.style.filter = '';
+                }
+            }, 100);
+        }
+
+        function startGame() {
+            const btn = document.querySelector('.btn-start');
+            const originalText = btn.innerHTML;
+            
+            btn.innerHTML = "CALIBRATING...";
+            btn.style.background = "#fff";
+            btn.style.color = "#000";
+            btn.style.boxShadow = "0 0 50px #fff";
+            
+            setTimeout(() => {
+                document.body.style.transition = "filter 0.5s ease";
+                document.body.style.filter = "brightness(20) blur(10px)";
+                
+                setTimeout(() => {
+                    alert("Game Engine Initialized (Demo End)");
+                    document.body.style.filter = "brightness(1) blur(0)";
+                    btn.innerHTML = originalText;
+                    btn.style = ""; // Reset inline styles
+                }, 500);
+            }, 800);
+        }
+
+    </script>
+</body>
+</html>

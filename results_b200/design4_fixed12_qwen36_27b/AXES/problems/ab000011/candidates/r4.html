@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            /* Palette - Refined Tech/Cyberpunk */
+            --bg-deep: #020617;       /* Very dark slate */
+            --bg-panel: #0f172a;      /* Slate 900 */
+            --wall-matte: #1e293b;    /* Slate 800 */
+            --wall-highlight: #334155;
+            --wall-shadow: #0f172a;
+            
+            --grid-line: rgba(56, 189, 248, 0.05);
+            
+            --accent-cyan: #38bdf8;   /* Sky 400 */
+            --accent-cyan-dim: #0ea5e9;
+            --accent-amber: #f59e0b;  /* Amber 500 */
+            --accent-red: #ef4444;    /* Red 500 */
+            --accent-green: #10b981;  /* Emerald 500 */
+            
+            --text-main: #f1f5f9;     /* Slate 100 */
+            --text-muted: #94a3b8;    /* Slate 400 */
+            
+            /* Typography */
+            --font-stack: 'Share Tech Mono', 'Space Mono', 'Courier New', monospace;
+            
+            /* Dimensions */
+            --cell-size: 80px;
+            --board-padding: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-deep);
+            color: var(--text-main);
+            font-family: var(--font-stack);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- CRT/Scanline Overlay --- */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.6;
+        }
+
+        /* --- Main Vertical Layout --- */
+        .layout-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 40px; /* Spacing between major sections */
+            width: 100%;
+            max-width: 600px; /* Constrain width to keep it tight */
+            padding: 64px 20px; /* 64px grounding padding */
+        }
+
+        /* 1. Header: Unified & Centered */
+        .header {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: 6px;
+            color: var(--text-main);
+            text-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+            margin: 0;
+            line-height: 1;
+        }
+
+        .title span {
+            color: var(--accent-cyan);
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 40px;
+            margin-top: 8px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            color: var(--text-main);
+            text-shadow: 0 0 10px rgba(255,255,255,0.1);
+        }
+
+        /* 2. Game Board */
+        .board-wrapper {
+            position: relative;
+            background-color: var(--bg-panel);
+            padding: var(--board-padding);
+            border-radius: 4px;
+            box-shadow: 
+                0 20px 50px -10px rgba(0, 0, 0, 0.7),
+                0 0 0 1px rgba(255, 255, 255, 0.05),
+                inset 0 0 40px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Subtle inner glow for the board frame */
+        .board-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 4px;
+            box-shadow: inset 0 0 20px rgba(56, 189, 248, 0.05);
+            pointer-events: none;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell-size));
+            grid-template-rows: repeat(7, var(--cell-size));
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            position: relative;
+            background-color: #0b1120; /* Slightly darker than panel */
+            /* Refined Grid Lines */
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 100% 100%;
+        }
+
+        /* --- Game Elements (Redesigned) --- */
+
+        /* Wall: Matte Solid with Depth */
+        .wall {
+            background-color: var(--wall-matte);
+            /* Inner Shadow for depth, no texture */
+            box-shadow: 
+                inset 2px 2px 0 rgba(255,255,255,0.05),
+                inset -2px -2px 0 rgba(0,0,0,0.4);
+            z-index: 2;
+        }
+
+        /* Goal: Geometric Ring */
+        .goal {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .goal-ring {
+            width: 60%;
+            height: 60%;
+            border: 2px solid var(--accent-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.3), inset 0 0 10px rgba(56, 189, 248, 0.1);
+            position: relative;
+            animation: pulseRing 3s infinite ease-in-out;
+        }
+        .goal-ring::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30%;
+            height: 30%;
+            background: var(--accent-cyan);
+            border-radius: 50%;
+            opacity: 0.8;
+        }
+
+        /* Lever: Aperture Switch */
+        .lever-container {
+            width: 100%; height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        .lever-base {
+            width: 40%;
+            height: 40%;
+            background: #1e293b;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .lever-handle {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 60%;
+            height: 6px;
+            background: var(--accent-red);
+            transform: translate(-50%, -50%) rotate(45deg);
+            border-radius: 3px;
+            box-shadow: 0 0 8px var(--accent-red);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .lever-dot {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 12px; height: 12px;
+            background: #0f172a;
+            border: 2px solid var(--accent-red);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: border-color 0.3s;
+        }
+
+        /* Active Lever State */
+        .lever-active .lever-handle {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+            transform: translate(-50%, -50%) rotate(-45deg);
+        }
+        .lever-active .lever-dot {
+            border-color: var(--accent-green);
+        }
+
+        /* Crate: Isometric Block */
+        .crate {
+            width: 80%;
+            height: 80%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* CSS 3D Cube Effect */
+        .cube {
+            width: 100%;
+            height: 100%;
+            background: #2a2a2a;
+            position: relative;
+            transform: rotateX(10deg) rotateY(0deg); /* Slight tilt */
+            box-shadow: 0 15px 15px rgba(0,0,0,0.5);
+        }
+        /* Top Face */
+        .cube::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #444;
+            transform: translateZ(10px);
+            /* Hazard Stripes */
+            background-image: repeating-linear-gradient(
+                45deg,
+                var(--accent-amber),
+                var(--accent-amber) 5px,
+                #2a2a2a 5px,
+                #2a2a2a 10px
+            );
+            box-shadow: inset 0 0 0 2px #1a1a1a;
+        }
+        /* Side Face (Right) */
+        .cube::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 15px;
+            background: #1a1a1a;
+            transform: skewY(-45deg) translateX(50%);
+            transform-origin: right;
+        }
+
+        /* Player: Hexagon */
+        .player {
+            width: 80%;
+            height: 80%;
+            background: var(--accent-cyan);
+            /* Hexagon Clip */
+            clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+            position: relative;
+            z-index: 10;
+            box-shadow: 0 0 20px var(--accent-cyan);
+            animation: playerFloat 2s infinite ease-in-out;
+        }
+        /* Inner Core */
+        .player::after {
+            content: '';
+            position: absolute;
+            inset: 15%;
+            background: #fff;
+            clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+        }
+
+        /* 3. Controls Panel (Bottom Center) */
+        .controls-panel {
+            display: flex;
+            gap: 30px;
+            background: rgba(15, 23, 42, 0.8);
+            padding: 20px 40px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+            backdrop-filter: blur(5px);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .control-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* Key Clusters */
+        .key-cluster {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 4px;
+            width: 65px;
+            height: 42px;
+        }
+        .k-w { grid-column: 2; grid-row: 1; }
+        .k-a { grid-column: 1; grid-row: 2; }
+        .k-s { grid-column: 2; grid-row: 2; }
+        .k-d { grid-column: 3; grid-row: 2; }
+
+        .key {
+            background: #1e293b;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-main);
+            font-size: 0.7rem;
+            font-weight: bold;
+            border-radius: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 0 #0f172a;
+        }
+
+        .key-action {
+            width: 40px; height: 30px;
+            background: #1e293b;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--accent-cyan);
+            font-weight: bold;
+            display: flex; justify-content: center; align-items: center;
+            border-radius: 3px;
+            box-shadow: 0 2px 0 #0f172a;
+        }
+
+        /* Status Message */
+        .status-message {
+            position: fixed;
+            bottom: 40px;
+            font-family: var(--font-stack);
+            font-size: 0.9rem;
+            color: var(--accent-cyan);
+            letter-spacing: 3px;
+            text-shadow: 0 0 10px var(--accent-cyan);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+            z-index: 100;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .status-message.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Animations */
+        @keyframes playerFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+        @keyframes pulseRing {
+            0%, 100% { opacity: 0.8; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .layout-container { padding: 20px; gap: 20px; }
+            :root { --cell-size: 13vw; }
+            .controls-panel { flex-direction: column; gap: 15px; padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scanlines"></div>
+
+    <div class="layout-container">
+        
+        <!-- 1. Header -->
+        <div class="header">
+            <h1 class="title">VOID <span>LOCK</span></h1>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">Sector</span>
+                    <span class="stat-value">07</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Moves</span>
+                    <span class="stat-value" id="moves-display">00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Game Board -->
+        <div class="board-wrapper">
+            <div class="board" id="game-board">
+                <!-- Grid generated by JS -->
+            </div>
+        </div>
+
+        <!-- 3. Controls Panel -->
+        <div class="controls-panel">
+            <div class="control-group">
+                <div class="key-cluster">
+                    <div class="key k-w">W</div>
+                    <div class="key k-a">A</div>
+                    <div class="key k-s">S</div>
+                    <div class="key k-d">D</div>
+                </div>
+                <span class="control-label">Navigate</span>
+            </div>
+
+            <div class="control-group">
+                <div class="key-action">R</div>
+                <span class="control-label">Reset</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Status Message -->
+    <div class="status-message" id="status-msg">SYSTEM ONLINE</div>
+
+    <script>
+        // Game Configuration
+        const BOARD_SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves-display');
+        const statusMsg = document.getElementById('status-msg');
+
+        // 0: Floor, 1: Wall, 2: Player, 3: Crate, 4: Lever (Off), 5: Goal, 6: Lever (On)
+        const initialMap = [
+            [1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 4, 0, 3, 0, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1],
+            [1, 0, 0, 0, 5, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        let mapState = JSON.parse(JSON.stringify(initialMap));
+        let playerPos = { x: 3, y: 4 };
+        let moves = 0;
+
+        // Render Function
+        function renderBoard() {
+            boardEl.innerHTML = ''; 
+            
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const cellVal = mapState[y][x];
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+
+                    // Wall
+                    if (cellVal === 1) {
+                        cell.classList.add('wall');
+                    } 
+                    // Goal/Door
+                    else if (cellVal === 5) {
+                        const goalDiv = document.createElement('div');
+                        goalDiv.className = 'goal';
+                        const ring = document.createElement('div');
+                        ring.className = 'goal-ring';
+                        goalDiv.appendChild(ring);
+                        cell.appendChild(goalDiv);
+                    }
+                    // Lever
+                    else if (cellVal === 4 || cellVal === 6) {
+                        const leverDiv = document.createElement('div');
+                        leverDiv.className = 'lever-container';
+                        if(cellVal === 6) leverDiv.classList.add('lever-active');
+
+                        const base = document.createElement('div');
+                        base.className = 'lever-base';
+                        
+                        const handle = document.createElement('div');
+                        handle.className = 'lever-handle';
+
+                        const dot = document.createElement('div');
+                        dot.className = 'lever-dot';
+
+                        base.appendChild(handle);
+                        base.appendChild(dot);
+                        leverDiv.appendChild(base);
+                        cell.appendChild(leverDiv);
+                    }
+                    // Player
+                    else if (cellVal === 2) {
+                        const playerDiv = document.createElement('div');
+                        playerDiv.classList.add('player');
+                        cell.appendChild(playerDiv);
+                    }
+                    // Crate
+                    else if (cellVal === 3) {
+                        const crateDiv = document.createElement('div');
+                        crateDiv.classList.add('crate');
+                        const cube = document.createElement('div');
+                        cube.className = 'cube';
+                        crateDiv.appendChild(cube);
+                        cell.appendChild(crateDiv);
+                    }
+
+                    boardEl.appendChild(cell);
+                }
+            }
+            movesDisplay.textContent = moves < 10 ? '0' + moves : moves;
+        }
+
+        // Initial Render
+        renderBoard();
+
+        // Keyboard Controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                resetGame();
+                return;
+            }
+
+            let dx = 0;
+            let dy = 0;
+
+            if (e.key === 'w' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'ArrowRight') dx = 1;
+
+            if (dx === 0 && dy === 0) return;
+
+            movePlayer(dx, dy);
+        });
+
+        function movePlayer(dx, dy) {
+            const newX = playerPos.x + dx;
+            const newY = playerPos.y + dy;
+
+            // Bounds Check
+            if (newX < 0 || newX >= BOARD_SIZE || newY < 0 || newY >= BOARD_SIZE) return;
+
+            const targetCell = mapState[newY][newX];
+
+            // Wall Collision
+            if (targetCell === 1) return;
+
+            // Interaction: Lever (Inactive)
+            if (targetCell === 4) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 6; // Turn on
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                showStatus("LEVER ENGAGED");
+                return;
+            }
+             
+            // Interaction: Lever (Active)
+            if (targetCell === 6) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 2;
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                return;
+            }
+
+            // Interaction: Crate
+            if (targetCell === 3) {
+                const nextX = newX + dx;
+                const nextY = newY + dy;
+                
+                if (nextX >= 0 && nextX < BOARD_SIZE && nextY >= 0 && nextY < BOARD_SIZE) {
+                    const nextCell = mapState[nextY][nextX];
+                    // Crate can't push walls, other crates, or levers (simplified logic)
+                    if (nextCell !== 1 && nextCell !== 3 && nextCell !== 4 && nextCell !== 6) {
+                        mapState[nextY][nextX] = 3; // Move crate
+                        mapState[newY][newX] = 2;  // Move player to crate spot
+                        mapState[playerPos.y][playerPos.x] = 0; // Clear old player spot
+                        
+                        playerPos = { x: newX, y: newY };
+                        moves++;
+                        renderBoard();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            // Empty Move
+            mapState[newY][newX] = 2;
+            mapState[playerPos.y][playerPos.x] = 0;
+            playerPos = { x: newX, y: newY };
+            moves++;
+            renderBoard();
+        }
+
+        function showStatus(msg) {
+            statusMsg.textContent = msg;
+            statusMsg.classList.add('visible');
+            setTimeout(() => {
+                statusMsg.classList.remove('visible');
+            }, 2000);
+        }
+
+        function resetGame() {
+            mapState = JSON.parse(JSON.stringify(initialMap));
+            playerPos = { x: 3, y: 4 };
+            moves = 0;
+            renderBoard();
+            showStatus("SYSTEM RESET");
+        }
+
+    </script>
+</body>
+</html>

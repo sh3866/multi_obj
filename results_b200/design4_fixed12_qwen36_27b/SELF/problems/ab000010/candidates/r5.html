@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere Life | Cellular Automata</title>
+<style>
+  :root {
+    --bg-deep: #030305;
+    --bg-panel: rgba(10, 12, 16, 0.6);
+    --border-panel: rgba(255, 255, 255, 0.08);
+    --accent-cyan: #00f3ff;
+    --accent-purple: #bc13fe;
+    --accent-pink: #ff0055;
+    --text-primary: #ffffff;
+    --text-secondary: #8b9bb4;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+  
+  body {
+    background-color: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Ambient Background */
+  .ambient-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: 
+      radial-gradient(circle at 30% 40%, rgba(0, 243, 255, 0.04) 0%, transparent 40%),
+      radial-gradient(circle at 70% 60%, rgba(188, 19, 254, 0.04) 0%, transparent 40%);
+    pointer-events: none;
+  }
+
+  #canvas-container {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    cursor: grab;
+  }
+  #canvas-container:active { cursor: grabbing; }
+
+  /* UI Overlay */
+  #ui-layer {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 3rem;
+  }
+
+  /* Header */
+  .header {
+    position: absolute;
+    top: 3rem;
+    left: 3rem;
+    pointer-events: auto;
+  }
+  
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 20px rgba(255,255,255,0.1));
+  }
+  
+  .subtitle {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .subtitle::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: var(--accent-cyan);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--accent-cyan);
+  }
+
+  /* Control Panel - Glassmorphism */
+  .panel {
+    pointer-events: auto;
+    width: 300px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--border-panel);
+    border-radius: 24px;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    margin-top: 1rem;
+    box-shadow: 
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    transform: perspective(1000px) rotateY(-5deg) rotateX(2deg);
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s ease;
+  }
+  
+  .panel:hover {
+    transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
+    box-shadow: 
+      0 30px 60px -12px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  }
+
+  .panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .panel-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    padding-left: 0.25rem;
+  }
+
+  /* Stats Display */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    background: rgba(0,0,0,0.3);
+    padding: 1.25rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.03);
+  }
+  
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .stat-row:last-child { border-bottom: none; padding-bottom: 0; }
+  
+  .stat-name { font-size: 0.8rem; color: #94a3b8; font-weight: 500; }
+  
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+  .stat-value.highlight { 
+    color: var(--accent-cyan);
+    text-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+  }
+
+  /* Slider */
+  .slider-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  input[type=range]:hover { background: rgba(255,255,255,0.12); }
+  
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 15px rgba(255,255,255,0.4);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    margin-top: -6px; /* center vertically */
+  }
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255,255,255,0.6);
+  }
+
+  /* Buttons */
+  .btn-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  
+  button {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-panel);
+    color: var(--text-primary);
+    padding: 1rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  button::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  button:hover {
+    background: rgba(255,255,255,0.06);
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.2);
+  }
+  button:hover::after { opacity: 1; }
+  
+  button:active { transform: translateY(0); }
+  
+  button.primary {
+    background: var(--accent-cyan);
+    color: #000;
+    border: none;
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+  }
+  button.primary:hover {
+    background: #fff;
+    box-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
+  }
+  
+  button.secondary {
+    border-color: rgba(255, 0, 85, 0.3);
+    color: var(--accent-pink);
+  }
+  button.secondary:hover {
+    background: rgba(255, 0, 85, 0.05);
+    border-color: var(--accent-pink);
+    box-shadow: 0 0 20px rgba(255, 0, 85, 0.1);
+  }
+
+  .footer {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 3rem;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    opacity: 0.4;
+    letter-spacing: 0.08em;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="ambient-bg"></div>
+  
+  <div id="canvas-container">
+    <canvas id="sphereCanvas"></canvas>
+  </div>
+  
+  <div id="ui-layer">
+    <div class="header">
+      <h1>Sphere Life</h1>
+      <div class="subtitle">Cellular Automata in 3D Space</div>
+    </div>
+    
+    <div class="panel">
+      <div class="panel-section">
+        <div class="panel-label">Live Statistics</div>
+        <div class="stats-grid">
+          <div class="stat-row">
+            <span class="stat-name">Generation</span>
+            <span class="stat-value highlight" id="gen-count">0</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-name">Population</span>
+            <span class="stat-value" id="pop-count">0</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-name">Density</span>
+            <span class="stat-value" id="density-count">0%</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="panel-section slider-container">
+        <div class="panel-label">Simulation Speed</div>
+        <input type="range" id="speed-slider" min="1" max="60" value="20">
+      </div>
+      
+      <div class="panel-section">
+        <div class="panel-label">Controls</div>
+        <div class="btn-group">
+          <button id="btn-pause" class="primary">Pause</button>
+          <button id="btn-reset" class="secondary">Randomize</button>
+        </div>
+        <button id="btn-step">Step Once</button>
+      </div>
+    </div>
+    
+    <div class="footer">DRAG TO ROTATE &bull; SCROLL TO ZOOM</div>
+  </div>
+
+<script>
+/**
+ * Configuration
+ */
+const CONFIG = {
+  cellCount: 4500,
+  sphereRadius: 320,
+  cellSize: 2.8,
+  rotationSpeed: 0.0006,
+  colors: {
+    aliveBaseHue: 185, // Cyan
+    aliveSat: 100,
+    aliveLight: 60,
+    deadAlpha: 0.04
+  }
+};
+
+/**
+ * State Management
+ */
+let state = {
+  cells: [],
+  generation: 0,
+  isRunning: true,
+  speed: 20,
+  lastFrameTime: 0,
+  rotation: { x: 0.2, y: 0 },
+  zoom: 1,
+  isDragging: false,
+  lastMouse: { x: 0, y: 0 }
+};
+
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+let width, height;
+
+/**
+ * Vector Math Helper
+ */
+const Vec3 = {
+  dist: (a, b) => {
+    const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+};
+
+/**
+ * Initialization
+ */
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function createSpherePoints(count, radius) {
+  const points = [];
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  
+  // Create points on sphere surface
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (i / (count - 1)) * 2;
+    const radiusAtY = Math.sqrt(1 - y * y);
+    const theta = goldenAngle * i;
+    points.push({
+      x: Math.cos(theta) * radiusAtY * radius,
+      y: y * radius,
+      z: Math.sin(theta) * radiusAtY * radius,
+      idx: i
+    });
+  }
+  return points;
+}
+
+function initGame() {
+  const points = createSpherePoints(CONFIG.cellCount, CONFIG.sphereRadius);
+  
+  // Calculate neighbor threshold based on sphere density
+  // Approximate distance to nearest neighbor on sphere surface
+  const threshold = (2 * Math.PI * CONFIG.sphereRadius) / Math.sqrt(CONFIG.cellCount) * 1.15;
+  
+  state.cells = points.map((p, i) => {
+    const neighbors = [];
+    // Find neighbors (brute force is okay for < 5000 items)
+    for (let j = 0; j < points.length; j++) {
+      if (i === j) continue;
+      const d = Vec3.dist(p, points[j]);
+      if (d < threshold) neighbors.push(j);
+    }
+    return {
+      pos: p,
+      idx: i,
+      neighbors,
+      alive: Math.random() > 0.7, // 30% initial density
+      bornGen: 0,
+      age: 0
+    };
+  });
+  
+  state.generation = 0;
+  updateStats();
+}
+
+/**
+ * Simulation Logic
+ */
+function stepGame() {
+  const nextStates = state.cells.map(cell => {
+    const neighborCount = cell.neighbors.reduce((acc, idx) => acc + (state.cells[idx].alive ? 1 : 0), 0);
+    
+    let nextAlive = false;
+    let isBorn = false;
+    
+    // Conway Rules
+    if (cell.alive) {
+      if (neighborCount < 2 || neighborCount > 3) nextAlive = false; // Death
+      else nextAlive = true; // Survival
+    } else {
+      if (neighborCount === 3) { nextAlive = true; isBorn = true; } // Birth
+    }
+    
+    return {
+      alive: nextAlive,
+      bornGen: isBorn ? state.generation : cell.bornGen,
+      age: nextAlive ? (cell.alive ? cell.age + 1 : 0) : 0
+    };
+  });
+  
+  state.cells.forEach((cell, i) => {
+    cell.alive = nextStates[i].alive;
+    cell.bornGen = nextStates[i].bornGen;
+    cell.age = nextStates[i].age;
+  });
+  
+  state.generation++;
+  updateStats();
+}
+
+/**
+ * Rendering
+ */
+function project(p, rotX, rotY, zoom) {
+  // Y Rotation
+  let x = p.x * Math.cos(rotY) - p.z * Math.sin(rotY);
+  let z = p.z * Math.cos(rotY) + p.x * Math.sin(rotY);
+  
+  // X Rotation
+  let y = p.y * Math.cos(rotX) - z * Math.sin(rotX);
+  let zFinal = z * Math.cos(rotX) + p.y * Math.sin(rotX);
+  
+  // Perspective Projection
+  const fov = 1000 * zoom;
+  const scale = fov / (fov + zFinal);
+  
+  return { 
+    x: x * scale + width / 2, 
+    y: y * scale + height / 2, 
+    scale, 
+    z: zFinal 
+  };
+}
+
+function draw() {
+  // Clear with trail effect for motion blur
+  ctx.fillStyle = 'rgba(3, 3, 5, 0.3)';
+  ctx.fillRect(0, 0, width, height);
+  
+  // Use additive blending for glowing effect
+  ctx.globalCompositeOperation = 'lighter';
+  
+  const projectedCells = state.cells.map(cell => ({
+    cell, 
+    proj: project(cell.pos, state.rotation.x, state.rotation.y, state.zoom)
+  }));
+  
+  // Sort back to front
+  projectedCells.sort((a, b) => b.proj.z - a.proj.z);
+  
+  projectedCells.forEach(({ cell, proj }) => {
+    // Clip cells behind the sphere slightly to avoid visual clutter
+    if (proj.z > CONFIG.sphereRadius * 0.9) return;
+    
+    const size = CONFIG.cellSize * proj.scale;
+    
+    if (cell.alive) {
+      // Color logic:
+      // Hue shifts based on age relative to generation
+      // This creates "waves" of color across the sphere
+      
+      const ageRatio = cell.age / 20; // Normalize age
+      const hue = (CONFIG.colors.aliveBaseHue + (state.generation * 0.1) + (cell.bornGen * 0.5)) % 360;
+      
+      // Intensity based on age (flash bright when born, fade slightly)
+      const intensity = Math.min(1, cell.age / 5); 
+      
+      ctx.fillStyle = `hsla(${hue}, ${CONFIG.colors.aliveSat}%, ${CONFIG.colors.aliveLight}%, ${intensity})`;
+      
+      // Glow effect for larger visible cells
+      if (size > 1.5) {
+        ctx.shadowBlur = 15 * proj.scale;
+        ctx.shadowColor = `hsla(${hue}, 100%, 50%, 0.5)`;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+    } else {
+      // Dead cells: subtle background grid
+      ctx.fillStyle = `rgba(40, 50, 60, ${CONFIG.colors.deadAlpha * proj.scale})`;
+      ctx.shadowBlur = 0;
+    }
+    
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  
+  // Reset composite operation for UI overlay drawing if needed
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  
+  // Draw atmospheric rim
+  drawRim();
+}
+
+function drawRim() {
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = CONFIG.sphereRadius * state.zoom;
+  
+  // Outer atmospheric glow
+  const grad = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.3);
+  grad.addColorStop(0, 'rgba(0, 243, 255, 0)');
+  grad.addColorStop(0.7, 'rgba(0, 243, 255, 0.03)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Subtle inner wireframe ring
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+/**
+ * Main Loop
+ */
+function loop(timestamp) {
+  // Auto rotation
+  if (state.isRunning && !state.isDragging) {
+    state.rotation.y += CONFIG.rotationSpeed;
+  }
+  
+  // Simulation step throttling
+  if (state.isRunning) {
+    const interval = 1000 / state.speed;
+    if (timestamp - state.lastFrameTime > interval) {
+      stepGame();
+      state.lastFrameTime = timestamp;
+    }
+  }
+  
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/**
+ * UI Interactions
+ */
+function updateStats() {
+  const pop = state.cells.filter(c => c.alive).length;
+  const density = ((pop / state.cells.length) * 100).toFixed(1);
+  
+  document.getElementById('gen-count').innerText = state.generation;
+  document.getElementById('pop-count').innerText = pop;
+  document.getElementById('density-count').innerText = density + '%';
+}
+
+document.getElementById('btn-pause').addEventListener('click', (e) => {
+  state.isRunning = !state.isRunning;
+  const btn = e.target;
+  if (state.isRunning) {
+    btn.innerText = "Pause";
+    btn.classList.add('primary');
+    btn.classList.remove('secondary');
+  } else {
+    btn.innerText = "Resume";
+    btn.classList.remove('primary');
+    btn.classList.add('secondary');
+  }
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => initGame());
+
+document.getElementById('btn-step').addEventListener('click', () => {
+  state.isRunning = false;
+  const btn = document.getElementById('btn-pause');
+  btn.innerText = "Resume";
+  btn.classList.remove('primary');
+  btn.classList.add('secondary');
+  stepGame();
+  draw();
+});
+
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+  state.speed = parseInt(e.target.value);
+});
+
+/**
+ * Mouse Interactions
+ */
+const container = document.getElementById('canvas-container');
+
+container.addEventListener('mousedown', (e) => {
+  state.isDragging = true;
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!state.isDragging) return;
+  
+  const deltaX = e.clientX - state.lastMouse.x;
+  const deltaY = e.clientY - state.lastMouse.y;
+  
+  state.rotation.y += deltaX * 0.005;
+  state.rotation.x += deltaY * 0.005;
+  
+  // Clamp X rotation to prevent flipping
+  state.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, state.rotation.x));
+  
+  state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => { state.isDragging = false; });
+
+container.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  state.zoom -= e.deltaY * 0.001;
+  state.zoom = Math.max(0.5, Math.min(2.5, state.zoom));
+});
+
+// Start
+initGame();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

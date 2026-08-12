@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIXEL DANCE - RHYTHM EDITION</title>
+    <style>
+        :root {
+            --c-bg-top: #050014;
+            --c-bg-bot: #2a003b;
+            --c-grid: #ff00ff;
+            --c-sun-top: #ffdd00;
+            --c-sun-bot: #ff0055;
+            --c-cyan: #00ffff;
+            --c-yellow: #ffff00;
+            --c-white: #ffffff;
+            --c-dark: #110022;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-font-smoothing: none; /* Disable smoothing for pixel look */
+        }
+
+        body {
+            background-color: var(--c-bg-top);
+            color: var(--c-white);
+            font-family: "Courier New", Courier, monospace; /* Monospace fallback for pixel feel */
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- CANVAS BACKGROUND (The Engine) --- */
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            image-rendering: pixelated; /* Key for retro look */
+        }
+
+        /* --- CRT / SCANLINE OVERLAY --- */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 2px,
+                rgba(0,0,0,0.4) 2px,
+                rgba(0,0,0,0.4) 4px
+            );
+            background-size: 100% 4px;
+            z-index: 90;
+            pointer-events: none;
+        }
+        
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.8) 100%);
+            z-index: 91;
+            pointer-events: none;
+        }
+
+        /* --- MAIN UI LAYER --- */
+        .ui-layer {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 40px 20px;
+            pointer-events: none;
+        }
+
+        /* --- TYPOGRAPHY --- */
+        .title-group {
+            text-align: center;
+            margin-top: 5vh;
+            pointer-events: auto;
+            position: relative;
+        }
+
+        h1 {
+            font-size: 5rem;
+            font-weight: 900;
+            line-height: 0.9;
+            text-transform: uppercase;
+            color: var(--c-white);
+            /* Hard pixel shadow */
+            text-shadow: 
+                4px 4px 0px var(--c-grid),
+                8px 8px 0px rgba(0,0,0,0.4);
+            margin: 0;
+            letter-spacing: -2px;
+            animation: floatTitle 3s ease-in-out infinite;
+        }
+
+        .subtitle {
+            display: block;
+            font-size: 1.5rem;
+            color: var(--c-white);
+            background-color: var(--c-sun-bot); /* High contrast bg */
+            padding: 5px 15px;
+            margin-top: 10px;
+            letter-spacing: 4px;
+            font-weight: bold;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+            transform: skew(-10deg);
+        }
+
+        /* --- GAMEPLAY PREVIEW (HIGHWAY) --- */
+        .highway-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            height: 350px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            perspective: 600px;
+            margin-bottom: 40px;
+            pointer-events: auto;
+        }
+
+        /* The 3D Highway Plane */
+        .highway {
+            width: 240px;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            transform-origin: 50% 100%;
+            transform: rotateX(55deg);
+            position: relative;
+            display: flex;
+            border: 4px solid var(--c-cyan);
+            box-shadow: 0 0 20px var(--c-cyan);
+            /* Mask to fade top */
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 40%, black 100%);
+            mask-image: linear-gradient(to bottom, transparent 0%, black 40%, black 100%);
+        }
+
+        /* Individual Lanes */
+        .lane {
+            flex: 1;
+            position: relative;
+            border-right: 2px solid rgba(255, 255, 255, 0.15);
+            background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.6) 100%);
+            overflow: hidden;
+        }
+        .lane:last-child { border-right: none; }
+
+        /* Lane Colors (Subtle Tints) */
+        .lane:nth-child(1) { background: linear-gradient(to bottom, transparent, rgba(255, 0, 255, 0.2)); }
+        .lane:nth-child(2) { background: linear-gradient(to bottom, transparent, rgba(0, 255, 255, 0.2)); }
+        .lane:nth-child(3) { background: linear-gradient(to bottom, transparent, rgba(255, 255, 0, 0.2)); }
+        .lane:nth-child(4) { background: linear-gradient(to bottom, transparent, rgba(255, 0, 255, 0.2)); }
+
+        /* The Hit Line */
+        .hit-line {
+            position: absolute;
+            bottom: 30px;
+            left: -20px;
+            width: calc(100% + 40px);
+            height: 6px;
+            background: var(--c-white);
+            box-shadow: 0 0 15px var(--c-white);
+            z-index: 5;
+        }
+
+        /* Falling Notes */
+        .note {
+            position: absolute;
+            width: 80%;
+            left: 10%;
+            height: 20px;
+            /* Pixel art note shape */
+            clip-path: polygon(
+                0% 0%, 100% 0%, 
+                100% 70%, 80% 100%, 
+                0% 100%
+            );
+            box-shadow: inset 0 0 5px rgba(255,255,255,0.5);
+        }
+
+        /* --- CONTROLS --- */
+        .controls {
+            display: flex;
+            gap: 20px;
+            pointer-events: auto;
+            margin-bottom: 2vh;
+        }
+
+        .btn {
+            position: relative;
+            background: #000;
+            border: none;
+            padding: 15px 50px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: var(--c-white);
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.1s;
+            /* Retro Bevel Shape */
+            clip-path: polygon(
+                15px 0, 100% 0, 
+                100% calc(100% - 15px), calc(100% - 15px) 100%, 
+                0 100%, 0 15px
+            );
+        }
+
+        /* Primary Button (Start) */
+        .btn-start {
+            color: var(--c-dark);
+            background: var(--c-yellow);
+            box-shadow: 
+                inset 3px 3px 0px #ffeb3b,
+                inset -3px -3px 0px #f57f17,
+                5px 5px 0px rgba(0,0,0,0.5);
+        }
+
+        .btn-start:hover {
+            transform: translateY(-3px);
+            box-shadow: 
+                inset 3px 3px 0px #ffeb3b,
+                inset -3px -3px 0px #f57f17,
+                8px 8px 0px rgba(0,0,0,0.5),
+                0 0 20px var(--c-yellow);
+        }
+
+        .btn-start:active {
+            transform: translateY(2px);
+            box-shadow: inset 3px 3px 0px #f57f17;
+        }
+
+        /* Secondary Button (Options) */
+        .btn-opt {
+            color: var(--c-cyan);
+            border: 2px solid var(--c-cyan);
+            background: rgba(0,0,0,0.8);
+            box-shadow: 5px 5px 0px rgba(0,0,0,0.5);
+        }
+
+        .btn-opt:hover {
+            background: var(--c-cyan);
+            color: #000;
+            box-shadow: 
+                8px 8px 0px rgba(0,0,0,0.5),
+                0 0 15px var(--c-cyan);
+            transform: translateY(-3px);
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes floatTitle {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            h1 { font-size: 3rem; }
+            .subtitle { font-size: 1rem; }
+            .highway-container { height: 250px; }
+            .btn { padding: 12px 30px; font-size: 1.1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL ENGINE -->
+    <canvas id="bg-canvas"></canvas>
+    
+    <!-- OVERLAYS -->
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- UI LAYER -->
+    <div class="ui-layer">
+        
+        <div class="title-group">
+            <h1>PIXEL<br>DANCE</h1>
+            <span class="subtitle">RHYTHM EDITION</span>
+        </div>
+
+        <div class="highway-container">
+            <div class="highway" id="highway">
+                <div class="lane" id="l1"></div>
+                <div class="lane" id="l2"></div>
+                <div class="lane" id="l3"></div>
+                <div class="lane" id="l4"></div>
+                <div class="hit-line"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" onclick="alert('GAME START')">START</button>
+            <button class="btn btn-opt" onclick="alert('OPTIONS')">OPTIONS</button>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * VISUAL ENGINE
+         * Renders the Synthwave background with strict pixel-art aesthetic
+         */
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let time = 0;
+
+        // Pixelation Factor: The smaller the number, the chunkier the pixels
+        const PIXEL_SIZE = 4; 
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function drawPixelRect(x, y, w, h, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+        }
+
+        function drawBackground() {
+            // Clear
+            ctx.clearRect(0, 0, width, height);
+
+            // 1. Sky Gradient (Rendered in pixels)
+            // We draw horizontal strips of color to simulate a gradient
+            const steps = Math.ceil(height / PIXEL_SIZE);
+            for (let i = 0; i < steps; i++) {
+                const t = i / steps;
+                // Lerp color from deep purple to dark blue
+                // Simple manual gradient stops
+                let r, g, b;
+                if (t < 0.5) {
+                    // 0,0,20 -> 42,0,59
+                    r = Math.floor(t * 2 * 42);
+                    g = 0;
+                    b = Math.floor(20 + t * 2 * 39);
+                } else {
+                    // 42,0,59 -> 100,0,150
+                    r = Math.floor(42 + (t-0.5)*2*58);
+                    g = 0;
+                    b = Math.floor(59 + (t-0.5)*2*91);
+                }
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.fillRect(0, i * PIXEL_SIZE, width, PIXEL_SIZE);
+            }
+
+            // 2. The Sun (Pixelated Gradient)
+            const cx = width / 2;
+            const cy = height * 0.4; // Lowered to give room for title
+            const r = Math.min(width, height) * 0.18; // Smaller sun per critique
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            // Draw Sun Body
+            // We iterate pixels within a bounding box and check distance
+            // This is expensive for huge screens, so we draw a circle, 
+            // but use `image-rendering: pixelated` on the canvas CSS to do the heavy lifting,
+            // OR we draw a low-res version scaled up.
+            // To keep it smooth but retro, we draw a standard circle but with horizontal pixel strips.
+            
+            const sunGrad = ctx.createLinearGradient(0, -r, 0, r);
+            sunGrad.addColorStop(0, '#ffdd00');
+            sunGrad.addColorStop(0.5, '#ff0055');
+            sunGrad.addColorStop(1, '#aa00ff');
+            
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fillStyle = sunGrad;
+            ctx.fill();
+
+            // Pixelated Sun Stripes (The "Retro" look)
+            // We only draw black rectangles on the bottom half
+            ctx.fillStyle = '#050014'; // Match top sky color for cutout effect
+            for(let i = 0; i < r; i += PIXEL_SIZE) {
+                // y goes from 0 to r (bottom half)
+                let yPos = i;
+                let thickness = PIXEL_SIZE + (i / r * 4); // Stripes get thicker at bottom
+                
+                // Calculate width of stripe at this height (circle equation)
+                // x^2 + y^2 = r^2  => x = sqrt(r^2 - y^2)
+                let stripeHalfWidth = Math.sqrt(r*r - yPos*yPos);
+                
+                if(stripeHalfWidth > 0) {
+                    ctx.fillRect(-stripeHalfWidth, yPos, stripeHalfWidth * 2, thickness);
+                }
+            }
+            ctx.restore();
+
+            // 3. Stars (Blocky)
+            ctx.fillStyle = '#ffffff';
+            for(let i=0; i<60; i++) {
+                // Deterministic random positions based on index
+                const sx = (Math.sin(i * 123.45) * 0.5 + 0.5) * width;
+                const sy = (Math.cos(i * 67.89) * 0.5 + 0.5) * (height * 0.4);
+                
+                // Twinkle
+                const alpha = 0.5 + 0.5 * Math.sin(time * 0.05 + i);
+                ctx.globalAlpha = alpha;
+                
+                // Draw 2x2 or 3x3 blocks
+                const size = (i % 3 === 0) ? PIXEL_SIZE * 2 : PIXEL_SIZE;
+                ctx.fillRect(Math.floor(sx/PIXEL_SIZE)*PIXEL_SIZE, Math.floor(sy/PIXEL_SIZE)*PIXEL_SIZE, size, size);
+            }
+            ctx.globalAlpha = 1;
+
+            // 4. Perspective Grid (The Floor)
+            const horizonY = height * 0.55; // Horizon line
+            const vanishX = width / 2;
+            
+            const speed = 5;
+            // Offset creates the movement
+            const offset = (time * speed) % 100; 
+
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 2;
+            // Add glow
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff00ff';
+
+            ctx.beginPath();
+
+            // Vertical Lines (Fan out)
+            // We draw them as thick lines to look chunky
+            const numVertLines = 25;
+            for (let i = -numVertLines; i <= numVertLines; i++) {
+                let x1 = vanishX + (i * 5); // Start near center
+                let x2 = vanishX + (i * width * 0.2); // Fan out
+                ctx.moveTo(x1, horizonY);
+                ctx.lineTo(x2, height);
+            }
+
+            // Horizontal Lines (Logarithmic spacing)
+            // Instead of drawing infinite lines, we draw lines based on Z-depth
+            // z = 0 is camera, z = 100 is horizon
+            // We want lines to move from horizon (z=100) to camera (z=0)
+            
+            // Logic: Map screen Y to Z. 
+            // y = horizon + (height / z)
+            // To animate, we shift the Z values.
+            
+            for (let i = 0; i < 20; i++) {
+                // Calculate Z based on time offset
+                // We want evenly spaced lines in 3D space, which look logarithmic in 2D
+                let z = 100 - (i * 5 + offset); 
+                
+                if (z <= 1) continue; // Behind camera or too close
+
+                // Project Z to Y
+                // Simple perspective approximation
+                let y = horizonY + (height * 0.5) / (z * 0.02);
+
+                if (y > horizonY && y < height) {
+                    // Draw line
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width, y);
+                }
+            }
+            ctx.stroke();
+            ctx.shadowBlur = 0; // Reset
+        }
+
+        // --- HIGHWAY LOGIC ---
+        const lanes = [
+            document.getElementById('l1'),
+            document.getElementById('l2'),
+            document.getElementById('l3'),
+            document.getElementById('l4')
+        ];
+        
+        // Colors matching the lane tints
+        const colors = ['#ff00ff', '#00ffff', '#ffff00', '#ff00ff'];
+
+        function spawnNote() {
+            const laneIdx = Math.floor(Math.random() * 4);
+            const lane = lanes[laneIdx];
+            
+            const note = document.createElement('div');
+            note.className = 'note';
+            note.style.backgroundColor = colors[laneIdx];
+            
+            // Start position (Top of highway div)
+            note.style.top = '-30px';
+            
+            // Duration
+            const duration = 1.2 + Math.random() * 0.5;
+            note.style.transition = `top ${duration}s linear`;
+            
+            lane.appendChild(note);
+
+            // Trigger animation
+            requestAnimationFrame(() => {
+                note.style.top = '110%'; 
+            });
+
+            // Cleanup
+            setTimeout(() => {
+                if(note.parentNode) note.remove();
+            }, duration * 1000);
+        }
+
+        // --- MAIN LOOP ---
+        function loop() {
+            time++;
+            drawBackground();
+
+            // Spawn notes rhythmically
+            if (Math.random() < 0.06) {
+                spawnNote();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+
+    </script>
+</body>
+</html>

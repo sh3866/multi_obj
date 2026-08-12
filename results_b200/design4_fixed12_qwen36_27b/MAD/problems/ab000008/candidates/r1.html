@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIXEL DANCE</title>
+    <style>
+        :root {
+            /* Palette */
+            --c-bg-top: #050014;
+            --c-bg-bot: #2a0a4a;
+            --c-grid: #00ffff; /* Electric Cyan */
+            --c-grid-glow: #00ffff;
+            --c-sun-top: #ff00ff;
+            --c-sun-bot: #ffcc00;
+            --c-text: #ffffff;
+            --c-accent: #ff00ff; /* Magenta */
+            
+            /* Dimensions */
+            --lane-width: 40px;
+            --highway-width: calc(var(--lane-width) * 4);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--c-bg-top);
+            color: var(--c-text);
+            font-family: 'Courier New', monospace; /* Fallback */
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            perspective: 800px;
+        }
+
+        /* --- LAYOUT STRUCTURE --- */
+        .main-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 5;
+            padding: 40px 20px;
+        }
+
+        /* --- BACKGROUND CANVAS --- */
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            /* Subtle chromatic aberration effect via filter if supported, else just rendering */
+            filter: contrast(1.2) brightness(1.1);
+        }
+
+        /* --- SCANLINES --- */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.3) 50%,
+                rgba(0,0,0,0.3)
+            );
+            background-size: 100% 4px;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* --- TYPOGRAPHY --- */
+        .title-block {
+            text-align: center;
+            z-index: 5;
+            margin-top: 5vh; /* Lowered slightly */
+            position: relative;
+        }
+
+        h1 {
+            /* Pixel Font Simulation using system fonts */
+            font-family: 'Courier New', monospace; 
+            font-size: 4.5rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            line-height: 1;
+            color: white;
+            /* Hard solid drop shadow instead of blur */
+            text-shadow: 
+                6px 6px 0px var(--c-accent),
+                -2px -2px 0px var(--c-grid);
+            margin-bottom: 10px;
+            letter-spacing: -4px;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .subtitle {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--c-grid);
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            text-shadow: 2px 2px 0px black;
+            background: rgba(0,0,0,0.5);
+            padding: 4px 12px;
+            display: inline-block;
+        }
+
+        /* --- HIGHWAY PREVIEW (Gameplay) --- */
+        .highway-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            height: 250px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            margin-bottom: 20px;
+            /* Integrating into environment: sits on grid */
+            transform: translateY(20px); 
+        }
+
+        .highway {
+            position: relative;
+            width: var(--highway-width);
+            height: 100%;
+            background: rgba(10, 0, 30, 0.85); /* Dark lane background */
+            border: 2px solid var(--c-grid);
+            border-bottom: none; /* Sits on the floor */
+            box-shadow: 
+                0 0 15px var(--c-grid),
+                inset 0 0 30px rgba(0,0,0,0.8);
+            transform: rotateX(30deg) scale(0.9);
+            transform-origin: bottom center;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Vertical Lane Dividers */
+        .lane {
+            flex: 1;
+            height: 100%;
+            border-right: 1px dashed rgba(0, 255, 255, 0.3);
+            position: relative;
+        }
+        .lane:last-child { border-right: none; }
+
+        /* Hit Line */
+        .hit-line {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: #fff;
+            box-shadow: 0 0 10px #fff, 0 0 20px var(--c-accent);
+            z-index: 2;
+        }
+
+        /* Pixel Notes */
+        .note {
+            position: absolute;
+            width: 80%;
+            height: 16px; /* Chunky pixel height */
+            left: 10%;
+            /* Pixel art look: sharp edges, no radius */
+            box-shadow: 0 0 5px currentColor; 
+            z-index: 1;
+        }
+
+        /* --- CONTROLS --- */
+        .controls {
+            display: flex;
+            flex-direction: column; /* Stacked vertically */
+            gap: 15px;
+            z-index: 5;
+            margin-bottom: 5vh;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .btn {
+            font-family: 'Courier New', monospace;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            padding: 15px 0;
+            border: 3px solid var(--c-text);
+            background: rgba(0, 0, 0, 0.6);
+            color: var(--c-text);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.1s;
+            /* Retro button style */
+            box-shadow: 5px 5px 0px var(--c-accent);
+            text-shadow: 2px 2px 0px #000;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .btn:hover {
+            background: var(--c-text);
+            color: #000;
+            transform: translate(-2px, -2px);
+            box-shadow: 7px 7px 0px var(--c-accent);
+            text-shadow: none;
+        }
+
+        .btn:active {
+            transform: translate(3px, 3px);
+            box-shadow: 0px 0px 0px var(--c-accent);
+        }
+
+        .btn-start {
+            border-color: var(--c-grid);
+            color: var(--c-grid);
+            box-shadow: 5px 5px 0px var(--c-accent);
+        }
+
+        .btn-start:hover {
+            background: var(--c-grid);
+            color: #000;
+            box-shadow: 7px 7px 0px var(--c-text);
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 3rem; }
+            .highway-wrapper { max-width: 90%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background rendering -->
+    <canvas id="bg-canvas"></canvas>
+    
+    <!-- CRT Scanline Overlay -->
+    <div class="scanlines"></div>
+
+    <div class="main-container">
+        
+        <div class="title-block">
+            <h1>PIXEL<br>DANCE</h1>
+            <div class="subtitle">RHYTHM PROTOCOL</div>
+        </div>
+
+        <!-- The 3D Highway Preview -->
+        <div class="highway-wrapper">
+            <div class="highway">
+                <div class="lane" id="l1"></div>
+                <div class="lane" id="l2"></div>
+                <div class="lane" id="l3"></div>
+                <div class="lane" id="l4"></div>
+                <div class="hit-line"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" onclick="alert('INITIATING SEQUENCE...')">START GAME</button>
+            <button class="btn">OPTIONS</button>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * VISUAL ENGINE
+         * 1. Draws the Synthwave Grid & Sun
+         * 2. Manages falling notes in the HTML highway
+         */
+
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // State
+        let time = 0;
+        let gridOffset = 0;
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Configuration
+        const HORIZON_Y_RATIO = 0.45; // Raised horizon line
+        
+        function drawBackground() {
+            // Clear
+            ctx.clearRect(0, 0, width, height);
+
+            // 1. Sky Gradient
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, '#050014');
+            grad.addColorStop(0.5, '#1a0033');
+            grad.addColorStop(1, '#330055'); // Deep violet floor
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+
+            const horizonY = height * HORIZON_Y_RATIO;
+
+            // 2. The Sun
+            const cx = width / 2;
+            const cy = horizonY - (height * 0.05); // Just above horizon
+            const r = Math.min(width, height) * 0.25;
+
+            const sunGrad = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+            sunGrad.addColorStop(0, '#ff00ff');
+            sunGrad.addColorStop(1, '#ffcc00');
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            
+            // Glow
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#ff00ff';
+            
+            // Sun Body
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fillStyle = sunGrad;
+            ctx.fill();
+            
+            // Cutout stripes (Retro Sun)
+            // We draw the background color over the sun to "cut" it
+            ctx.globalCompositeOperation = 'destination-out';
+            // Move stripes slightly lower so they cut the bottom half
+            for(let i=0; i<12; i++) {
+                let y = (i * (r/6)) + (r*0.2); 
+                let h = i * 1.5 + 2;
+                ctx.fillRect(-r*1.5, y, r*3, h);
+            }
+            ctx.restore();
+
+            // 3. Stars (Pixelated)
+            ctx.fillStyle = 'white';
+            ctx.shadowBlur = 0;
+            for(let i=0; i<60; i++) {
+                const sx = (Math.sin(i * 123.45) * 0.5 + 0.5) * width;
+                const sy = (Math.cos(i * 67.89) * 0.5 + 0.5) * horizonY;
+                // Twinkle
+                const alpha = (Math.sin(time * 0.1 + i) + 1) / 2;
+                ctx.globalAlpha = alpha;
+                // Draw square pixels
+                ctx.fillRect(sx, sy, 2, 2);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // 4. Perspective Grid
+            const vanishX = width / 2;
+            const gridColor = '#00ffff'; // Electric Cyan
+            const gridSpeed = 4;
+            
+            // Update offset for animation
+            gridOffset = (gridOffset + gridSpeed) % 100;
+
+            ctx.strokeStyle = gridColor;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = gridColor;
+            
+            ctx.beginPath();
+
+            // Vertical Lines (Fan out)
+            // Draw 21 lines centered
+            for (let i = -10; i <= 10; i++) {
+                let x1 = vanishX + (i * 10); 
+                let x2 = vanishX + (i * width * 0.25); 
+                ctx.moveTo(x1, horizonY);
+                ctx.lineTo(x2, height);
+            }
+
+            // Horizontal Lines (Moving)
+            // Use logarithmic spacing for perspective depth
+            // We draw lines from horizon down to bottom
+            // We need to loop backwards or calculate Z
+            
+            // Calculate Y positions for a pseudo-3D grid
+            // y = horizon + (depth * scale)
+            // To make it look like it's moving towards us, we shift the "Z" index
+            
+            let zStart = 100 - gridOffset; 
+            let zStep = 10;
+            
+            for (let i = 0; i < 30; i++) {
+                let z = zStart + (i * zStep);
+                if (z <= 0) continue; // Behind camera
+
+                // Perspective projection formula:
+                // y_screen = y_horizon + (height / z * perspective_scale)
+                // Simplified for visual effect:
+                
+                // We want lines closer to horizon to be tighter
+                // Map z (10 to 300) to y (horizon to height)
+                // Using inverse mapping: y = h * (1 - 100/z)
+                
+                let p = 100 / z; 
+                if (p >= 1) continue; // Too close
+
+                let y = horizonY + (height - horizonY) * (1 - p);
+                
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+        }
+
+        // --- NOTE SPAWNER LOGIC ---
+        const lanes = [
+            document.getElementById('l1'),
+            document.getElementById('l2'),
+            document.getElementById('l3'),
+            document.getElementById('l4')
+        ];
+        const colors = ['#ff00ff', '#00ffff', '#ffff00', '#ff00ff'];
+
+        function spawnNote() {
+            const laneIdx = Math.floor(Math.random() * 4);
+            const lane = lanes[laneIdx];
+            
+            const note = document.createElement('div');
+            note.className = 'note';
+            note.style.backgroundColor = colors[laneIdx];
+            note.style.color = colors[laneIdx];
+            
+            // Start position (top of the highway container)
+            note.style.top = '-20px';
+            lane.appendChild(note);
+
+            // Animate using Web Animations API for better performance than JS loop
+            // Duration depends on height of container / speed
+            const anim = note.animate([
+                { top: '-20px' },
+                { top: '100%' }
+            ], {
+                duration: 1500, // 1.5 seconds to fall
+                easing: 'linear',
+                fill: 'forwards'
+            });
+
+            anim.onfinish = () => {
+                note.remove();
+            };
+        }
+
+        // Main Loop
+        function loop() {
+            time++;
+            drawBackground();
+            
+            // Spawn notes randomly
+            // Probability determines density
+            if (Math.random() < 0.06) {
+                spawnNote();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+
+    </script>
+</body>
+</html>

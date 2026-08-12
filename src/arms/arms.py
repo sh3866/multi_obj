@@ -102,6 +102,8 @@ async def run_fused(instruction, workdir, gen_c, vlm_c, cfg, usage):
         png, probe = await common.preview(html, os.path.join(workdir, f"round_{r:02d}"), cfg)
         v = await critics.fused_critic(instruction, cfg.axes(), html, png, probe,
                                        gen_c, vlm_c, cfg, usage)
+        if not v.get("contract_ok", True):
+            raise RuntimeError("fused critic output contract failed after retry")
         history.append({"round": r, "fused_score": v["score"],
                         "good_enough_flag": v.get("good_enough", False),
                         # store the FULL fused critique + suggestion (parity with
@@ -109,6 +111,10 @@ async def run_fused(instruction, workdir, gen_c, vlm_c, cfg, usage):
                         # with no critique, which cut FUSED transcripts in reports
                         "critique": v.get("critique", ""),
                         "suggestion": v.get("suggestion", ""),
+                        "contract_ok": v.get("contract_ok"),
+                        "runtime_prompt": v.get("runtime_prompt", ""),
+                        "raw_response": v.get("raw_response", ""),
+                        "retry_raw_response": v.get("retry_raw_response", ""),
                         "tokens": usage.total_tokens})
         if cfg.early_stop and v.get("good_enough"):
             break  # evaluator declared done (explicit, replaces score>=4)

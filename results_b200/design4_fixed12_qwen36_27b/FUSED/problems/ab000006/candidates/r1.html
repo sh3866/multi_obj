@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkiFree - Retro Edition</title>
+    <style>
+        :root {
+            --c-sky-top: #5C94FC;
+            --c-sky-bot: #A9C8EB;
+            --c-snow: #FFFFFF;
+            --c-snow-shadow: #B3D4E0;
+            --c-tree-dark: #004000;
+            --c-tree-light: #006000;
+            --c-ui-bg: #000000;
+            --c-ui-border: #FFFFFF;
+            --c-btn-bg: #FFD700;
+            --c-btn-text: #000000;
+            --c-btn-shadow: #888800;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            /* System fallback stack for pixel look, but we will draw text on canvas for pure retro feel */
+            font-family: "Courier New", Courier, monospace; 
+        }
+
+        /* Container */
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Canvas World */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* Critical for pixel art scaling */
+            image-rendering: pixelated; 
+            image-rendering: crisp-edges;
+        }
+
+        /* UI Overlay - HUD Style */
+        .ui-layer {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 500px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            /* Semi-transparent background to make text readable over snow */
+            background: rgba(0, 0, 0, 0.6); 
+            border: 4px solid var(--c-ui-border);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 0 0 4px #000; /* Outer frame */
+        }
+
+        /* Title drawn in CSS for crispness, but we'll actually draw on canvas for animation. 
+           This is a fallback/interaction layer. */
+        
+        .start-btn {
+            background: var(--c-btn-bg);
+            color: var(--c-btn-text);
+            border: 4px solid #fff;
+            padding: 15px 30px;
+            font-family: "Courier New", Courier, monospace;
+            font-weight: 900;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            cursor: pointer;
+            /* Retro block shadow */
+            box-shadow: 6px 6px 0px #000; 
+            transition: transform 0.1s, box-shadow 0.1s, background-color 0.1s;
+            margin-top: 15px;
+            position: relative;
+            outline: none;
+            letter-spacing: 1px;
+        }
+
+        .start-btn:hover {
+            background: #FFFF00;
+            transform: translate(-2px, -2px);
+            box-shadow: 8px 8px 0px #000;
+        }
+
+        .start-btn:active {
+            transform: translate(4px, 4px);
+            box-shadow: 2px 2px 0px #000;
+        }
+
+        .blink {
+            animation: blinker 1s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+
+        /* Subtle CRT Vignette only (No Scanlines) */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.8) 100%);
+            z-index: 5;
+            pointer-events: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="world"></canvas>
+        <div class="vignette"></div>
+
+        <!-- UI Container -->
+        <div class="ui-layer">
+            <!-- Text is mostly drawn on canvas for the "Retro" title effect, 
+                 but we keep the button here for accessibility and ease of CSS styling -->
+            <div id="hud-content" style="display:none;">
+                <!-- Content injected by JS for specific font handling if needed -->
+            </div>
+            <button class="start-btn" id="startBtn">START GAME</button>
+        </div>
+    </div>
+
+<script>
+    /**
+     * VISUAL ENGINE
+     * Pure Canvas procedural generation.
+     */
+    const canvas = document.getElementById('world');
+    const ctx = canvas.getContext('2d');
+
+    // Configuration
+    const LOGICAL_WIDTH = 320;  // Low-res internal resolution for pixel look
+    const LOGICAL_HEIGHT = 200;
+    
+    // State
+    let width, height;
+    let frame = 0;
+    let trees = [];
+    let particles = [];
+    
+    // Colors
+    const C_SKY_TOP = '#5C94FC';
+    const C_SKY_BOT = '#A9C8EB';
+    const C_SNOW = '#FFFFFF';
+    const C_SNOW_SHADOW = '#B3D4E0';
+    const C_TREE_DARK = '#004000';
+    const C_TREE_LIGHT = '#006000';
+    const C_SKIER_JACKET = '#D32F2F';
+    const C_SKIER_PANTS = '#1A237E';
+    const C_SKIER_SKIS = '#FBC02D';
+    const C_SKIER_POLE = '#555555';
+    const C_SKIER_SKIN = '#FFCC80';
+    const C_SKIER_HAT = '#B71C1C';
+
+    // --- Drawing Helpers ---
+
+    // Helper to draw a pixel block
+    function drawRect(x, y, w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+    }
+
+    // --- Sprite Generators ---
+
+    function drawPixelSkier(x, y) {
+        ctx.save();
+        ctx.translate(Math.floor(x), Math.floor(y));
+        
+        // Animation vars
+        const bob = Math.sin(frame * 0.15) * 2;
+        const lean = Math.sin(frame * 0.1) * 0.05; 
+        
+        ctx.translate(0, bob);
+        ctx.rotate(lean);
+
+        // 1. Skis (Behind)
+        drawRect(-4, 10, 1, 14, C_SKIER_SKIS); // Left
+        drawRect(3, 10, 1, 14, C_SKIER_SKIS);  // Right
+
+        // 2. Poles (Behind body)
+        drawRect(-5, 4, 1, 16, C_SKIER_POLE);
+        drawRect(4, 4, 1, 16, C_SKIER_POLE);
+
+        // 3. Legs
+        drawRect(-3, 8, 2, 4, C_SKIER_PANTS);
+        drawRect(2, 8, 2, 4, C_SKIER_PANTS);
+
+        // 4. Body
+        drawRect(-3, 2, 6, 7, C_SKIER_JACKET);
+
+        // 5. Head
+        drawRect(-2, -2, 4, 4, C_SKIER_SKIN);
+        
+        // 6. Hat
+        drawRect(-2, -3, 4, 2, C_SKIER_HAT);
+
+        ctx.restore();
+    }
+
+    function drawTree(x, y, scale) {
+        ctx.save();
+        ctx.translate(Math.floor(x), Math.floor(y));
+        
+        const s = Math.floor(scale); // Scale factor
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fillRect(-4*s, 20*s, 8*s, 2*s);
+
+        // Trunk
+        drawRect(-s, 14*s, 2*s, 6*s, '#5D4037');
+
+        // Leaves (Dark Green)
+        ctx.fillStyle = C_TREE_DARK;
+        // Layer 1
+        ctx.fillRect(-6*s, 6*s, 12*s, 4*s);
+        ctx.fillRect(-5*s, 4*s, 10*s, 2*s);
+        // Layer 2
+        ctx.fillRect(-5*s, 2*s, 10*s, 4*s);
+        // Layer 3
+        ctx.fillRect(-3*s, -2*s, 6*s, 4*s);
+
+        // Highlights (Light Green)
+        ctx.fillStyle = C_TREE_LIGHT;
+        ctx.fillRect(-4*s, 6*s, 2*s, 2*s);
+        ctx.fillRect(-3*s, 2*s, 2*s, 2*s);
+
+        ctx.restore();
+    }
+
+    // --- World Logic ---
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        
+        // Set logical resolution
+        canvas.width = LOGICAL_WIDTH;
+        canvas.height = LOGICAL_HEIGHT;
+        
+        // CSS handles the scaling up. The canvas element itself stays small.
+        
+        initWorld();
+    }
+
+    function initWorld() {
+        trees = [];
+        
+        // Procedural Tree Generation
+        // We create rows based on logical height
+        const rows = 15;
+        
+        for(let i=0; i<rows; i++) {
+            // Perspective logic
+            // i=0 is top (far), i=rows-1 is bottom (near)
+            const rowProgress = i / rows; 
+            
+            // Y position (perspective curve)
+            const y = (LOGICAL_HEIGHT * 0.4) + (rowProgress * (LOGICAL_HEIGHT * 0.6));
+            
+            // Scale (bigger at bottom)
+            const scale = 0.5 + (rowProgress * 1.5);
+            
+            // Number of trees increases towards the sides and bottom for density
+            const treesInRow = Math.floor(Math.random() * 3) + 1;
+            
+            for(let t=0; t<treesInRow; t++) {
+                // X position: wider spread at bottom
+                const spread = (LOGICAL_WIDTH * 0.2) + (rowProgress * LOGICAL_WIDTH);
+                const centerX = LOGICAL_WIDTH / 2;
+                // Random X within spread
+                const x = centerX + (Math.random() * spread - spread/2);
+                
+                trees.push({x, y, scale, z: i});
+            }
+        }
+        
+        // Sort by Z (painter's algorithm)
+        trees.sort((a, b) => a.z - b.z);
+
+        // Snow Particles
+        particles = [];
+        for(let i=0; i<50; i++) {
+            particles.push({
+                x: Math.random() * LOGICAL_WIDTH,
+                y: Math.random() * LOGICAL_HEIGHT,
+                speed: Math.random() * 0.5 + 0.2,
+                size: Math.random() > 0.8 ? 2 : 1
+            });
+        }
+    }
+
+    // --- Main Render Loop ---
+
+    function drawBackground() {
+        // Sky Gradient
+        let grad = ctx.createLinearGradient(0, 0, 0, LOGICAL_HEIGHT * 0.4);
+        grad.addColorStop(0, C_SKY_TOP);
+        grad.addColorStop(1, C_SKY_BOT);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        // Snow Slope (Bottom area)
+        ctx.fillStyle = C_SNOW;
+        ctx.fillRect(0, LOGICAL_HEIGHT * 0.4, LOGICAL_WIDTH, LOGICAL_HEIGHT * 0.6);
+
+        // Slope Shading (Right side shadow)
+        ctx.fillStyle = C_SNOW_SHADOW;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(LOGICAL_WIDTH * 0.6, LOGICAL_HEIGHT * 0.4);
+        ctx.lineTo(LOGICAL_WIDTH, LOGICAL_HEIGHT * 0.4);
+        ctx.lineTo(LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        ctx.lineTo(LOGICAL_WIDTH * 0.6, LOGICAL_HEIGHT);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+    }
+
+    function drawTitle() {
+        ctx.save();
+        ctx.translate(Math.floor(LOGICAL_WIDTH/2), 40);
+        
+        // "SKI"
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 24px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Shadow
+        ctx.fillStyle = '#000000';
+        ctx.fillText("SKI", 2, 2);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText("SKI", 0, 0);
+
+        // "FREE"
+        ctx.fillStyle = '#000000';
+        ctx.fillText("FREE", 2, 28);
+        ctx.fillStyle = '#D32F2F'; // Red
+        ctx.fillText("FREE", 0, 26);
+
+        ctx.restore();
+    }
+
+    function drawInstructions() {
+        ctx.save();
+        ctx.translate(Math.floor(LOGICAL_WIDTH/2), 75);
+        
+        ctx.fillStyle = '#000000';
+        ctx.font = '8px "Courier New"';
+        ctx.textAlign = 'center';
+        
+        // Blinking effect for "PRESS START" equivalent
+        if (Math.floor(frame / 30) % 2 === 0) {
+             ctx.fillText("PRESS START", 1, 1);
+             ctx.fillStyle = '#FFFFFF';
+             ctx.fillText("PRESS START", 0, 0);
+        }
+
+        ctx.restore();
+    }
+
+    function animate() {
+        // Clear
+        ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+        // 1. Background
+        drawBackground();
+
+        // 2. Trees
+        trees.forEach(tree => {
+            drawTree(tree.x, tree.y, tree.scale);
+        });
+
+        // 3. Skier (Centered, slightly above UI)
+        // The UI is roughly bottom 40px (scaled). 
+        // In logical coords, UI is roughly bottom 40px.
+        const skierX = LOGICAL_WIDTH / 2;
+        const skierY = LOGICAL_HEIGHT - 60; 
+        drawPixelSkier(skierX, skierY);
+
+        // 4. Particles (Snow)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        particles.forEach(p => {
+            p.y += p.speed;
+            p.x -= 0.5; // Wind
+            if (p.y > LOGICAL_HEIGHT) p.y = 0;
+            if (p.x < 0) p.x = LOGICAL_WIDTH;
+            ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+        });
+
+        // 5. UI Text (Drawn on canvas for perfect retro alignment)
+        drawTitle();
+        drawInstructions();
+
+        frame++;
+        requestAnimationFrame(animate);
+    }
+
+    // --- Interaction ---
+    
+    document.getElementById('startBtn').addEventListener('click', function() {
+        const btn = this;
+        btn.innerText = "LOADING...";
+        btn.style.backgroundColor = "#fff";
+        
+        setTimeout(() => {
+            alert("GAME START!\n\n(This is a visual demo of the start screen)");
+            btn.innerText = "START GAME";
+            btn.style.backgroundColor = "var(--c-btn-bg)";
+        }, 800);
+    });
+
+    // Init
+    window.addEventListener('resize', resize);
+    resize(); // Initial setup
+    animate(); // Start loop
+
+</script>
+</body>
+</html>

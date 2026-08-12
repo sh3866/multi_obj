@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --grid-bg: #0b0c10;
+            --grid-line: rgba(0, 243, 255, 0.05);
+            --wall-color: #161920;
+            --wall-highlight: #2a303d;
+            --wall-shadow: #000000;
+            --text-primary: #e0e6ed;
+            --text-secondary: #5c677d;
+            --accent-cyan: #00f3ff;
+            --accent-amber: #ffaa00;
+            --accent-red: #ff2a2a;
+            --accent-green: #00ff66;
+            
+            /* Typography Stack */
+            --font-mono: 'Courier New', 'Consolas', 'Monaco', monospace;
+            
+            /* Sizing */
+            --cell-size: 90px;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Background Noise/Texture */
+        .bg-noise {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.15;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* --- RESTRUCTURED LAYOUT: Sandwich Approach --- */
+
+        /* 1. Header Bar (Top Center) */
+        .hud-panel {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 20px 15px 20px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.15);
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .hud-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            margin: 0;
+            line-height: 1;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+        }
+        .hud-title span { color: var(--accent-cyan); }
+
+        .hud-stats {
+            display: flex;
+            gap: 30px;
+        }
+
+        .stat-block {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .stat-label {
+            font-size: 0.6rem;
+            color: var(--accent-cyan);
+            letter-spacing: 2px;
+            margin-bottom: 2px;
+            opacity: 0.8;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+            text-shadow: 0 0 8px rgba(255,255,255,0.2);
+        }
+
+        /* 2. Main Board (Center) */
+        .board-wrapper {
+            position: relative;
+            padding: 20px;
+            background-color: var(--grid-bg);
+            /* Removed heavy border, added subtle depth shadow */
+            box-shadow: 
+                0 20px 50px rgba(0, 0, 0, 0.8),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            /* Inner glow */
+            background-image: radial-gradient(circle at center, rgba(0, 243, 255, 0.03) 0%, transparent 70%);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell-size));
+            grid-template-rows: repeat(7, var(--cell-size));
+            gap: 2px; /* Slight gap for grid definition */
+            background-color: #000; /* Gap color */
+        }
+
+        .cell {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #0e1117; /* Dark blue tint floor */
+        }
+
+        /* Floor Grid Pattern */
+        .cell::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 10px 10px;
+            pointer-events: none;
+        }
+
+        /* Walls */
+        .wall {
+            background-color: var(--wall-color);
+            box-shadow: 
+                inset 2px 2px 0 var(--wall-highlight),
+                inset -2px -2px 0 var(--wall-shadow);
+            z-index: 2;
+        }
+        /* Wall texture detail */
+        .wall::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.2) 10px, rgba(0,0,0,0.2) 11px);
+            opacity: 0.5;
+        }
+
+        /* The Goal/Door */
+        .goal {
+            background-color: rgba(0, 243, 255, 0.05);
+            border: 1px dashed rgba(0, 243, 255, 0.4);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.1);
+        }
+        
+        .goal::after {
+            content: 'EXIT';
+            font-family: var(--font-mono);
+            font-size: 0.8rem; /* Increased size */
+            color: var(--accent-cyan);
+            font-weight: bold;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px var(--accent-cyan);
+        }
+
+        /* The Lever */
+        .lever-icon {
+            width: 70%;
+            height: 70%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+        }
+        .lever-base {
+            position: absolute;
+            bottom: 15%;
+            width: 50%;
+            height: 15%;
+            background: #333;
+            border-radius: 2px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            border-top: 1px solid #555;
+        }
+        .lever-handle {
+            position: absolute;
+            bottom: 20%;
+            width: 10%;
+            height: 65%;
+            background: var(--accent-red); /* Red */
+            transform-origin: bottom center;
+            transform: rotate(-25deg);
+            box-shadow: 0 0 15px var(--accent-red), 0 0 30px rgba(255, 42, 42, 0.4);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-radius: 2px;
+            border: 1px solid #ff6666;
+        }
+        .lever-handle::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: -6px;
+            width: calc(100% + 12px);
+            height: calc(100% + 12px);
+            border-radius: 50%;
+            background: var(--accent-red);
+            box-shadow: 0 0 15px var(--accent-red);
+        }
+
+        /* The Crate (Stylized 2D Vector) */
+        .crate {
+            width: 80%;
+            height: 80%;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            box-shadow: 
+                inset 1px 1px 0 rgba(255,255,255,0.05),
+                0 8px 16px rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            border-radius: 2px;
+        }
+        
+        /* Hazard Symbol SVG */
+        .crate svg {
+            width: 60%;
+            height: 60%;
+            fill: var(--accent-amber);
+            filter: drop-shadow(0 0 5px rgba(255, 170, 0, 0.4));
+        }
+
+        /* The Player (Geometric Glowing Shape) */
+        .player {
+            width: 65%;
+            height: 65%;
+            /* Hexagon Shape via Clip Path */
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            background: linear-gradient(135deg, var(--accent-cyan), #008899);
+            position: relative;
+            z-index: 10;
+            animation: playerPulse 2s infinite ease-in-out;
+            /* Glow via filter since box-shadow doesn't work well with clip-path */
+            filter: drop-shadow(0 0 10px var(--accent-cyan));
+        }
+        
+        /* Inner detail of player */
+        .player::before {
+            content: '';
+            position: absolute;
+            inset: 15%;
+            background: rgba(255,255,255,0.8);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+        }
+
+        /* 3. Controls Legend (Bottom Center) */
+        .controls-panel {
+            margin-top: 30px;
+            display: flex;
+            gap: 40px;
+            padding: 10px 20px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .key-cluster {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 4px;
+            width: 50px;
+            height: 36px;
+        }
+        
+        .k-w { grid-column: 2; grid-row: 1; }
+        .k-a { grid-column: 1; grid-row: 2; }
+        .k-s { grid-column: 2; grid-row: 2; }
+        .k-d { grid-column: 3; grid-row: 2; }
+
+        .key, .key-single {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            font-weight: bold;
+            border-radius: 2px;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+        }
+        .key-single { width: 20px; height: 20px; }
+
+        .control-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .status-message {
+            position: absolute;
+            bottom: 100px; /* Above controls */
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--accent-green);
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px var(--accent-green);
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        .status-message.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Animations */
+        @keyframes playerPulse {
+            0% { filter: drop-shadow(0 0 5px var(--accent-cyan)); }
+            50% { filter: drop-shadow(0 0 20px var(--accent-cyan)); }
+            100% { filter: drop-shadow(0 0 5px var(--accent-cyan)); }
+        }
+
+        /* Responsive */
+        @media (max-width: 700px) {
+            :root { --cell-size: 11vw; }
+            .hud-panel { flex-direction: column; align-items: center; gap: 10px; margin-bottom: 20px; }
+            .hud-stats { gap: 20px; }
+            .stat-block { align-items: center; }
+            .controls-panel { gap: 20px; margin-top: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="bg-noise"></div>
+
+    <!-- 1. HUD (Top Center) -->
+    <div class="hud-panel">
+        <h1 class="hud-title">VOID <span>LOCK</span></h1>
+        <div class="hud-stats">
+            <div class="stat-block">
+                <span class="stat-label">SECTOR</span>
+                <span class="stat-value">07</span>
+            </div>
+            <div class="stat-block">
+                <span class="stat-label">MOVES</span>
+                <span class="stat-value" id="moves-display">00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Board (Center) -->
+    <div class="board-wrapper">
+        <div class="board" id="game-board">
+            <!-- Grid generated by JS -->
+        </div>
+    </div>
+
+    <!-- Status Message -->
+    <div class="status-message" id="status-msg">SYSTEM ONLINE</div>
+
+    <!-- 3. Controls (Bottom Center) -->
+    <div class="controls-panel">
+        <div class="control-group">
+            <div class="key-cluster">
+                <div class="key k-w">W</div>
+                <div class="key k-a">A</div>
+                <div class="key k-s">S</div>
+                <div class="key k-d">D</div>
+            </div>
+            <span class="control-label">Move Unit</span>
+        </div>
+        <div class="control-group">
+            <div class="key-single">R</div>
+            <span class="control-label">Reset</span>
+        </div>
+    </div>
+
+    <script>
+        // Game Configuration
+        const BOARD_SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves-display');
+        const statusMsg = document.getElementById('status-msg');
+
+        // 0: Floor, 1: Wall, 2: Player, 3: Crate, 4: Lever, 5: Goal, 6: Lever (Active)
+        const initialMap = [
+            [1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 4, 0, 3, 0, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1],
+            [1, 0, 0, 0, 5, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        let mapState = JSON.parse(JSON.stringify(initialMap));
+        let playerPos = { x: 3, y: 4 };
+        let moves = 0;
+
+        // SVG for Hazard Symbol
+        const hazardSvg = `
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L1 21H23L12 2ZM12 6L19.53 19H4.47L12 6ZM11 10V14H13V10H11ZM11 16V18H13V16H11Z"/>
+            </svg>
+        `;
+
+        // Render Function
+        function renderBoard() {
+            boardEl.innerHTML = ''; // Clear board
+            
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const cellVal = mapState[y][x];
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+
+                    // Base Floor
+                    if (cellVal === 0) cell.classList.add('floor');
+
+                    // Wall
+                    if (cellVal === 1) {
+                        cell.classList.add('wall');
+                    }
+                    // Goal/Door
+                    else if (cellVal === 5) {
+                        cell.classList.add('floor');
+                        cell.classList.add('goal');
+                    }
+                    // Lever
+                    else if (cellVal === 4 || cellVal === 6) {
+                        cell.classList.add('floor');
+                        cell.classList.add('lever');
+                        
+                        const leverDiv = document.createElement('div');
+                        leverDiv.className = 'lever-icon';
+                        
+                        const base = document.createElement('div');
+                        base.className = 'lever-base';
+                        
+                        const handle = document.createElement('div');
+                        handle.className = 'lever-handle';
+
+                        if (cellVal === 6) {
+                            // Active state styling
+                            handle.style.transform = 'rotate(25deg)'; 
+                            handle.style.backgroundColor = 'var(--accent-green)';
+                            handle.style.boxShadow = '0 0 15px var(--accent-green), 0 0 30px rgba(0, 255, 102, 0.4)';
+                            handle.style.borderColor = '#aaffaa';
+                            const handleAfter = handle.style;
+                            handleAfter.setProperty('--accent-red', 'var(--accent-green)'); // Hack for the pseudo element color if needed, but box-shadow handles glow
+                        }
+
+                        leverDiv.appendChild(base);
+                        leverDiv.appendChild(handle);
+                        cell.appendChild(leverDiv);
+                    }
+
+                    // Player
+                    if (cellVal === 2) {
+                        cell.classList.add('floor');
+                        const playerDiv = document.createElement('div');
+                        playerDiv.classList.add('player');
+                        cell.appendChild(playerDiv);
+                    }
+
+                    // Crate
+                    if (cellVal === 3) {
+                        cell.classList.add('floor');
+                        const crateDiv = document.createElement('div');
+                        crateDiv.classList.add('crate');
+                        crateDiv.innerHTML = hazardSvg; // Insert SVG
+                        cell.appendChild(crateDiv);
+                    }
+
+                    boardEl.appendChild(cell);
+                }
+            }
+            movesDisplay.textContent = moves < 10 ? '0' + moves : moves;
+        }
+
+        // Initial Render
+        renderBoard();
+
+        // Keyboard Controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                resetGame();
+                return;
+            }
+
+            let dx = 0;
+            let dy = 0;
+
+            if (e.key === 'w' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'ArrowRight') dx = 1;
+
+            if (dx === 0 && dy === 0) return;
+
+            movePlayer(dx, dy);
+        });
+
+        function movePlayer(dx, dy) {
+            const newX = playerPos.x + dx;
+            const newY = playerPos.y + dy;
+
+            // Check Bounds
+            if (newX < 0 || newX >= BOARD_SIZE || newY < 0 || newY >= BOARD_SIZE) return;
+
+            const targetCell = mapState[newY][newX];
+
+            // Wall Collision
+            if (targetCell === 1) return;
+
+            // Interaction: Lever (Inactive)
+            if (targetCell === 4) {
+                mapState[playerPos.y][playerPos.x] = 0; // Clear old
+                mapState[newY][newX] = 6; // New lever state (active)
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                showStatus("LEVER ENGAGED");
+                return;
+            }
+             
+            // Interaction: Active Lever (already stepped on)
+            if (targetCell === 6) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 2;
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                return;
+            }
+
+            // Interaction: Crate
+            if (targetCell === 3) {
+                const nextX = newX + dx;
+                const nextY = newY + dy;
+                
+                // Check if crate can move
+                if (nextX >= 0 && nextX < BOARD_SIZE && nextY >= 0 && nextY < BOARD_SIZE) {
+                    const nextCell = mapState[nextY][nextX];
+                    if (nextCell !== 1 && nextCell !== 3 && nextCell !== 4 && nextCell !== 6) {
+                        // Move Crate
+                        mapState[nextY][nextX] = 3;
+                        
+                        // Move Player into old crate spot
+                        mapState[newY][newX] = 2;
+                        mapState[playerPos.y][playerPos.x] = 0;
+                        
+                        playerPos = { x: newX, y: newY };
+                        moves++;
+                        renderBoard();
+                        return;
+                    }
+                }
+                // Crate blocked
+                return;
+            }
+
+            // Empty Move
+            mapState[newY][newX] = 2;
+            mapState[playerPos.y][playerPos.x] = 0;
+            playerPos = { x: newX, y: newY };
+            moves++;
+            renderBoard();
+        }
+
+        function showStatus(msg) {
+            statusMsg.textContent = msg;
+            statusMsg.classList.add('visible');
+            setTimeout(() => {
+                statusMsg.classList.remove('visible');
+            }, 2000);
+        }
+
+        function resetGame() {
+            mapState = JSON.parse(JSON.stringify(initialMap));
+            playerPos = { x: 3, y: 4 };
+            moves = 0;
+            renderBoard();
+            showStatus("SYSTEM RESET");
+        }
+
+    </script>
+</body>
+</html>

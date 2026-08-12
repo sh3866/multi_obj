@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID LOCK // PROTOCOL 7</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --grid-bg: #0b0c10;
+            --grid-line: rgba(255, 255, 255, 0.03);
+            
+            /* Palette */
+            --wall-face: #121418;
+            --wall-top: #252a33;
+            --wall-shadow: #000000;
+            --floor-color: #1f2329;
+            --text-primary: #e0e6ed;
+            --text-dim: #5c677d;
+            
+            --accent-cyan: #00f3ff;
+            --accent-amber: #ffaa00;
+            --accent-red: #ff2a2a;
+            --accent-green: #00ff66;
+            
+            /* Typography */
+            --font-stack: 'Courier New', 'Consolas', 'Monaco', monospace;
+            
+            /* Dimensions */
+            --cell-size: 90px;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-stack);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* Center vertically */
+            justify-content: center;
+        }
+
+        /* --- CRT/Scanline Effect --- */
+        .bg-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: 
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* --- Main Layout Container --- */
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        /* 1. HUD (Top) */
+        .hud-panel {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 10px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+            margin-bottom: 10px;
+        }
+
+        .hud-title {
+            font-size: 1.6rem;
+            font-weight: 900;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+        }
+        .hud-title span { color: var(--accent-cyan); }
+
+        .hud-stats {
+            display: flex;
+            gap: 40px;
+        }
+
+        .stat-block {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            margin-bottom: 2px;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+            text-shadow: 0 0 10px rgba(255,255,255,0.1);
+        }
+
+        /* 2. Game Area (Board + Sidebar) */
+        .game-area {
+            display: flex;
+            gap: 30px;
+            align-items: stretch;
+        }
+
+        /* Board Container */
+        .board-wrapper {
+            position: relative;
+            padding: 15px;
+            background-color: var(--grid-bg);
+            border-radius: 4px;
+            box-shadow: 
+                0 30px 60px rgba(0, 0, 0, 0.8),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+            /* Subtle radial glow inside container */
+            background-image: radial-gradient(circle at center, rgba(0, 243, 255, 0.02) 0%, transparent 60%);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(7, var(--cell-size));
+            grid-template-rows: repeat(7, var(--cell-size));
+            gap: 0; /* Seamless grid */
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Floor Texture */
+            background-color: var(--floor-color);
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 100% 100%;
+        }
+
+        /* Walls: 3D Block Look */
+        .wall {
+            background-color: var(--wall-face);
+            border: 1px solid #000;
+            box-shadow: 
+                inset 2px 2px 0 var(--wall-top),
+                inset -2px -2px 0 var(--wall-shadow);
+            z-index: 2;
+        }
+        /* Add subtle texture to walls */
+        .wall::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.3) 10px, rgba(0,0,0,0.3) 12px);
+            opacity: 0.6;
+        }
+
+        /* --- Game Elements --- */
+
+        /* The Goal (Portal) */
+        .goal {
+            background: rgba(0, 243, 255, 0.05);
+            border: 1px dashed rgba(0, 243, 255, 0.3);
+            box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.1);
+        }
+        .goal-icon {
+            width: 60%;
+            height: 60%;
+            border: 2px solid var(--accent-cyan);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 0 10px var(--accent-cyan), inset 0 0 10px var(--accent-cyan);
+            position: relative;
+        }
+        .goal-icon::before {
+            content: '';
+            width: 60%;
+            height: 60%;
+            border: 2px solid var(--accent-cyan);
+            border-radius: 50%;
+            opacity: 0.6;
+            animation: pulse 2s infinite;
+        }
+
+        /* The Lever (Geometric Switch) */
+        .lever-container {
+            width: 80%;
+            height: 80%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+        }
+        /* The base plate */
+        .lever-plate {
+            position: absolute;
+            bottom: 15%;
+            width: 50%;
+            height: 20%;
+            background: #111;
+            border: 1px solid #444;
+            box-shadow: 0 0 5px #000;
+        }
+        /* The Switch Handle */
+        .lever-switch {
+            position: absolute;
+            bottom: 25%;
+            width: 14%;
+            height: 50%;
+            background: #333;
+            border-radius: 2px;
+            transform-origin: bottom center;
+            transform: rotate(-30deg);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        /* The Glowing Diamond Head */
+        .lever-head {
+            position: absolute;
+            top: -20%;
+            left: -100%;
+            width: 300%;
+            height: 100%;
+            background: var(--accent-red);
+            transform: rotate(45deg);
+            box-shadow: 0 0 15px var(--accent-red), 0 0 30px rgba(255, 42, 42, 0.5);
+            border: 1px solid #ff6666;
+        }
+        
+        /* Active Lever State */
+        .lever-active .lever-switch {
+            transform: rotate(30deg);
+        }
+        .lever-active .lever-head {
+            background: var(--accent-green);
+            box-shadow: 0 0 15px var(--accent-green), 0 0 30px rgba(0, 255, 102, 0.5);
+            border-color: #aaffaa;
+        }
+
+        /* The Crate */
+        .crate {
+            width: 80%;
+            height: 80%;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            box-shadow: 
+                0 10px 20px rgba(0,0,0,0.6),
+                inset 2px 2px 0 rgba(255,255,255,0.05);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 3;
+        }
+        .crate svg {
+            width: 55%;
+            height: 55%;
+            fill: var(--accent-amber);
+            filter: drop-shadow(0 0 4px rgba(255, 170, 0, 0.5));
+        }
+
+        /* The Player (Strong Hierarchy) */
+        .player {
+            width: 80%; /* Increased size */
+            height: 80%;
+            background: var(--accent-cyan);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            position: relative;
+            z-index: 10;
+            /* Strong Glow */
+            box-shadow: 0 0 20px var(--accent-cyan), 0 0 40px rgba(0, 243, 255, 0.6);
+            animation: playerPulse 2s infinite ease-in-out;
+        }
+        /* Inner core for detail */
+        .player::after {
+            content: '';
+            position: absolute;
+            inset: 15%;
+            background: #fff;
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            opacity: 0.9;
+        }
+
+        /* 3. Sidebar Controls (Right Side) */
+        .sidebar {
+            width: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 10px 0;
+            justify-content: center;
+        }
+
+        .sidebar-section {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 4px;
+        }
+
+        .sidebar-title {
+            font-size: 0.7rem;
+            color: var(--accent-cyan);
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+            padding-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        .control-group:last-child { margin-bottom: 0; }
+
+        .key-cluster {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 4px;
+            width: 70px;
+            height: 46px;
+        }
+        .k-w { grid-column: 2; grid-row: 1; }
+        .k-a { grid-column: 1; grid-row: 2; }
+        .k-s { grid-column: 2; grid-row: 2; }
+        .k-d { grid-column: 3; grid-row: 2; }
+
+        .key {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-primary);
+            font-size: 0.7rem;
+            font-weight: bold;
+            border-radius: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+        }
+        .key-single {
+            width: 30px; height: 30px;
+            background: var(--accent-red);
+            color: #fff;
+            border: none;
+            font-weight: bold;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 0 10px rgba(255, 42, 42, 0.4);
+            border-radius: 3px;
+        }
+
+        .control-label {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Status Message */
+        .status-message {
+            position: fixed;
+            bottom: 50px;
+            font-family: var(--font-stack);
+            font-size: 1rem;
+            color: var(--accent-green);
+            letter-spacing: 3px;
+            text-shadow: 0 0 15px var(--accent-green);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+            z-index: 100;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .status-message.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Animations */
+        @keyframes playerPulse {
+            0% { box-shadow: 0 0 15px var(--accent-cyan), 0 0 30px rgba(0, 243, 255, 0.4); }
+            50% { box-shadow: 0 0 25px var(--accent-cyan), 0 0 50px rgba(0, 243, 255, 0.7); }
+            100% { box-shadow: 0 0 15px var(--accent-cyan), 0 0 30px rgba(0, 243, 255, 0.4); }
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.7; }
+            50% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.7; }
+        }
+
+        /* Responsive */
+        @media (max-width: 850px) {
+            .game-area { flex-direction: column; align-items: center; }
+            .sidebar { 
+                width: 100%; 
+                flex-direction: row; 
+                flex-wrap: wrap; 
+                justify-content: center; 
+                padding: 0;
+            }
+            .sidebar-section { flex: 1; min-width: 200px; }
+            :root { --cell-size: 10vw; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="bg-overlay"></div>
+
+    <div class="main-container">
+        <!-- 1. HUD -->
+        <div class="hud-panel">
+            <h1 class="hud-title">VOID <span>LOCK</span></h1>
+            <div class="hud-stats">
+                <div class="stat-block">
+                    <span class="stat-label">SECTOR</span>
+                    <span class="stat-value">07</span>
+                </div>
+                <div class="stat-block">
+                    <span class="stat-label">MOVES</span>
+                    <span class="stat-value" id="moves-display">00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Game Area (Board + Sidebar) -->
+        <div class="game-area">
+            <!-- Board -->
+            <div class="board-wrapper">
+                <div class="board" id="game-board">
+                    <!-- Grid generated by JS -->
+                </div>
+            </div>
+
+            <!-- Sidebar Controls -->
+            <div class="sidebar">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">Navigation</div>
+                    <div class="control-group">
+                        <div class="key-cluster">
+                            <div class="key k-w">W</div>
+                            <div class="key k-a">A</div>
+                            <div class="key k-s">S</div>
+                            <div class="key k-d">D</div>
+                        </div>
+                        <span class="control-label">Move Unit</span>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-title">System</div>
+                    <div class="control-group">
+                        <div class="key-single">R</div>
+                        <span class="control-label">Reset Sector</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Message -->
+    <div class="status-message" id="status-msg">SYSTEM ONLINE</div>
+
+    <script>
+        // Game Configuration
+        const BOARD_SIZE = 7;
+        const boardEl = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves-display');
+        const statusMsg = document.getElementById('status-msg');
+
+        // 0: Floor, 1: Wall, 2: Player, 3: Crate, 4: Lever (Off), 5: Goal, 6: Lever (On)
+        const initialMap = [
+            [1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 4, 0, 3, 0, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1],
+            [1, 0, 0, 0, 5, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        let mapState = JSON.parse(JSON.stringify(initialMap));
+        let playerPos = { x: 3, y: 4 };
+        let moves = 0;
+
+        // SVG Assets
+        const hazardSvg = `
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L1 21H23L12 2ZM12 6L19.53 19H4.47L12 6ZM11 10V14H13V10H11ZM11 16V18H13V16H11Z"/>
+            </svg>
+        `;
+
+        // Render Function
+        function renderBoard() {
+            boardEl.innerHTML = ''; 
+            
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const cellVal = mapState[y][x];
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+
+                    // Wall
+                    if (cellVal === 1) {
+                        cell.classList.add('wall');
+                    } 
+                    // Goal/Door
+                    else if (cellVal === 5) {
+                        const goalIcon = document.createElement('div');
+                        goalIcon.className = 'goal-icon';
+                        cell.appendChild(goalIcon);
+                    }
+                    // Lever
+                    else if (cellVal === 4 || cellVal === 6) {
+                        const leverContainer = document.createElement('div');
+                        leverContainer.className = 'lever-container';
+                        if(cellVal === 6) leverContainer.classList.add('lever-active');
+
+                        const plate = document.createElement('div');
+                        plate.className = 'lever-plate';
+                        
+                        const switchBase = document.createElement('div');
+                        switchBase.className = 'lever-switch';
+                        
+                        const head = document.createElement('div');
+                        head.className = 'lever-head';
+
+                        switchBase.appendChild(head);
+                        leverContainer.appendChild(plate);
+                        leverContainer.appendChild(switchBase);
+                        cell.appendChild(leverContainer);
+                    }
+                    // Player
+                    else if (cellVal === 2) {
+                        const playerDiv = document.createElement('div');
+                        playerDiv.classList.add('player');
+                        cell.appendChild(playerDiv);
+                    }
+                    // Crate
+                    else if (cellVal === 3) {
+                        const crateDiv = document.createElement('div');
+                        crateDiv.classList.add('crate');
+                        crateDiv.innerHTML = hazardSvg;
+                        cell.appendChild(crateDiv);
+                    }
+
+                    boardEl.appendChild(cell);
+                }
+            }
+            movesDisplay.textContent = moves < 10 ? '0' + moves : moves;
+        }
+
+        // Initial Render
+        renderBoard();
+
+        // Keyboard Controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                resetGame();
+                return;
+            }
+
+            let dx = 0;
+            let dy = 0;
+
+            if (e.key === 'w' || e.key === 'ArrowUp') dy = -1;
+            if (e.key === 's' || e.key === 'ArrowDown') dy = 1;
+            if (e.key === 'a' || e.key === 'ArrowLeft') dx = -1;
+            if (e.key === 'd' || e.key === 'ArrowRight') dx = 1;
+
+            if (dx === 0 && dy === 0) return;
+
+            movePlayer(dx, dy);
+        });
+
+        function movePlayer(dx, dy) {
+            const newX = playerPos.x + dx;
+            const newY = playerPos.y + dy;
+
+            // Bounds Check
+            if (newX < 0 || newX >= BOARD_SIZE || newY < 0 || newY >= BOARD_SIZE) return;
+
+            const targetCell = mapState[newY][newX];
+
+            // Wall Collision
+            if (targetCell === 1) return;
+
+            // Interaction: Lever (Inactive)
+            if (targetCell === 4) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 6; // Turn on
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                showStatus("LEVER ENGAGED");
+                return;
+            }
+             
+            // Interaction: Lever (Active)
+            if (targetCell === 6) {
+                mapState[playerPos.y][playerPos.x] = 0;
+                mapState[newY][newX] = 2;
+                playerPos = { x: newX, y: newY };
+                moves++;
+                renderBoard();
+                return;
+            }
+
+            // Interaction: Crate
+            if (targetCell === 3) {
+                const nextX = newX + dx;
+                const nextY = newY + dy;
+                
+                if (nextX >= 0 && nextX < BOARD_SIZE && nextY >= 0 && nextY < BOARD_SIZE) {
+                    const nextCell = mapState[nextY][nextX];
+                    // Crate can't push walls, other crates, or levers (simplified logic)
+                    if (nextCell !== 1 && nextCell !== 3 && nextCell !== 4 && nextCell !== 6) {
+                        mapState[nextY][nextX] = 3; // Move crate
+                        mapState[newY][newX] = 2;  // Move player to crate spot
+                        mapState[playerPos.y][playerPos.x] = 0; // Clear old player spot
+                        
+                        playerPos = { x: newX, y: newY };
+                        moves++;
+                        renderBoard();
+                        return;
+                    }
+                }
+                return;
+            }
+
+            // Empty Move
+            mapState[newY][newX] = 2;
+            mapState[playerPos.y][playerPos.x] = 0;
+            playerPos = { x: newX, y: newY };
+            moves++;
+            renderBoard();
+        }
+
+        function showStatus(msg) {
+            statusMsg.textContent = msg;
+            statusMsg.classList.add('visible');
+            setTimeout(() => {
+                statusMsg.classList.remove('visible');
+            }, 2000);
+        }
+
+        function resetGame() {
+            mapState = JSON.parse(JSON.stringify(initialMap));
+            playerPos = { x: 3, y: 4 };
+            moves = 0;
+            renderBoard();
+            showStatus("SYSTEM RESET");
+        }
+
+    </script>
+</body>
+</html>

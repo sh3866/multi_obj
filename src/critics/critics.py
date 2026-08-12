@@ -151,17 +151,23 @@ async def fused_critic(instruction: str, axes: List[Axis], html: str,
                                        temperature=cfg.critic_temperature,
                                        usage_stats=usage, tag="crit:fused")
         d = extract_json(raw)
-        if d is None:
-            raw2 = await vlm_c.generate_vlm(
-                prompt + "\n\nRespond with ONLY the JSON object — no <think>, no preamble.",
+        retry_raw = ""
+        if not _valid_design_verdict(d):
+            retry_raw = await vlm_c.generate_vlm(
+                prompt + _DESIGN_JSON_RETRY,
                 [png] if png else [], max_tokens=1536, temperature=cfg.critic_temperature,
-                usage_stats=usage, tag="crit:fused", think=False)
-            d = extract_json(raw2) or {}
-            raw = raw2 if not d else raw
+                usage_stats=usage, tag="crit:fused:retry", think=False) or ""
+            d2 = extract_json(retry_raw)
+            if _valid_design_verdict(d2):
+                d = d2
+        valid = _valid_design_verdict(d)
+        d = d or {}
         salv = _salvage_text(raw or "")
         return {"axis": "overall", "score": 3, "parse_ok": bool(d), "good_enough": False,
                 "critique": str(d.get("critique", salv if not d else "")),
-                "suggestion": _pick_suggestion(d)}
+                "suggestion": _pick_suggestion(d), "contract_ok": valid,
+                "runtime_prompt": prompt, "raw_response": raw or "",
+                "retry_raw_response": retry_raw}
     use_vision = png is not None
     src = "" if use_vision else html[:6000]
     prompt = prompts.fused_critic_prompt(instruction, axes,
