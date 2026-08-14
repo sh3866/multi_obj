@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree - Retro Edition</title>
+<style>
+  /* 
+    SYSTEM FONTS ONLY. 
+    'Courier New' + 'Lucida Console' + 'monospace' stack with specific rendering 
+    to simulate a bitmap font without external requests.
+  */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #050505;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Courier New', 'Lucida Console', 'VCR OSD Mono', monospace;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: crisp-edges;
+    color: #fff;
+  }
+
+  #game-container {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    background: #000;
+    box-shadow: 
+      0 0 0 4px #222,
+      0 0 0 8px #111,
+      0 30px 60px rgba(0,0,0,0.9);
+    overflow: hidden;
+    /* No border-radius for CRT feel */
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* Critical for pixel art look */
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* 
+    CRT EFFECTS: Scanlines & Vignette
+    Applied via CSS overlays for performance and "hardware" feel.
+  */
+  #scanlines {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.3),
+      rgba(0,0,0,0.3) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 20;
+  }
+
+  #vignette {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 21;
+    background: radial-gradient(circle at center, rgba(0,0,0,0) 60%, rgba(0,0,0,0.8) 100%);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.9);
+  }
+
+  /* 
+    UI OVERLAY 
+    Uses absolute positioning to layer on top of canvas.
+  */
+  #ui-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; /* Let clicks pass through if needed */
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  /* 
+    1. TITLE: Big, bold, heavy shadow. 
+  */
+  #title {
+    margin-top: 60px;
+    font-size: 80px;
+    font-weight: bold;
+    color: #ffffff;
+    /* Hard offset shadow for depth */
+    text-shadow: 
+      6px 6px 0 #0000aa, 
+      12px 12px 0 #000000;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    user-select: none;
+    line-height: 0.8;
+    z-index: 16;
+    transition: opacity 0.5s ease;
+  }
+
+  /* 
+    2. HUD BAR: Dark semi-transparent bar at bottom.
+  */
+  #hud-bar {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 80px; /* Approx 15% of 600px height */
+    background: rgba(0, 0, 10, 0.85);
+    border-top: 4px solid #444;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 40px;
+    z-index: 18;
+    box-shadow: 0 -10px 20px rgba(0,0,0,0.5);
+  }
+
+  /* 
+    3. INSTRUCTIONS: Moved into HUD bar. 
+  */
+  #instructions {
+    font-size: 16px;
+    color: #aaaaaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-shadow: 1px 1px 0 #000;
+  }
+
+  #key-hint {
+    color: #fff;
+    border: 2px solid #fff;
+    padding: 2px 6px;
+    margin: 0 4px;
+    font-weight: bold;
+    display: inline-block;
+  }
+
+  /* 
+    4. START BUTTON: Large, pixelated, blinking.
+  */
+  #start-btn {
+    font-size: 24px;
+    font-weight: bold;
+    color: #ffff00;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-shadow: 3px 3px 0 #000;
+    cursor: pointer;
+    pointer-events: auto; /* Allow clicking */
+    animation: blink 1s steps(2, start) infinite;
+  }
+
+  @keyframes blink {
+    to { opacity: 0; }
+  }
+
+  /* Score display (hidden initially) */
+  #score-display {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 24px;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 19;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="scene" width="320" height="240"></canvas>
+  <div id="vignette"></div>
+  <div id="scanlines"></div>
+  
+  <div id="ui-layer">
+    <div id="title">SkiFree</div>
+    
+    <div id="score-display">SCORE: <span id="score-val">0</span></div>
+
+    <div id="hud-bar">
+      <div id="instructions">
+        Use <span id="key-hint">↑</span> <span id="key-hint">↓</span> <span id="key-hint">←</span> <span id="key-hint">→</span> to Ski
+      </div>
+      <div id="start-btn">PRESS SPACE TO START</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const W = 320, H = 240;
+
+// 4. PALETTE: Twilight / Retro
+const PAL = {
+  sky1: '#05001a', // Deepest purple
+  sky2: '#10003a',
+  sky3: '#20005a',
+  sky4: '#40007a',
+  sky5: '#60009a', // Horizon glow
+  snow1: '#304060', // Shadow snow
+  snow2: '#506080',
+  snow3: '#7080a0',
+  snow4: '#90a0c0',
+  snow5: '#b0c0e0', // Highlight snow
+  tree1: '#051005',
+  tree2: '#0a200a',
+  trunk: '#1a0a05',
+  skier_body: '#d01010',
+  skier_skin: '#e0a080',
+  skier_hair: '#301000',
+  skier_pants: '#000080',
+  skier_skis: '#eeeeee',
+  skier_poles: '#aaaaaa',
+  skier_goggles: '#000000',
+  shadow: 'rgba(0, 0, 20, 0.4)',
+  cloud: '#505070',
+  mountain: '#101020',
+  mountainSnow: '#303050',
+};
+
+// State
+let time = 0;
+let skierX = W / 2;
+let skierY = 140; // Positioned slightly lower
+let skierDir = 1;
+let isMoving = false;
+let speed = 0;
+let score = 0;
+
+// Trees
+const trees = [];
+for (let i = 0; i < 30; i++) {
+  trees.push({
+    x: Math.random() * W,
+    y: 80 + Math.random() * 160, 
+    size: 0.6 + Math.random() * 0.5,
+    shade: Math.random() > 0.5 ? 0 : 1
+  });
+}
+trees.sort((a, b) => a.y - b.y);
+
+// Clouds
+const clouds = [];
+for (let i = 0; i < 5; i++) {
+  clouds.push({
+    x: Math.random() * W,
+    y: 20 + Math.random() * 30,
+    w: 25 + Math.random() * 35,
+    speed: 0.05 + Math.random() * 0.1
+  });
+}
+
+// Snow particles
+const snowflakes = [];
+for (let i = 0; i < 60; i++) {
+  snowflakes.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    speed: 1 + Math.random() * 2,
+    size: Math.random() > 0.7 ? 2 : 1
+  });
+}
+
+// Controls
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.code === 'Space' && !isMoving) {
+    startGame();
+  }
+});
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+// UI Logic
+function startGame() {
+  isMoving = true;
+  document.getElementById('start-btn').style.display = 'none';
+  document.getElementById('title').style.opacity = '0.2';
+  document.getElementById('score-display').style.opacity = '1';
+}
+
+// --- Drawing Functions ---
+
+function drawSky() {
+  // Stepped Gradient (8-bit style)
+  const bandHeight = 12;
+  const bands = [PAL.sky1, PAL.sky1, PAL.sky2, PAL.sky2, PAL.sky3, PAL.sky3, PAL.sky4, PAL.sky5, PAL.sky5];
+  
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(0, i * bandHeight, W, bandHeight);
+  }
+}
+
+function drawClouds() {
+  ctx.fillStyle = PAL.cloud;
+  clouds.forEach(c => {
+    c.x += c.speed;
+    if (c.x > W + 30) c.x = -c.w;
+    
+    const cx = Math.round(c.x);
+    const cy = Math.round(c.y);
+    const cw = Math.round(c.w);
+    
+    ctx.fillRect(cx, cy + 4, cw, 4); 
+    ctx.fillRect(cx + 6, cy, cw - 12, 4); 
+    ctx.fillRect(cx + 4, cy + 8, cw - 8, 2); 
+  });
+}
+
+function drawMountains() {
+  ctx.fillStyle = PAL.mountain;
+  ctx.beginPath();
+  ctx.moveTo(0, 80);
+  ctx.lineTo(50, 40);
+  ctx.lineTo(100, 65);
+  ctx.lineTo(160, 25);
+  ctx.lineTo(220, 55);
+  ctx.lineTo(280, 30);
+  ctx.lineTo(320, 70);
+  ctx.lineTo(320, 100);
+  ctx.lineTo(0, 100);
+  ctx.fill();
+  
+  // Snow caps
+  ctx.fillStyle = PAL.mountainSnow;
+  ctx.beginPath();
+  // Peak 1
+  ctx.moveTo(40, 45); ctx.lineTo(50, 40); ctx.lineTo(60, 45);
+  // Peak 2
+  ctx.moveTo(150, 30); ctx.lineTo(160, 25); ctx.lineTo(170, 30);
+  // Peak 3
+  ctx.moveTo(270, 35); ctx.lineTo(280, 30); ctx.lineTo(290, 35);
+  ctx.fill();
+}
+
+function drawSnow() {
+  // Stepped Gradient for ground
+  const startH = 80;
+  const bandH = 12;
+  const colors = [PAL.snow1, PAL.snow1, PAL.snow2, PAL.snow3, PAL.snow3, PAL.snow4, PAL.snow5];
+  
+  for (let y = startH; y < H; y += bandH) {
+    const colorIdx = Math.min(Math.floor((y - startH) / bandH), colors.length - 1);
+    ctx.fillStyle = colors[colorIdx];
+    ctx.fillRect(0, y, W, bandH);
+  }
+  
+  // Subtle noise
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  for(let i=0; i<50; i++) {
+    const rx = Math.random() * W;
+    const ry = startH + Math.random() * (H - startH);
+    ctx.fillRect(Math.round(rx), Math.round(ry), 2, 1);
+  }
+}
+
+function drawTree(x, y, size, shade) {
+  const s = Math.floor(size * 12); 
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  
+  // Shadow
+  ctx.fillStyle = PAL.shadow;
+  ctx.fillRect(tx - 4, ty, 8, 3);
+  
+  // Trunk
+  ctx.fillStyle = PAL.trunk;
+  ctx.fillRect(tx - 1, ty - 2, 2, 6);
+  
+  // Leaves
+  ctx.fillStyle = shade === 0 ? PAL.tree1 : PAL.tree2;
+  
+  // Tier 1 (Top)
+  ctx.fillRect(tx, ty - 14, 2, 2);
+  ctx.fillRect(tx - 2, ty - 12, 6, 2);
+  ctx.fillRect(tx - 4, ty - 10, 10, 2);
+  
+  // Tier 2
+  ctx.fillRect(tx - 6, ty - 8, 14, 2);
+  ctx.fillRect(tx - 8, ty - 6, 16, 2);
+  
+  // Tier 3 (Bottom)
+  ctx.fillRect(tx - 10, ty - 4, 20, 2);
+  ctx.fillRect(tx - 12, ty - 2, 24, 2);
+  
+  // Snow on branches
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(tx - 1, ty - 14, 2, 1);
+  ctx.fillRect(tx - 4, ty - 10, 2, 1);
+  ctx.fillRect(tx + 2, ty - 8, 2, 1);
+  ctx.fillRect(tx - 8, ty - 6, 3, 1);
+  ctx.fillRect(tx + 4, ty - 4, 3, 1);
+}
+
+function drawSkier(x, y, dir) {
+  const sx = Math.round(x);
+  const sy = Math.round(y);
+  
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(dir, 1);
+  
+  // Skis
+  ctx.fillStyle = PAL.skier_skis;
+  ctx.fillRect(-7, 12, 6, 2); // Left
+  ctx.fillRect(1, 12, 6, 2);  // Right
+  
+  // Legs
+  ctx.fillStyle = PAL.skier_pants;
+  ctx.fillRect(-5, 7, 3, 5);
+  ctx.fillRect(2, 7, 3, 5);
+  
+  // Body
+  ctx.fillStyle = PAL.skier_body;
+  ctx.fillRect(-5, -3, 10, 10);
+  
+  // Head
+  ctx.fillStyle = PAL.skier_skin;
+  ctx.fillRect(-3, -8, 6, 5);
+  
+  // Goggles
+  ctx.fillStyle = PAL.skier_goggles;
+  ctx.fillRect(0, -6, 4, 3);
+  
+  // Poles
+  ctx.fillStyle = PAL.skier_poles;
+  ctx.fillRect(-6, 2, 1, 12);
+  ctx.fillRect(5, 2, 1, 12);
+  
+  ctx.restore();
+}
+
+function drawSnowflakes() {
+  ctx.fillStyle = '#fff';
+  snowflakes.forEach(f => {
+    f.y += f.speed + (isMoving ? speed * 1.5 : 0); 
+    f.x += Math.sin(time * 0.05 + f.y * 0.1) * 0.5;
+    
+    if (f.y > H) f.y = 0;
+    if (f.x > W) f.x = 0;
+    if (f.x < 0) f.x = W;
+    
+    ctx.fillRect(Math.round(f.x), Math.round(f.y), f.size, f.size);
+  });
+}
+
+// --- Main Loop ---
+
+function update() {
+  time++;
+  
+  if (isMoving) {
+    if (keys['ArrowUp']) speed = Math.min(speed + 0.08, 5);
+    else if (keys['ArrowDown']) speed = Math.max(speed - 0.15, 0);
+    else speed = Math.min(speed + 0.01, 2.5); 
+    
+    if (speed > 0.5) {
+      if (keys['ArrowLeft']) { skierX -= 1.5; skierDir = -1; }
+      if (keys['ArrowRight']) { skierX += 1.5; skierDir = 1; }
+    }
+    
+    if (skierX < 10) skierX = 10;
+    if (skierX > W - 10) skierX = W - 10;
+    
+    score += Math.floor(speed);
+    document.getElementById('score-val').innerText = score;
+  } else {
+    // Idle sway
+    skierX = W/2 + Math.sin(time * 0.03) * 25;
+    skierDir = Math.cos(time * 0.03) > 0 ? 1 : -1;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  
+  drawSky();
+  drawClouds();
+  drawMountains();
+  drawSnow();
+  
+  // Draw Trees
+  const treeOffset = isMoving ? (time * speed * 3) % H : 0;
+  
+  trees.forEach(t => {
+    let ty = t.y + (isMoving ? treeOffset : 0);
+    if (ty > H) ty -= H;
+    
+    if (ty > 0 && ty < H) {
+      drawTree(t.x, ty, t.size, t.shade);
+    }
+  });
+  
+  drawSkier(skierX, skierY, skierDir);
+  drawSnowflakes();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+</script>
+</body>
+</html>

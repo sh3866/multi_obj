@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conway's Sphere — Neon Automata</title>
+<style>
+    :root {
+        --bg-color: #030305;
+        --panel-bg: rgba(20, 20, 30, 0.4);
+        --panel-border: rgba(255, 255, 255, 0.1);
+        --neon-cyan: #00f3ff;
+        --neon-magenta: #ff00ff;
+        --neon-purple: #bc13fe;
+        --neon-gold: #ffd700;
+        --text-primary: #ffffff;
+        --text-secondary: #94a3b8;
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Background Canvas */
+    #canvas-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+    }
+
+    /* UI Panel - Glassmorphism HUD */
+    #ui-panel {
+        position: absolute;
+        left: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 320px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid var(--panel-border);
+        border-top: 1px solid rgba(255,255,255,0.2);
+        border-left: 1px solid rgba(255,255,255,0.2);
+        border-radius: 16px;
+        padding: 32px;
+        z-index: 10;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 
+                    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+        transition: opacity 0.5s ease;
+    }
+
+    /* Header */
+    .header {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    h1 {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        margin: 0;
+        color: #fff;
+        text-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+    }
+
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--neon-cyan);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+
+    .status-dot {
+        width: 6px;
+        height: 6px;
+        background-color: var(--neon-cyan);
+        border-radius: 50%;
+        box-shadow: 0 0 8px var(--neon-cyan);
+        animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    .status-dot.paused { 
+        background-color: var(--text-secondary); 
+        box-shadow: none; 
+        animation: none;
+    }
+
+    /* Data Grid */
+    .data-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        padding: 20px 0;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .data-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .data-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        color: var(--text-secondary);
+    }
+
+    .data-value {
+        font-family: var(--font-mono);
+        font-size: 22px;
+        font-weight: 600;
+        color: #fff;
+        text-shadow: 0 0 10px rgba(255,255,255,0.3);
+    }
+
+    /* Controls */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .value-display {
+        color: var(--neon-cyan);
+        font-family: var(--font-mono);
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        margin-top: -6px;
+        box-shadow: 0 0 10px rgba(255,255,255,0.8);
+        transition: transform 0.1s;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        cursor: pointer;
+        background: rgba(255,255,255,0.15);
+        border-radius: 2px;
+    }
+
+    /* Buttons */
+    .btn-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 10px;
+    }
+
+    button {
+        padding: 14px;
+        border: 1px solid var(--panel-border);
+        background: rgba(255,255,255,0.03);
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-family: var(--font-ui);
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        border-color: rgba(255,255,255,0.4);
+        box-shadow: 0 0 15px rgba(255,255,255,0.1);
+    }
+
+    button.primary {
+        background: rgba(0, 243, 255, 0.1);
+        border: 1px solid rgba(0, 243, 255, 0.3);
+        color: var(--neon-cyan);
+    }
+
+    button.primary:hover {
+        background: rgba(0, 243, 255, 0.2);
+        color: #fff;
+        border-color: var(--neon-cyan);
+        box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        #ui-panel {
+            left: 0;
+            bottom: 0;
+            top: auto;
+            transform: none;
+            width: 100%;
+            border-radius: 24px 24px 0 0;
+            border-left: none;
+            border-right: none;
+            border-bottom: none;
+            padding: 24px;
+            box-sizing: border-box;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
+        }
+        
+        canvas {
+            /* Shift canvas slightly up on mobile so panel doesn't cover sphere center */
+            transform: translateY(-50px); 
+        }
+    }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="bg-canvas"></canvas>
+</div>
+
+<div id="ui-panel">
+    <div class="header">
+        <h1>
+            NEON SPHERE
+        </h1>
+        <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Simulation Active</span>
+        </div>
+        <div class="subtitle" style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
+            3D Cellular Automata
+        </div>
+    </div>
+
+    <div class="data-grid">
+        <div class="data-item">
+            <span class="data-label">Generation</span>
+            <span class="data-value" id="genCount">0</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Population</span>
+            <span class="data-value" id="popCount">0</span>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Evolution Speed</span>
+            <span id="speedVal" class="value-display">50%</span>
+        </div>
+        <input type="range" id="speed" min="1" max="100" value="50">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Rotation</span>
+            <span id="rotVal" class="value-display">Auto</span>
+        </div>
+        <input type="range" id="rotation" min="0" max="100" value="30">
+    </div>
+
+    <div class="btn-group">
+        <button id="btnReset">Randomize</button>
+        <button id="btnPause" class="primary">Pause</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration
+     */
+    const canvas = document.getElementById('bg-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    
+    let width, height, cx, cy, radius;
+    
+    // Simulation Dimensions (High Density)
+    const TEX_W = 256; // Texture Width (Longitude)
+    const TEX_H = 128; // Texture Height (Latitude)
+    const TOTAL_CELLS = TEX_W * TEX_H;
+    
+    // Simulation State
+    let grid = new Uint8Array(TOTAL_CELLS); 
+    let nextGrid = new Uint8Array(TOTAL_CELLS);
+    let ageMap = new Uint8Array(TOTAL_CELLS); 
+    
+    // Offscreen canvas for the texture
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = TEX_W;
+    textureCanvas.height = TEX_H;
+    const tCtx = textureCanvas.getContext('2d');
+    const tImageData = tCtx.createImageData(TEX_W, TEX_H);
+    
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    
+    // Visuals
+    let rotationSpeed = 0.002;
+    let simSpeed = 50;
+    let cellDensity = 0.45;
+    let rotY = 0;
+    let rotX = 0.3;
+    
+    // Interaction
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        cx = width / 2;
+        cy = height / 2;
+        // Sphere takes up roughly 60% of the smallest screen dimension
+        radius = Math.min(width, height) * 0.35;
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            grid[i] = Math.random() < cellDensity ? 1 : 0;
+            // Random initial ages for visual variety
+            ageMap[i] = grid[i] ? Math.floor(Math.random() * 50) : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Game Logic (Conway's GoL)
+     */
+    function step() {
+        for (let y = 0; y < TEX_H; y++) {
+            for (let x = 0; x < TEX_W; x++) {
+                const idx = y * TEX_W + x;
+                const state = grid[idx];
+                
+                // Count neighbors (Toroidal wrapping)
+                let neighbors = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        
+                        let nx = (x + dx + TEX_W) % TEX_W;
+                        let ny = (y + dy + TEX_H) % TEX_H;
+                        
+                        if (grid[ny * TEX_W + nx]) neighbors++;
+                    }
+                }
+                
+                if (state === 1) {
+                    if (neighbors < 2 || neighbors > 3) {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0; 
+                    } else {
+                        nextGrid[idx] = 1;
+                        ageMap[idx]++;   
+                    }
+                } else {
+                    if (neighbors === 3) {
+                        nextGrid[idx] = 1;
+                        ageMap[idx] = 1; 
+                    } else {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0;
+                    }
+                }
+            }
+        }
+        
+        // Swap buffers
+        let tempG = grid; grid = nextGrid; nextGrid = tempG;
+        
+        generation++;
+    }
+
+    /**
+     * Rendering
+     */
+    function updateTexture() {
+        const data = tImageData.data;
+        
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            const pIdx = i * 4;
+            const isAlive = grid[i];
+            const age = ageMap[i];
+            
+            if (isAlive) {
+                // REVITALIZED NEON PALETTE
+                // 0-15: Cyan (New/Electric)
+                // 15-40: Magenta/Purple (Active)
+                // 40+: Gold (Ancient/Stable)
+                
+                let r, g, b;
+                
+                if (age < 15) {
+                    r = 0; g = 243; b = 255; // Cyan
+                } else if (age < 40) {
+                    r = 188; g = 19; b = 254; // Neon Purple
+                } else {
+                    r = 255; g = 0; b = 255; // Magenta
+                }
+                
+                data[pIdx] = r;
+                data[pIdx+1] = g;
+                data[pIdx+2] = b;
+                data[pIdx+3] = 255; 
+            } else {
+                data[pIdx] = 0;
+                data[pIdx+1] = 0;
+                data[pIdx+2] = 0;
+                data[pIdx+3] = 0;
+            }
+        }
+        
+        tCtx.putImageData(tImageData, 0, 0);
+    }
+
+    function draw() {
+        // 1. Clear & Background
+        ctx.fillStyle = '#030305';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Auto Rotation
+        if (!isDragging && rotationSpeed > 0) {
+            rotY += rotationSpeed;
+        }
+        
+        // 2. Update Simulation & Texture
+        if (!isPaused) {
+            const framesPerStep = Math.max(1, Math.floor(101 - simSpeed));
+            if (frameCount % framesPerStep === 0) {
+                step();
+                updateStats();
+            }
+            frameCount++;
+        }
+        updateTexture();
+
+        // 3. Draw the Sphere
+        
+        // Pass A: The Dark Body (Base)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#050508'; 
+        ctx.fill();
+        ctx.restore();
+
+        // Pass B: The Texture (The "Life")
+        // We clip to the sphere and draw the texture.
+        // Because the texture is wrapped (toroidal), simply scrolling the image
+        // creates a "Data Globe" effect which fits the neon aesthetic perfectly.
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.clip();
+        
+        // Calculate texture offset based on rotation
+        const drawX = cx - radius;
+        const drawY = cy - radius;
+        const drawW = radius * 2;
+        const drawH = radius * 2;
+        
+        const tx = (rotY / (Math.PI * 2)) * TEX_W;
+        
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Draw texture twice to handle seamless scrolling
+        ctx.drawImage(textureCanvas, 0, 0, TEX_W, TEX_H, 
+                      drawX - (tx % TEX_W), drawY, drawW, drawH);
+        ctx.drawImage(textureCanvas, 0, 0, TEX_W, TEX_H, 
+                      drawX - (tx % TEX_W) + drawW, drawY, drawW, drawH);
+        
+        ctx.restore(); // Remove clip
+
+        // Pass C: 3D Lighting & "True 3D" Feel
+        
+        // 1. Inner Shadow (Ambient Occlusion)
+        // Darken the edges to simulate depth and curvature
+        const grad3D = ctx.createRadialGradient(cx - radius*0.4, cy - radius*0.4, radius*0.1,
+                                                cx, cy, radius);
+        grad3D.addColorStop(0, 'rgba(0,0,0,0)'); 
+        grad3D.addColorStop(0.5, 'rgba(0,0,0,0.3)');
+        grad3D.addColorStop(1, 'rgba(0,0,0,0.95)'); 
+        
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = grad3D;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 2. Rim Light (Fresnel Effect)
+        // Adds a glowing edge to separate the sphere from the background
+        const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.85,
+                                                 cx, cy, radius);
+        rimGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        rimGrad.addColorStop(0.8, 'rgba(0, 243, 255, 0.1)'); 
+        rimGrad.addColorStop(1, 'rgba(188, 19, 254, 0.5)');   
+        
+        ctx.globalCompositeOperation = 'lighter'; 
+        ctx.fillStyle = rimGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 3. Atmospheric Glow (Bloom)
+        ctx.globalCompositeOperation = 'lighter';
+        const glowGrad = ctx.createRadialGradient(cx, cy, radius * 0.9,
+                                                  cx, cy, radius * 1.6);
+        glowGrad.addColorStop(0, 'rgba(0, 243, 255, 0.08)');
+        glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function loop() {
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const rotSlider = document.getElementById('rotation');
+        const rotVal = document.getElementById('rotVal');
+        rotSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            if (val === 0) {
+                rotationSpeed = 0;
+                rotVal.innerText = 'Off';
+            } else {
+                rotationSpeed = val * 0.0005;
+                rotVal.innerText = val < 30 ? 'Slow' : (val > 70 ? 'Fast' : 'Auto');
+            }
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            randomizeGrid();
+        });
+        
+        const pauseBtn = document.getElementById('btnPause');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseBtn.innerText = isPaused ? 'Resume' : 'Pause';
+            pauseBtn.classList.toggle('primary', !isPaused);
+            statusDot.classList.toggle('paused', isPaused);
+            statusText.innerText = isPaused ? "Simulation Paused" : "Simulation Active";
+            statusText.style.color = isPaused ? "var(--text-secondary)" : "var(--neon-cyan)";
+        });
+    }
+
+    function setupInteraction() {
+        const startDrag = (x, y) => {
+            isDragging = true;
+            lastMouseX = x;
+            lastMouseY = y;
+        };
+
+        const moveDrag = (x, y) => {
+            if (isDragging) {
+                const deltaX = x - lastMouseX;
+                const deltaY = y - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = x;
+                lastMouseY = y;
+            }
+        };
+
+        const endDrag = () => {
+            isDragging = false;
+        };
+
+        canvas.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        window.addEventListener('mouseup', endDrag);
+
+        canvas.addEventListener('touchstart', (e) => {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchmove', (e) => {
+            if(isDragging) e.preventDefault();
+            moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchend', endDrag);
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop.toLocaleString();
+        document.getElementById('genCount').innerText = generation.toLocaleString();
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

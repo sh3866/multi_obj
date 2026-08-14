@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conway's Sphere — Volumetric Automata</title>
+<style>
+    :root {
+        --bg-color: #050508;
+        --panel-bg: rgba(10, 10, 15, 0.65);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --neon-cyan: #00f3ff;
+        --neon-magenta: #ff00ff;
+        --neon-purple: #bc13fe;
+        --neon-gold: #ffd700;
+        --text-primary: #ffffff;
+        --text-secondary: #6b7280;
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+        background: radial-gradient(circle at 50% 50%, #0f0f18 0%, #050508 100%);
+    }
+
+    /* Canvas Container */
+    #canvas-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        cursor: grab;
+    }
+    
+    #canvas-container:active {
+        cursor: grabbing;
+    }
+
+    /* UI Panel - HUD Style */
+    #ui-panel {
+        position: absolute;
+        left: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 340px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--panel-border);
+        border-left: 2px solid var(--neon-cyan);
+        border-radius: 12px;
+        padding: 28px;
+        z-index: 10;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 
+                    inset 0 0 20px rgba(0, 243, 255, 0.03);
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    /* Header */
+    .header {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 16px;
+    }
+
+    h1 {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        margin: 0;
+        color: #fff;
+        text-transform: uppercase;
+    }
+
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-family: var(--font-mono);
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background-color: var(--neon-cyan);
+        border-radius: 0; /* Square for tech feel */
+        box-shadow: 0 0 10px var(--neon-cyan);
+        animation: pulse 1.5s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--neon-cyan); }
+        50% { opacity: 0.4; box-shadow: 0 0 2px var(--neon-cyan); }
+    }
+
+    .status-dot.paused { 
+        background-color: var(--text-secondary); 
+        box-shadow: none; 
+        animation: none; 
+    }
+
+    /* Data Grid - Monospace Data */
+    .data-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+
+    .data-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .data-label {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-secondary);
+        font-family: var(--font-ui);
+    }
+
+    .data-value {
+        font-family: var(--font-mono);
+        font-size: 20px;
+        font-weight: 400;
+        color: var(--neon-cyan);
+        text-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+    }
+
+    /* Controls */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-family: var(--font-ui);
+    }
+
+    .value-display {
+        color: #fff;
+        font-family: var(--font-mono);
+        font-size: 11px;
+    }
+
+    /* Custom Range Slider - Minimalist */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin: 0;
+        cursor: pointer;
+        height: 20px; /* Larger touch target */
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 12px;
+        width: 12px;
+        border-radius: 0; /* Square thumb */
+        background: #fff;
+        cursor: pointer;
+        margin-top: -4px;
+        box-shadow: 0 0 5px rgba(255,255,255,0.5);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 2px;
+        cursor: pointer;
+        background: rgba(255,255,255,0.15);
+    }
+
+    /* Buttons */
+    .btn-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+    button {
+        padding: 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(0,0,0,0.2);
+        color: var(--text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-family: var(--font-ui);
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.05);
+        color: #fff;
+        border-color: rgba(255,255,255,0.3);
+    }
+
+    button.primary {
+        background: rgba(0, 243, 255, 0.08);
+        border: 1px solid rgba(0, 243, 255, 0.4);
+        color: var(--neon-cyan);
+    }
+
+    button.primary:hover {
+        background: rgba(0, 243, 255, 0.15);
+        border-color: var(--neon-cyan);
+        box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+    }
+
+    /* Legend */
+    .legend {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 4px;
+        font-size: 9px;
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+        opacity: 0.7;
+    }
+    .legend-item span {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        margin-right: 4px;
+        vertical-align: middle;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        #ui-panel {
+            left: 0;
+            bottom: 0;
+            top: auto;
+            transform: none;
+            width: 100%;
+            border-radius: 20px 20px 0 0;
+            border-left: 1px solid var(--panel-border);
+            border-bottom: none;
+            padding: 24px;
+            box-sizing: border-box;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
+        }
+    }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="bg-canvas"></canvas>
+</div>
+
+<div id="ui-panel">
+    <div class="header">
+        <h1>
+            CONWAY SPHERE
+        </h1>
+        <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Simulation Active</span>
+        </div>
+    </div>
+
+    <div class="data-grid">
+        <div class="data-item">
+            <span class="data-label">Generation</span>
+            <span class="data-value" id="genCount">0</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Population</span>
+            <span class="data-value" id="popCount">0</span>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Simulation Speed</span>
+            <span id="speedVal" class="value-display">50%</span>
+        </div>
+        <input type="range" id="speed" min="1" max="100" value="50">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Rotation Velocity</span>
+            <span id="rotVal" class="value-display">Auto</span>
+        </div>
+        <input type="range" id="rotation" min="0" max="100" value="30">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Cell Density</span>
+            <span id="denVal" class="value-display">Normal</span>
+        </div>
+        <input type="range" id="density" min="10" max="90" value="45">
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><span style="background:var(--neon-gold)"></span>Stable</div>
+        <div class="legend-item"><span style="background:var(--neon-purple)"></span>Active</div>
+        <div class="legend-item"><span style="background:var(--neon-cyan)"></span>Birth</div>
+    </div>
+
+    <div class="btn-group">
+        <button id="btnReset">Randomize</button>
+        <button id="btnPause" class="primary">Pause</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration
+     */
+    const canvas = document.getElementById('bg-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    
+    let width, height, cx, cy, sphereRadius;
+    
+    // Simulation Dimensions (The "Texture" Grid)
+    // We use a 2D array to calculate neighbors easily, then map to 3D
+    const TEX_W = 256; 
+    const TEX_H = 128; 
+    const TOTAL_CELLS = TEX_W * TEX_H;
+    
+    // Simulation State
+    let grid = new Uint8Array(TOTAL_CELLS); 
+    let nextGrid = new Uint8Array(TOTAL_CELLS);
+    let ageMap = new Uint16Array(TOTAL_CELLS); // Using uint16 for older ages
+    
+    // Pre-calculated 3D Points for performance
+    // We store the 3D coordinates of every pixel in the texture
+    let points3D = []; 
+    
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    
+    // Visuals
+    let rotationSpeed = 0.002;
+    let simSpeed = 50;
+    let cellDensity = 0.45;
+    let rotY = 0;
+    let rotX = 0.3;
+    
+    // Interaction
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        cx = width / 2;
+        cy = height / 2;
+        sphereRadius = Math.min(width, height) * 0.35;
+        
+        // Re-calculate 3D points on resize
+        calculateSpherePoints();
+    }
+
+    // Pre-calculate the 3D position for every cell in the 2D texture
+    function calculateSpherePoints() {
+        points3D = new Float32Array(TOTAL_CELLS * 3); // x, y, z for each cell
+        
+        for (let y = 0; y < TEX_H; y++) {
+            for (let x = 0; x < TEX_W; x++) {
+                const idx = y * TEX_W + x;
+                
+                // Map 2D texture coordinates to Spherical coordinates
+                // u in [0, 1], v in [0, 1]
+                const u = x / TEX_W;
+                const v = y / TEX_H;
+                
+                // Theta (Longitude) 0 to 2PI
+                const theta = u * 2 * Math.PI;
+                // Phi (Latitude) 0 to PI
+                const phi = v * Math.PI;
+                
+                // Spherical to Cartesian (Radius = 1)
+                const px = Math.sin(phi) * Math.cos(theta);
+                const py = Math.cos(phi); // Y is up/down
+                const pz = Math.sin(phi) * Math.sin(theta);
+                
+                points3D[idx * 3] = px;
+                points3D[idx * 3 + 1] = py;
+                points3D[idx * 3 + 2] = pz;
+            }
+        }
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            grid[i] = Math.random() < cellDensity ? 1 : 0;
+            // Random initial ages
+            ageMap[i] = grid[i] ? Math.floor(Math.random() * 50) : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Game Logic (Conway's GoL)
+     */
+    function step() {
+        for (let y = 0; y < TEX_H; y++) {
+            for (let x = 0; x < TEX_W; x++) {
+                const idx = y * TEX_W + x;
+                const state = grid[idx];
+                
+                let neighbors = 0;
+                // Optimized neighbor counting with wrapping
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        
+                        // Wrap logic
+                        let nx = x + dx;
+                        if (nx < 0) nx = TEX_W - 1;
+                        if (nx >= TEX_W) nx = 0;
+                        
+                        let ny = y + dy;
+                        if (ny < 0) ny = TEX_H - 1;
+                        if (ny >= TEX_H) ny = 0;
+                        
+                        if (grid[ny * TEX_W + nx]) neighbors++;
+                    }
+                }
+                
+                if (state === 1) {
+                    if (neighbors < 2 || neighbors > 3) {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0; 
+                    } else {
+                        nextGrid[idx] = 1;
+                        ageMap[idx]++;   
+                    }
+                } else {
+                    if (neighbors === 3) {
+                        nextGrid[idx] = 1;
+                        ageMap[idx] = 1; 
+                    } else {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0;
+                    }
+                }
+            }
+        }
+        
+        // Swap
+        let tempG = grid; grid = nextGrid; nextGrid = tempG;
+        generation++;
+    }
+
+    /**
+     * Rendering - True 3D Projection
+     */
+    function draw() {
+        // 1. Clear Background
+        ctx.fillStyle = '#050508';
+        ctx.fillRect(0, 0, width, height);
+        
+        // 2. Update Physics
+        if (!isPaused) {
+            const framesPerStep = Math.max(1, Math.floor(101 - simSpeed));
+            if (frameCount % framesPerStep === 0) {
+                step();
+                updateStats();
+            }
+            frameCount++;
+        }
+        
+        if (!isDragging && rotationSpeed > 0) {
+            rotY += rotationSpeed;
+        }
+
+        // 3. Calculate Rotation Matrices
+        // Y Rotation
+        const cosY = Math.cos(rotY);
+        const sinY = Math.sin(rotY);
+        // X Rotation
+        const cosX = Math.cos(rotX);
+        const sinX = Math.sin(rotX);
+
+        // 4. Project Points & Sort (Painter's Algorithm)
+        // We create an array of objects: { x: screenX, y: screenY, z: depth, color: r,g,b, brightness: val }
+        // To optimize, we only process ALIVE cells.
+        
+        const projectedCells = [];
+        
+        // Pre-calculate projection scale
+        // Sphere radius in screen pixels
+        const R = sphereRadius;
+        const fov = 3.0; // Field of view factor
+
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (!grid[i]) continue; // Skip dead cells
+
+            const px = points3D[i * 3];
+            const py = points3D[i * 3 + 1];
+            const pz = points3D[i * 3 + 2];
+
+            // Rotate Y
+            let x1 = px * cosY - pz * sinY;
+            let z1 = px * sinY + pz * cosY;
+            
+            // Rotate X
+            let y2 = py * cosX - z1 * sinX;
+            let z2 = py * sinX + z1 * cosX;
+
+            // Perspective Projection
+            // z2 is in range [-1, 1]. 
+            // We want z2=1 (front) to be larger/brighter.
+            // Camera is at z = -fov.
+            const factor = fov / (fov - z2);
+            
+            // Only draw if in front of camera
+            if (z2 > -fov + 0.1) {
+                const screenX = cx + x1 * R * factor;
+                const screenY = cy + y2 * R * factor;
+                
+                // Size based on Z-depth (closer = bigger)
+                const size = 1.5 + (factor * 1.5); 
+                
+                // Lighting: 
+                // z2 ranges from -1 (back) to 1 (front).
+                // Normalize to 0..1 brightness
+                const brightness = (z2 + 1) / 2;
+                
+                projectedCells.push({
+                    x: screenX,
+                    y: screenY,
+                    z: z2, // for sorting
+                    size: size,
+                    brightness: brightness,
+                    age: ageMap[i]
+                });
+            }
+        }
+
+        // Sort by Z (Painter's Algorithm: draw back first)
+        projectedCells.sort((a, b) => a.z - b.z);
+
+        // 5. Draw Cells
+        // Draw the "Dark Body" sphere first for context
+        ctx.beginPath();
+        ctx.arc(cx, cy, sphereRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#020203';
+        ctx.fill();
+
+        // Draw Cells
+        for (let i = 0; i < projectedCells.length; i++) {
+            const cell = projectedCells[i];
+            const age = cell.age;
+            
+            // Color Strategy (HSL)
+            // Cool (Blue/Cyan) for new/active, Warm (Gold/Orange) for stable
+            let r, g, b;
+            
+            if (age < 5) {
+                // Cyan / Electric Blue (Birth)
+                r = 0; g = 243; b = 255;
+            } else if (age < 20) {
+                // Purple / Magenta (Active)
+                r = 188; g = 19; b = 254;
+            } else if (age < 50) {
+                // Deep Purple
+                r = 100; g = 0; b = 200;
+            } else {
+                // Gold / Orange (Stable)
+                r = 255; g = 200; b = 50;
+            }
+
+            // Apply Lighting (Brightness)
+            // Back of sphere is dimmer
+            const light = 0.1 + (cell.brightness * 0.9);
+            
+            // Apply "Bloom" (Additive Blending)
+            ctx.globalCompositeOperation = 'lighter';
+            
+            // Draw the point
+            ctx.fillStyle = `rgba(${Math.floor(r*light)}, ${Math.floor(g*light)}, ${Math.floor(b*light)}, ${cell.brightness})`;
+            
+            // Draw a small circle
+            ctx.beginPath();
+            ctx.arc(cell.x, cell.y, cell.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Reset Composite
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // 6. Atmosphere / Rim Light (Overlay)
+        // Adds a subtle glow around the edge of the sphere to define volume
+        const rimGrad = ctx.createRadialGradient(cx, cy, sphereRadius * 0.9,
+                                                 cx, cy, sphereRadius * 1.1);
+        rimGrad.addColorStop(0, 'rgba(0, 243, 255, 0)');
+        rimGrad.addColorStop(0.8, 'rgba(0, 243, 255, 0.05)');
+        rimGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        
+        ctx.fillStyle = rimGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, sphereRadius * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function loop() {
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const rotSlider = document.getElementById('rotation');
+        const rotVal = document.getElementById('rotVal');
+        rotSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            if (val === 0) {
+                rotationSpeed = 0;
+                rotVal.innerText = 'Off';
+            } else {
+                rotationSpeed = val * 0.0005;
+                rotVal.innerText = val < 30 ? 'Slow' : (val > 70 ? 'Fast' : 'Auto');
+            }
+        });
+        
+        const denSlider = document.getElementById('density');
+        const denVal = document.getElementById('denVal');
+        denSlider.addEventListener('input', (e) => {
+            cellDensity = parseInt(e.target.value) / 100;
+            denVal.innerText = cellDensity < 0.3 ? 'Sparse' : (cellDensity > 0.6 ? 'Dense' : 'Normal');
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            randomizeGrid();
+        });
+        
+        const pauseBtn = document.getElementById('btnPause');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseBtn.innerText = isPaused ? 'Resume' : 'Pause';
+            pauseBtn.classList.toggle('primary', !isPaused);
+            statusDot.classList.toggle('paused', isPaused);
+            statusText.innerText = isPaused ? "Simulation Paused" : "Simulation Active";
+            statusText.style.color = isPaused ? "var(--text-secondary)" : "var(--neon-cyan)";
+        });
+    }
+
+    function setupInteraction() {
+        const startDrag = (x, y) => {
+            isDragging = true;
+            lastMouseX = x;
+            lastMouseY = y;
+        };
+
+        const moveDrag = (x, y) => {
+            if (isDragging) {
+                const deltaX = x - lastMouseX;
+                const deltaY = y - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                // Clamp X rotation to prevent flipping upside down completely
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = x;
+                lastMouseY = y;
+            }
+        };
+
+        const endDrag = () => {
+            isDragging = false;
+        };
+
+        canvas.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        window.addEventListener('mouseup', endDrag);
+
+        canvas.addEventListener('touchstart', (e) => {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchmove', (e) => {
+            if(isDragging) e.preventDefault();
+            moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchend', endDrag);
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop.toLocaleString();
+        document.getElementById('genCount').innerText = generation.toLocaleString();
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

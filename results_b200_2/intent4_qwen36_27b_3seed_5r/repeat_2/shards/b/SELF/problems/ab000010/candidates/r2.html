@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere Life // Visualizer</title>
+<style>
+    :root {
+        --bg: #050508;
+        --panel-bg: rgba(15, 15, 20, 0.6);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text-main: #e0e0e0;
+        --text-dim: #7a7a85;
+        --accent: #00f2ff;
+        --accent-sec: #bd00ff;
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Fira Code", "Roboto Mono", monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        user-select: none;
+    }
+
+    /* CRT Scanline & Vignette Overlay */
+    .overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 5;
+        background: 
+            linear-gradient(rgba(18, 16, 21, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+            linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+        background-size: 100% 2px, 3px 100%;
+        box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+    }
+
+    /* Canvas Container */
+    #canvas-container {
+        flex-grow: 1;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        cursor: grab;
+    }
+    #canvas-container:active {
+        cursor: grabbing;
+    }
+
+    canvas {
+        display: block;
+    }
+
+    /* Control Panel - Floating Glass */
+    #controls {
+        width: 340px;
+        height: 100%;
+        background: var(--panel-bg);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border-left: 1px solid var(--panel-border);
+        padding: 40px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        z-index: 10;
+        position: relative;
+        box-shadow: -10px 0 40px rgba(0,0,0,0.5);
+    }
+
+    /* Typography */
+    h1 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        margin: 0 0 8px 0;
+        color: #fff;
+        text-transform: uppercase;
+        text-shadow: 0 0 15px rgba(255,255,255,0.3);
+    }
+
+    .subtitle {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.4;
+        margin-bottom: 40px;
+        border-left: 2px solid var(--accent);
+        padding-left: 12px;
+    }
+
+    /* Controls */
+    .control-group {
+        margin-bottom: 30px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+
+    .label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+    }
+
+    .value {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--accent);
+        text-shadow: 0 0 8px rgba(0, 242, 255, 0.4);
+    }
+
+    /* Custom Slider */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        margin-top: -7px;
+        box-shadow: 0 0 10px var(--accent);
+        border: 2px solid var(--accent);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 2px;
+        cursor: pointer;
+        background: linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.3));
+        border-radius: 2px;
+    }
+
+    /* Buttons */
+    .btn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 40px;
+    }
+
+    button {
+        padding: 14px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.03);
+        color: #fff;
+        font-family: var(--font-ui);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.3);
+        box-shadow: 0 0 15px rgba(255,255,255,0.1);
+    }
+
+    button.primary {
+        grid-column: span 2;
+        background: rgba(0, 242, 255, 0.1);
+        border-color: var(--accent);
+        color: var(--accent);
+        box-shadow: 0 0 15px rgba(0, 242, 255, 0.15);
+    }
+
+    button.primary:hover {
+        background: rgba(0, 242, 255, 0.2);
+        box-shadow: 0 0 25px rgba(0, 242, 255, 0.4);
+    }
+
+    /* Stats Footer */
+    .stats-container {
+        border-top: 1px solid rgba(255,255,255,0.1);
+        padding-top: 24px;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .stat-box {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .stat-val {
+        font-family: var(--font-mono);
+        font-size: 20px;
+        color: #fff;
+        letter-spacing: -1px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        body { flex-direction: column; }
+        #controls {
+            width: 100%;
+            height: auto;
+            border-left: none;
+            border-top: 1px solid var(--panel-border);
+            padding: 24px;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+        }
+        .subtitle { margin-bottom: 20px; }
+        .control-group { margin-bottom: 20px; }
+    }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="canvas"></canvas>
+    <div class="overlay"></div>
+</div>
+
+<div id="controls">
+    <h1>Sphere Life</h1>
+    <div class="subtitle">Conway's Game of Life<br>on a 3D manifold.</div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Simulation Speed</span>
+            <span class="value" id="speedVal">50%</span>
+        </div>
+        <input type="range" id="speed" min="0" max="100" value="50">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Cell Density</span>
+            <span class="value" id="densityVal">45%</span>
+        </div>
+        <input type="range" id="density" min="5" max="90" value="45">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Auto-Rotation</span>
+            <span class="value" id="rotVal">Active</span>
+        </div>
+        <input type="range" id="rotation" min="0" max="100" value="30">
+    </div>
+
+    <div class="btn-grid">
+        <button id="btnReset">Randomize</button>
+        <button id="btnStep">Step Frame</button>
+        <button id="btnPause" class="primary">Pause Simulation</button>
+    </div>
+
+    <div class="stats-container">
+        <div class="stat-box">
+            <span class="label">Population</span>
+            <span class="stat-val" id="popCount">0</span>
+        </div>
+        <div class="stat-box">
+            <span class="label">Generation</span>
+            <span class="stat-val" id="genCount">0</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration & State
+     */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false }); 
+    
+    let width, height;
+    let cx, cy;
+    let radius;
+    
+    // Sphere Grid Parameters
+    // High density for the "visualizer" look
+    const RINGS = 50; 
+    const SEGMENTS = 100; 
+    const TOTAL_CELLS = RINGS * SEGMENTS;
+    
+    // Game State
+    let grid = new Int8Array(TOTAL_CELLS); 
+    let nextGrid = new Int8Array(TOTAL_CELLS);
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    
+    // Visual Parameters
+    let rotationSpeed = 0.003;
+    let simSpeed = 50; 
+    let cellDensity = 0.45;
+    let rotY = 0;
+    let rotX = 0.4; // Initial tilt
+    
+    // Interaction State
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = canvas.parentElement.offsetWidth;
+        height = canvas.parentElement.offsetHeight;
+        canvas.width = width;
+        canvas.height = height;
+        cx = width / 2;
+        cy = height / 2;
+        radius = Math.min(width, height) * 0.32;
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            // Use a slightly lower threshold to avoid "soup" on high density spheres
+            grid[i] = Math.random() < cellDensity ? 1 : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Math & Geometry
+     */
+    function getCellCoords(index) {
+        const ring = index % RINGS;
+        const segment = Math.floor(index / RINGS);
+        
+        // Phi: 0 to PI (Vertical)
+        const phi = (ring / RINGS) * Math.PI;
+        // Theta: 0 to 2PI (Horizontal)
+        const theta = (segment / SEGMENTS) * 2 * Math.PI;
+        
+        return {
+            x: Math.sin(phi) * Math.cos(theta),
+            y: Math.cos(phi), 
+            z: Math.sin(phi) * Math.sin(theta)
+        };
+    }
+
+    function rotatePoint(x, y, z, ry, rx) {
+        // Rotate Y (Horizontal spin)
+        let x1 = x * Math.cos(ry) - z * Math.sin(ry);
+        let z1 = x * Math.sin(ry) + z * Math.cos(ry);
+        
+        // Rotate X (Vertical tilt)
+        let y2 = y * Math.cos(rx) - z1 * Math.sin(rx);
+        let z2 = y * Math.sin(rx) + z1 * Math.cos(rx);
+        
+        return { x: x1, y: y2, z: z2 };
+    }
+
+    function project(x, y, z) {
+        // Perspective projection
+        const fov = 4.0;
+        const zOffset = fov + z; 
+        const scale = radius * (fov / zOffset);
+        
+        return {
+            x: cx + x * scale,
+            y: cy - y * scale, // Invert Y for screen coords
+            scale: scale,
+            depth: z
+        };
+    }
+
+    /**
+     * Game Logic
+     */
+    function getNeighbors(r, s) {
+        let count = 0;
+        
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let ds = -1; ds <= 1; ds++) {
+                if (dr === 0 && ds === 0) continue;
+                
+                let nr = (r + dr + RINGS) % RINGS;
+                let ns = (s + ds + SEGMENTS) % SEGMENTS;
+                
+                if (grid[nr * SEGMENTS + ns]) count++;
+            }
+        }
+        return count;
+    }
+
+    function step() {
+        for (let r = 0; r < RINGS; r++) {
+            for (let s = 0; s < SEGMENTS; s++) {
+                const idx = r * SEGMENTS + s;
+                const state = grid[idx];
+                const neighbors = getNeighbors(r, s);
+                
+                if (state === 1) {
+                    nextGrid[idx] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                } else {
+                    nextGrid[idx] = (neighbors === 3) ? 1 : 0;
+                }
+            }
+        }
+        
+        // Swap arrays
+        let temp = grid;
+        grid = nextGrid;
+        nextGrid = temp;
+        
+        generation++;
+        updateStats();
+    }
+
+    /**
+     * Rendering
+     */
+    function draw() {
+        // Clear with deep dark color
+        ctx.fillStyle = '#050508';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Update Rotation
+        if (!isDragging) {
+            rotY += rotationSpeed;
+        }
+
+        const cells = [];
+        
+        // Pre-calculate positions
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            const r = i % RINGS;
+            const s = Math.floor(i / RINGS);
+            
+            const pos3D = getCellCoords(i);
+            const rotated = rotatePoint(pos3D.x, pos3D.y, pos3D.z, rotY, rotX);
+            
+            // Only draw front-facing cells (z > 0)
+            if (rotated.z > 0.05) {
+                const projected = project(rotated.x, rotated.y, rotated.z);
+                
+                cells.push({
+                    x: projected.x,
+                    y: projected.y,
+                    z: rotated.z, // Normalized depth 0 to 1
+                    scale: projected.scale,
+                    alive: grid[i],
+                    // Base hue based on position to create a gradient across the sphere
+                    baseHue: (s / SEGMENTS) * 360 
+                });
+            }
+        }
+        
+        // Sort by depth for correct transparency blending
+        cells.sort((a, b) => a.z - b.z);
+        
+        // Render Loop - Additive Blending for Glow
+        ctx.globalCompositeOperation = 'lighter';
+        
+        for (let cell of cells) {
+            if (cell.alive) {
+                // Color Logic:
+                // Z (Depth) controls Brightness and Size.
+                // Hue shifts based on position + depth
+                
+                // Dynamic Hue: Mix of Cyan (180) and Purple (280)
+                const hue = 180 + (cell.baseHue * 0.3) + (cell.z * 50); 
+                const saturation = 100;
+                // Brightness increases as it gets closer to camera
+                const lightness = 50 + (cell.z * 40); 
+                // Alpha increases as it gets closer
+                const alpha = 0.3 + (cell.z * 0.7);
+                
+                // Size increases with depth (perspective)
+                // Scale factor adjusted for visual density
+                const size = 2.5 * (cell.scale / 3.5); 
+                
+                // Draw the cell
+                ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(cell.x, cell.y, Math.max(0.5, size), 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Add a bright "hotspot" to the very front cells
+                if (cell.z > 0.8) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${(cell.z - 0.8) * 0.8})`;
+                    ctx.beginPath();
+                    ctx.arc(cell.x, cell.y, size * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Reset composite for outline/ambient effects
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Outer Atmosphere Glow (Static halo)
+        const gradient = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.4);
+        gradient.addColorStop(0, 'rgba(0, 242, 255, 0.05)');
+        gradient.addColorStop(0.5, 'rgba(189, 0, 255, 0.02)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Subtle wireframe outline of the sphere
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    function loop() {
+        if (!isPaused) {
+            // Simulation Throttling
+            // Higher speed value = lower threshold (faster)
+            // Map 0-100 to roughly 60fps - 1fps
+            const skipFrames = Math.floor(60 - (simSpeed * 0.6));
+            
+            if (frameCount % (skipFrames + 1) === 0) {
+                step();
+            }
+            frameCount++;
+        }
+        
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const densitySlider = document.getElementById('density');
+        const densityVal = document.getElementById('densityVal');
+        densitySlider.addEventListener('input', (e) => {
+            cellDensity = parseInt(e.target.value) / 100;
+            densityVal.innerText = e.target.value + '%';
+        });
+
+        const rotSlider = document.getElementById('rotation');
+        const rotVal = document.getElementById('rotVal');
+        rotSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            if (val === 0) {
+                rotationSpeed = 0;
+                rotVal.innerText = 'Off';
+            } else {
+                rotationSpeed = val * 0.0001;
+                rotVal.innerText = 'Active';
+            }
+        });
+
+        document.getElementById('btnReset').addEventListener('click', randomizeGrid);
+        
+        document.getElementById('btnStep').addEventListener('click', () => {
+            isPaused = true;
+            step();
+            updatePauseBtn();
+        });
+
+        const pauseBtn = document.getElementById('btnPause');
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            updatePauseBtn();
+        });
+    }
+
+    function updatePauseBtn() {
+        const btn = document.getElementById('btnPause');
+        btn.innerText = isPaused ? 'Resume Simulation' : 'Pause Simulation';
+        // Visual toggle could go here
+    }
+
+    function setupInteraction() {
+        const container = document.getElementById('canvas-container');
+
+        const startDrag = (x, y) => {
+            isDragging = true;
+            lastMouseX = x;
+            lastMouseY = y;
+        };
+
+        const endDrag = () => {
+            isDragging = false;
+        };
+
+        const moveDrag = (x, y) => {
+            if (isDragging) {
+                const deltaX = x - lastMouseX;
+                const deltaY = y - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                // Clamp vertical rotation to prevent flipping
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = x;
+                lastMouseY = y;
+            }
+        };
+
+        // Mouse
+        container.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        window.addEventListener('mouseup', endDrag);
+        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        
+        // Touch
+        container.addEventListener('touchstart', (e) => {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+            e.preventDefault(); // Prevent scroll
+        }, {passive: false});
+
+        window.addEventListener('touchend', endDrag);
+        window.addEventListener('touchmove', (e) => {
+            if(isDragging) {
+                moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+                e.preventDefault();
+            }
+        }, {passive: false});
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop;
+        document.getElementById('genCount').innerText = generation;
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

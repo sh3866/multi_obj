@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkiFree - Retro Edition</title>
+    <style>
+        :root {
+            /* Palette */
+            --c-sky: #0000AA;
+            --c-snow: #FFFFFF;
+            --c-snow-dither: #CCCCCC;
+            --c-text-shadow: #000000;
+            --c-ui-text: #FFFFFF;
+            
+            /* Dimensions */
+            --pixel: 4px;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            cursor: default;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: "Courier New", monospace; /* Fallback for pixel font feel */
+            overflow: hidden;
+        }
+
+        /* --- Main Container (The TV/Screen) --- */
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: var(--c-sky);
+            border: 4px solid #444;
+            box-shadow: 0 0 0 2px #000, 0 0 50px rgba(0,0,0,0.8);
+            overflow: hidden;
+            image-rendering: pixelated; 
+        }
+
+        /* CRT Effects */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 2px,
+                rgba(0,0,0,0.15) 2px,
+                rgba(0,0,0,0.15) 4px
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.5) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+
+        /* --- Canvas Layers --- */
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #bg-canvas { z-index: 1; }
+        #game-canvas { z-index: 2; }
+
+        /* --- UI Layer (HUD Approach) --- */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        /* 1. Top: Title & Tagline */
+        .title-area {
+            margin-top: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        h1.title {
+            font-family: "Courier New", monospace;
+            font-size: 80px;
+            font-weight: 900;
+            color: var(--c-ui-text);
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            /* Retro Block Shadow */
+            text-shadow: 
+                6px 6px 0px var(--c-text-shadow),
+                -2px -2px 0px var(--c-text-shadow);
+            line-height: 1;
+        }
+
+        .tagline {
+            font-family: "Courier New", monospace;
+            font-size: 20px;
+            color: var(--c-ui-text);
+            margin-top: 15px;
+            background-color: var(--c-text-shadow);
+            padding: 6px 16px;
+            border: 4px solid var(--c-ui-text);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* 2. Bottom: Action Zone */
+        .bottom-zone {
+            margin-bottom: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: auto;
+        }
+
+        .start-prompt {
+            font-family: "Courier New", monospace;
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--c-ui-text);
+            text-shadow: 4px 4px 0px var(--c-text-shadow);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .controls-prompt {
+            font-family: "Courier New", monospace;
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--c-ui-text);
+            text-shadow: 2px 2px 0px var(--c-text-shadow);
+            text-transform: uppercase;
+            opacity: 0.9;
+        }
+
+        /* Blinking Animation */
+        .blink {
+            animation: blinker 1s step-end infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+
+        /* Game Over / Playing State Styles */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- CRT Effects -->
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+
+        <!-- Canvas Layers -->
+        <canvas id="bg-canvas" width="800" height="600"></canvas>
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+
+        <!-- UI Layer -->
+        <div id="ui-layer">
+            
+            <!-- Top: Title -->
+            <div class="title-area" id="title-group">
+                <h1 class="title">SKI FREE</h1>
+                <div class="tagline">HOW FAR CAN YOU GO?</div>
+            </div>
+
+            <!-- Bottom: Action Zone -->
+            <div class="bottom-zone" id="start-group">
+                <div class="start-prompt">PRESS SPACE TO START <span class="blink">_</span></div>
+                <div class="controls-prompt">ARROWS TO MOVE</div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const bgCanvas = document.getElementById('bg-canvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        const gameCanvas = document.getElementById('game-canvas');
+        const gameCtx = gameCanvas.getContext('2d');
+        
+        const W = 800;
+        const H = 600;
+        const PIXEL_SIZE = 4; // Visual pixel size
+
+        // --- Assets (Pixel Art Data) ---
+
+        // Helper to draw pixel art
+        function drawSprite(ctx, map, colors, x, y, scale = 1) {
+            for (let r = 0; r < map.length; r++) {
+                for (let c = 0; c < map[r].length; c++) {
+                    const val = map[r][c];
+                    if (val > 0 && colors[val-1]) {
+                        ctx.fillStyle = colors[val-1];
+                        ctx.fillRect(x + c * PIXEL_SIZE * scale, y + r * PIXEL_SIZE * scale, PIXEL_SIZE * scale, PIXEL_SIZE * scale);
+                    }
+                }
+            }
+        }
+
+        // Skier Sprite (Detailed)
+        const skierMap = [
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,2,2,1,0,0], // Helmet/Hat
+            [0,0,1,1,1,1,0,0],
+            [0,0,0,3,3,0,0,0], // Face
+            [0,1,0,3,3,0,1,0], // Shoulders
+            [0,4,0,0,0,0,4,0], // Skis
+            [0,4,0,0,0,0,4,0],
+            [0,4,4,4,4,4,4,0],
+            [0,0,0,5,5,0,0,0], // Legs
+            [0,0,5,0,0,5,0,0],
+            [0,0,5,0,0,5,0,0],
+            [0,0,5,0,0,5,0,0]
+        ];
+        const skierColors = ['#0000AA', '#AA0000', '#FFCCAA', '#555555', '#0000CC'];
+
+        // Tree Sprite
+        const treeMap = [
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,2,2,1,0,0],
+            [0,1,2,2,2,2,1,0],
+            [0,1,2,2,2,2,1,0],
+            [0,0,1,2,2,1,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,3,3,0,0,0],
+            [0,0,0,3,3,0,0,0]
+        ];
+        const treeColors = ['#006400', '#00AA00', '#8B4513'];
+
+        // Rock Sprite
+        const rockMap = [
+            [0,0,1,1,1,0,0],
+            [0,1,2,2,2,1,0],
+            [1,2,2,2,2,2,1],
+            [1,2,2,2,2,2,1],
+            [0,1,1,1,1,1,0],
+            [0,0,1,1,1,0,0]
+        ];
+        const rockColors = ['#444444', '#666666', '#888888'];
+
+        // --- State ---
+        let skier = { x: 384, y: 220, dir: 1, animFrame: 0 }; // Centered horizontally
+        let trees = [];
+        let rocks = [];
+        let clouds = [];
+        let mountains = [];
+        let gameRunning = false;
+        let animationId;
+        let speedMultiplier = 1;
+
+        // --- Initialization ---
+
+        function init() {
+            // Generate Mountains
+            for(let i=0; i<6; i++) {
+                mountains.push({
+                    x: Math.random() * W,
+                    y: 100 + Math.random() * 50,
+                    w: 200 + Math.random() * 300,
+                    h: 150 + Math.random() * 200,
+                    color: Math.random() > 0.5 ? '#87CEEB' : '#72C2C2'
+                });
+            }
+
+            // Generate Clouds
+            for(let i=0; i<6; i++) {
+                clouds.push({
+                    x: Math.random() * W,
+                    y: 50 + Math.random() * 100,
+                    w: 60 + Math.random() * 100,
+                    h: 20 + Math.random() * 20,
+                    speed: 0.2 + Math.random() * 0.3
+                });
+            }
+
+            // Initial Trees/Rocks
+            for(let i=0; i<15; i++) {
+                spawnObstacle(true);
+            }
+
+            drawStaticBackground();
+            render(); // Initial render
+        }
+
+        function spawnObstacle(initial = false) {
+            const type = Math.random() > 0.2 ? 'tree' : 'rock';
+            const obj = {
+                x: Math.random() * W,
+                y: initial ? Math.random() * H : -50,
+                type: type,
+                speed: 2
+            };
+            if (type === 'tree') trees.push(obj);
+            else rocks.push(obj);
+        }
+
+        // --- Drawing Functions ---
+
+        function drawStaticBackground() {
+            // Sky
+            bgCtx.fillStyle = '#0000AA'; // Deep retro blue
+            bgCtx.fillRect(0, 0, W, H);
+
+            // Sun
+            bgCtx.fillStyle = '#FFD700';
+            bgCtx.beginPath();
+            bgCtx.arc(650, 120, 50, 0, Math.PI * 2);
+            bgCtx.fill();
+
+            // Mountains
+            mountains.forEach(m => {
+                bgCtx.fillStyle = m.color;
+                bgCtx.beginPath();
+                bgCtx.moveTo(m.x, m.y + m.h);
+                bgCtx.lineTo(m.x + m.w / 2, m.y);
+                bgCtx.lineTo(m.x + m.w, m.y + m.h);
+                bgCtx.fill();
+                
+                // Snow Cap
+                bgCtx.fillStyle = '#FFFFFF';
+                bgCtx.beginPath();
+                bgCtx.moveTo(m.x + m.w * 0.3, m.y + m.h * 0.3);
+                bgCtx.lineTo(m.x + m.w / 2, m.y);
+                bgCtx.lineTo(m.x + m.w * 0.7, m.y + m.h * 0.3);
+                bgCtx.lineTo(m.x + m.w * 0.6, m.y + m.h * 0.4);
+                bgCtx.lineTo(m.x + m.w * 0.4, m.y + m.h * 0.4);
+                bgCtx.fill();
+            });
+
+            // Snow Base
+            bgCtx.fillStyle = '#FFFFFF';
+            bgCtx.fillRect(0, 250, W, H);
+        }
+
+        function drawClouds() {
+            bgCtx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            clouds.forEach(c => {
+                bgCtx.fillRect(c.x, c.y, c.w, c.h);
+                bgCtx.fillRect(c.x + 10, c.y - 10, c.w * 0.6, c.h);
+            });
+        }
+
+        function drawSnowTexture() {
+            // Create a stepped pixel gradient/dither effect
+            gameCtx.fillStyle = '#E0E8F0';
+            
+            const offset = (Date.now() / 2) % 100;
+            
+            // Draw dithered dots
+            for (let i = 0; i < 400; i++) {
+                // Use pseudo-random based on index to keep snow static relative to screen, then offset Y
+                const baseX = (Math.sin(i * 132) * 10000) % W;
+                const baseY = (Math.cos(i * 456) * 10000) % H;
+                
+                // Scrolling effect
+                const x = Math.abs(baseX);
+                const y = Math.abs((baseY + offset * 10) % H);
+
+                // Draw every other pixel for dither look
+                if (i % 2 === 0) {
+                    gameCtx.fillRect(x, y, PIXEL_SIZE/2, PIXEL_SIZE/2);
+                }
+            }
+        }
+
+        function drawSkier(x, y, dir) {
+            gameCtx.save();
+            gameCtx.translate(x + 16, y + 24); 
+            gameCtx.scale(dir, 1); 
+            
+            // Animation
+            const wobble = Math.sin(Date.now() / 150) * 0.15;
+            gameCtx.rotate(wobble);
+            
+            gameCtx.translate(-(x + 16), -(y + 24));
+            drawSprite(gameCtx, skierMap, skierColors, x, y);
+            gameCtx.restore();
+        }
+
+        function drawObstacles() {
+            trees.forEach(t => drawSprite(gameCtx, treeMap, treeColors, t.x, t.y));
+            rocks.forEach(r => drawSprite(gameCtx, rockMap, rockColors, r.x, r.y));
+        }
+
+        // --- Game Loop ---
+
+        function update() {
+            if (!gameRunning) return;
+
+            // Move Clouds
+            clouds.forEach(c => {
+                c.x -= c.speed * speedMultiplier;
+                if (c.x + c.w < 0) c.x = W;
+            });
+
+            // Move Obstacles
+            const allObstacles = [...trees, ...rocks];
+            allObstacles.forEach(obj => {
+                obj.y += obj.speed * speedMultiplier;
+                
+                // Respawn
+                if (obj.y > H) {
+                    obj.y = -50;
+                    obj.x = Math.random() * (W - 50);
+                    if (Math.random() > 0.8) obj.type = obj.type === 'tree' ? 'rock' : 'tree';
+                }
+            });
+
+            // Skier Idle Animation (bobbing)
+            skier.y = 220 + Math.sin(Date.now() / 200) * 2;
+        }
+
+        function render() {
+            gameCtx.clearRect(0, 0, W, H);
+
+            drawSnowTexture();
+            drawObstacles();
+            drawSkier(skier.x, skier.y, skier.dir);
+
+            // Shadows (Simple rects)
+            gameCtx.fillStyle = 'rgba(0,0,0,0.1)';
+            trees.forEach(t => gameCtx.fillRect(t.x, t.y + 32, 32, 4));
+            rocks.forEach(r => gameCtx.fillRect(r.x, r.y + 24, 28, 4));
+            gameCtx.fillRect(skier.x + 4, skier.y + 48, 24, 4);
+
+            animationId = requestAnimationFrame(() => {
+                update();
+                render();
+            });
+        }
+
+        function startGame() {
+            if (gameRunning) return;
+            gameRunning = true;
+            speedMultiplier = 2.5;
+            
+            // UI Transition: Hide UI elements
+            const titleGroup = document.getElementById('title-group');
+            const startGroup = document.getElementById('start-group');
+            
+            titleGroup.classList.add('hidden');
+            startGroup.classList.add('hidden');
+        }
+
+        // Input Handling
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !gameRunning) {
+                startGame();
+            }
+        });
+
+        // Start Loop
+        init();
+        render();
+
+    </script>
+</body>
+</html>

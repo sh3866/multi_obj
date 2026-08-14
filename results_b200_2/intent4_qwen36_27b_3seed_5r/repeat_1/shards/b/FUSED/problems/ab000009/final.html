@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grandmaster Chess Interface</title>
+    <style>
+        :root {
+            /* Palette: Sophisticated Slate & Parchment */
+            --bg-body: #0f1115;
+            --bg-panel: #181b21;
+            --bg-panel-border: #2a2f3a;
+            
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            
+            /* Board Colors: High Contrast, Warm/Cool balance */
+            --board-light: #ebecd0; 
+            --board-dark: #5f7d65;  /* Deep Sage Green */
+            
+            /* Highlights */
+            --highlight-move: rgba(255, 255, 255, 0.2);
+            --highlight-selected: rgba(255, 255, 255, 0.4);
+            --highlight-last-move: rgba(255, 230, 109, 0.35);
+            
+            /* Dimensions */
+            --board-size: min(85vh, 85vw);
+            --square-size: calc(var(--board-size) / 8);
+            --gutter-size: 28px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* Main Layout */
+        .layout-container {
+            display: flex;
+            gap: 40px;
+            padding: 40px;
+            width: 100%;
+            max-width: 1400px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- The Board Container --- */
+        .board-wrapper {
+            position: relative;
+            /* Create the Gutter Space */
+            padding: var(--gutter-size) 0 0 var(--gutter-size);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .board-container {
+            position: relative;
+            width: var(--board-size);
+            height: var(--board-size);
+            background-color: #2a2f3a;
+            /* Tactile presence */
+            box-shadow: 
+                inset 0 0 0 1px rgba(255,255,255,0.05),
+                0 25px 60px rgba(0,0,0,0.6),
+                0 5px 20px rgba(0,0,0,0.4);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: default;
+        }
+
+        .chess-board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            height: 100%;
+        }
+
+        .square {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .square.light { background-color: var(--board-light); }
+        .square.dark { background-color: var(--board-dark); }
+
+        /* Coordinate Labels */
+        .coord-gutter {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            opacity: 0.6;
+            pointer-events: none;
+            letter-spacing: 0.05em;
+        }
+        
+        .coord-rank {
+            left: 0;
+            top: 0; 
+            width: var(--gutter-size);
+            height: var(--square-size);
+        }
+        
+        .coord-file {
+            bottom: 0;
+            left: 0; 
+            height: var(--gutter-size);
+            width: var(--square-size);
+        }
+
+        /* Highlights */
+        .highlight-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .hl-selected { background-color: var(--highlight-selected); }
+        .hl-last-move { background-color: var(--highlight-last-move); }
+
+        /* SVG Pieces - Production Quality */
+        .piece-svg {
+            width: 85%;
+            height: 85%;
+            z-index: 2;
+            cursor: grab;
+            transition: transform 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
+            /* Refined depth */
+            filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.25)); 
+        }
+        .piece-svg:active { transform: scale(0.92); cursor: grabbing; }
+
+        /* --- Side Panel --- */
+        .info-panel {
+            width: 420px;
+            height: var(--board-size);
+            background-color: var(--bg-panel);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--bg-panel-border);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+
+        /* Header / Turn Indicator */
+        .panel-header {
+            padding: 32px;
+            background: linear-gradient(to bottom, #22262e, var(--bg-panel));
+            border-bottom: 1px solid var(--bg-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .game-info {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .game-status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .turn-indicator-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #fff;
+            border: 2px solid rgba(0,0,0,0.1);
+            box-shadow: 0 0 12px rgba(255,255,255,0.3);
+            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .turn-indicator-dot.black {
+            background-color: #111;
+            border-color: #444;
+            box-shadow: 0 0 12px rgba(0,0,0,0.8);
+        }
+
+        /* Typography: Serif for Status */
+        .turn-text {
+            font-family: "Georgia", "Times New Roman", serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            letter-spacing: 0.01em;
+        }
+
+        .sub-text {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        /* Move History */
+        .history-area {
+            flex-grow: 1;
+            padding: 0;
+            overflow-y: auto;
+            background-color: var(--bg-panel);
+            /* Custom Scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 1.1rem;
+        }
+
+        .history-row {
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+            transition: background-color 0.2s;
+        }
+        .history-row:hover { background-color: rgba(255,255,255,0.02); }
+        
+        /* Highlight last move row */
+        .history-row:last-child {
+            background-color: rgba(255,255,255,0.03);
+        }
+
+        .h-col-num {
+            width: 60px;
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 14px 0;
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            opacity: 0.6;
+            font-size: 0.9rem;
+            border-right: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .h-col-move {
+            padding: 14px 20px;
+            /* Serif for Moves: Classic feel */
+            font-family: "Georgia", serif; 
+            font-weight: 400;
+            cursor: pointer;
+            width: 50%;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+        }
+        .h-col-move:hover { color: #fff; }
+        
+        /* Make the last move text pop slightly */
+        .history-row:last-child .h-col-move span {
+            font-weight: 700;
+            color: #fff;
+        }
+        .h-col-move span.black { color: var(--text-secondary); }
+        .history-row:last-child .h-col-move span.black { color: var(--text-primary); }
+
+        /* Controls */
+        .panel-footer {
+            padding: 24px 32px;
+            border-top: 1px solid var(--bg-panel-border);
+            display: flex;
+            gap: 16px;
+            background-color: #1e222a;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 16px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: -apple-system, sans-serif;
+            letter-spacing: 0.03em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background-color: #4a90e2;
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.2);
+        }
+        .btn-primary:hover { 
+            background-color: #5aa0f2;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(74, 144, 226, 0.3);
+        }
+
+        .btn-ghost {
+            background-color: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--bg-panel-border);
+        }
+        .btn-ghost:hover { 
+            background-color: rgba(255,255,255,0.05); 
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+
+        @media (max-width: 1000px) {
+            .layout-container { flex-direction: column; gap: 24px; padding: 20px; }
+            .info-panel { width: 100%; height: 350px; }
+            :root { --board-size: 80vw; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="layout-container">
+    
+    <!-- Board Wrapper -->
+    <div class="board-wrapper" id="boardWrapper">
+        <!-- Rank Labels (Left) -->
+        <div id="rankGutter" style="display: contents;"></div>
+        
+        <!-- File Labels (Bottom) -->
+        <div id="fileGutter" style="display: contents;"></div>
+
+        <div class="board-container">
+            <div class="chess-board" id="board">
+                <!-- JS renders squares here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Side Panel -->
+    <div class="info-panel">
+        <div class="panel-header">
+            <div class="game-info">
+                <div class="game-status">
+                    <div class="turn-indicator-dot" id="turnDot"></div>
+                    <div class="turn-text" id="turnText">White to Move</div>
+                </div>
+                <div class="sub-text">Classical • 10+5</div>
+            </div>
+        </div>
+
+        <div class="history-area">
+            <table class="history-table" id="historyTable">
+                <tbody>
+                    <!-- Moves injected here -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="panel-footer">
+            <button class="btn btn-ghost" onclick="resetGame()">New Game</button>
+            <button class="btn btn-primary" onclick="analyzePosition()">Analyze</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    /**
+     * SVG Assets - Production Quality
+     * Using precise paths for classic Staunton-style pieces.
+     */
+    const piecePaths = {
+        // King
+        k: 'M22.5 11.63V6M20 8h5M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-1-5 2-8 2s-4-1-9-1-5 2-8 2-5-2-8-2-4-1-9-1c-3 6 6 10.5 6 10.5v7M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0',
+        // Queen
+        q: 'M8 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM24.5 7.5a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM10.5 20a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM38.5 20a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM9 26c8.5-1.5 21-1.5 27 0l2-12-7 11V11l-5.5 13.5-3-15-3 15-5.5-14.5V25l-7-11-2 12M9 26c0 2 1.5 2 2.5 4 1 2.5 1 1 .5 4.5-5 2-10 2-15 2s-10 0-15-2c-.5-3.5-.5-2 .5-4.5 1-2 2.5-2 2.5-4M11.5 30c3.5-1 18.5-1 22 0M12 33.5c6-1 15-1 21 0',
+        // Rook
+        r: 'M9 39h27v-3H9v3zM12 36v-4h21v4H12zM11 14V9h4v2h5V9h5v2h5V9h4v5M34 14l-3 3H14l-3-3M31 17v12.5c1 2 2 2 2 3.5S34 36 34 36H11s1-3 1-3 1-1.5 2-3.5V17h17zM31 29.5l1.5 2.5h-20l1.5-2.5M11 14h23',
+        // Bishop
+        b: 'M9 36c3.39-.97 9.11-1.45 13.5-1.45 4.39 0 10.11.48 13.5 1.45V32c-3.39.97-9.11 1.45-13.5 1.45-4.39 0-10.11-.48-13.5-1.45v4zM15 32c2.5 2.5 12.5 2.5 15 0 .5-1.5 0-2 0-2 0-2.5-2.5-4-2.5-4 5.5-1.5 6-11.5-5-15.5-11 4-10.5 14-5 15.5 0 0-2.5 1.5-2.5 4 0 0-.5.5 0 2zM25 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0zM17.5 26h10M15 30h15m-7.5-14.5v5M20 18h5',
+        // Knight
+        n: 'M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21M24 18c.38 2.32-2.58 2.9-3 3-3.65.9-5.83 6.24-8 8-7.13 5.13-11.5 6.37-11.5 11h20c4-4.5 5-11.5 5-15.5 0-3.5-3.5-5-4.5-5.5zM9.5 25.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0zM15 15.5c-1.61 2.59-2.75 5.94-2.75 5.94',
+        // Pawn
+        p: 'M22 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-2.78-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z'
+    };
+
+    function getPieceSVG(type, color) {
+        const d = piecePaths[type];
+        
+        // Visual Design: 
+        // White: Warm Cream with dark stroke
+        // Black: Deep Slate with subtle stroke
+        const fill = color === 'w' ? '#ebecd0' : '#1a1d21';
+        const stroke = color === 'w' ? '#2d323e' : '#2d323e';
+        
+        const svgContent = `
+            <svg viewBox="0 0 45 45" class="piece-svg" xmlns="http://www.w3.org/2000/svg">
+                <g fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    ${d.split('M').map((p, i) => i === 0 ? '' : `<path d="M${p}" />`).join('')}
+                </g>
+            </svg>
+        `;
+        return svgContent;
+    }
+
+    // --- Game State ---
+    const initialBoard = [
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, null],
+        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+    ];
+
+    let boardState = JSON.parse(JSON.stringify(initialBoard));
+    let turn = 'w';
+    let selectedSquare = null; // {r, c}
+    let lastMove = null; // {from: {r,c}, to: {r,c}}
+    let moveHistory = []; // Array of {num, white, black}
+
+    // --- DOM Elements ---
+    const boardEl = document.getElementById('board');
+    const historyTableEl = document.getElementById('historyTable');
+    const turnTextEl = document.getElementById('turnText');
+    const turnDotEl = document.getElementById('turnDot');
+    const rankGutterEl = document.getElementById('rankGutter');
+    const fileGutterEl = document.getElementById('fileGutter');
+
+    // --- Rendering ---
+    function renderBoard() {
+        boardEl.innerHTML = '';
+        rankGutterEl.innerHTML = '';
+        fileGutterEl.innerHTML = '';
+
+        // Create Gutter Labels
+        for (let i = 0; i < 8; i++) {
+            // Rank Labels (Left)
+            const rankLabel = document.createElement('div');
+            rankLabel.className = 'coord-gutter coord-rank';
+            rankLabel.innerText = 8 - i;
+            rankLabel.style.top = (i * 100 / 8) + '%';
+            rankGutterEl.appendChild(rankLabel);
+
+            // File Labels (Bottom)
+            const fileLabel = document.createElement('div');
+            fileLabel.className = 'coord-gutter coord-file';
+            fileLabel.innerText = String.fromCharCode(97 + i);
+            fileLabel.style.left = (i * 100 / 8) + '%';
+            fileGutterEl.appendChild(fileLabel);
+        }
+
+        // Create Board Squares
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const square = document.createElement('div');
+                const isLight = (r + c) % 2 === 0;
+                square.className = `square ${isLight ? 'light' : 'dark'}`;
+                square.dataset.r = r;
+                square.dataset.c = c;
+                square.onclick = () => handleSquareClick(r, c);
+
+                // Highlight Last Move
+                if (lastMove) {
+                    if ((lastMove.from.r === r && lastMove.from.c === c) || 
+                        (lastMove.to.r === r && lastMove.to.c === c)) {
+                        square.innerHTML += `<div class="highlight-overlay hl-last-move"></div>`;
+                    }
+                }
+
+                // Highlight Selected
+                if (selectedSquare && selectedSquare.r === r && selectedSquare.c === c) {
+                    square.innerHTML += `<div class="highlight-overlay hl-selected"></div>`;
+                }
+
+                // Piece
+                const pieceCode = boardState[r][c];
+                if (pieceCode) {
+                    const color = pieceCode === pieceCode.toUpperCase() ? 'w' : 'b';
+                    const type = pieceCode.toLowerCase();
+                    square.innerHTML += getPieceSVG(type, color);
+                }
+
+                boardEl.appendChild(square);
+            }
+        }
+    }
+
+    function renderHistory() {
+        historyTableEl.innerHTML = '';
+        moveHistory.forEach(move => {
+            const row = document.createElement('tr');
+            row.className = 'history-row';
+            row.innerHTML = `
+                <td class="h-col-num">${move.num}.</td>
+                <td class="h-col-move"><span class="white">${move.white}</span></td>
+                <td class="h-col-move"><span class="black">${move.black || ''}</span></td>
+            `;
+            historyTableEl.appendChild(row);
+        });
+        // Auto scroll to bottom
+        const historyArea = document.querySelector('.history-area');
+        historyArea.scrollTop = historyArea.scrollHeight;
+    }
+
+    function updateUI() {
+        turnTextEl.innerText = turn === 'w' ? "White to Move" : "Black to Move";
+        turnDotEl.className = `turn-indicator-dot ${turn === 'b' ? 'black' : 'white'}`;
+    }
+
+    // --- Logic ---
+    function getAlgebraic(r, c) {
+        return `${String.fromCharCode(97 + c)}${8 - r}`;
+    }
+
+    function handleSquareClick(r, c) {
+        const clickedPiece = boardState[r][c];
+        const isOwnPiece = clickedPiece && (turn === 'w' ? clickedPiece === clickedPiece.toUpperCase() : clickedPiece === clickedPiece.toLowerCase());
+
+        // 1. Select Piece
+        if (isOwnPiece) {
+            selectedSquare = { r, c };
+            renderBoard();
+            return;
+        }
+
+        // 2. Move Piece (Simplified: allow any move to empty or capture)
+        if (selectedSquare) {
+            const fromR = selectedSquare.r;
+            const fromC = selectedSquare.c;
+            const piece = boardState[fromR][fromC];
+            
+            // Execute move
+            boardState[r][c] = piece;
+            boardState[fromR][fromC] = null;
+            
+            // Generate Notation (Simplified)
+            const fullNotation = `${piece.toUpperCase()}${getAlgebraic(r, c)}`;
+
+            // Update History
+            const moveNum = Math.ceil((moveHistory.length + 1) / 2);
+            if (turn === 'w') {
+                moveHistory.push({ num: moveNum, white: fullNotation, black: null });
+            } else {
+                if (moveHistory.length > 0) {
+                    moveHistory[moveHistory.length - 1].black = fullNotation;
+                }
+            }
+
+            // State updates
+            lastMove = { from: {r: fromR, c: fromC}, to: {r, c} };
+            turn = turn === 'w' ? 'b' : 'w';
+            selectedSquare = null;
+
+            updateUI();
+            renderBoard();
+            renderHistory();
+        }
+    }
+
+    function resetGame() {
+        boardState = JSON.parse(JSON.stringify(initialBoard));
+        turn = 'w';
+        selectedSquare = null;
+        lastMove = null;
+        moveHistory = [];
+        updateUI();
+        renderBoard();
+        renderHistory();
+    }
+
+    function analyzePosition() {
+        const btn = document.querySelector('.btn-primary');
+        const originalText = btn.innerText;
+        btn.innerText = "Analyzing...";
+        btn.style.opacity = "0.7";
+        
+        setTimeout(() => {
+            btn.innerText = originalText;
+            btn.style.opacity = "1";
+            // Simple feedback
+            alert("Engine Analysis: Position is equal.");
+        }, 1000);
+    }
+
+    // --- Initialization with Mock History ---
+    function init() {
+        // Populate mock history
+        const mockMoves = [
+            { num: 1, white: "e4", black: "e5" },
+            { num: 2, white: "Nf3", black: "Nc6" },
+            { num: 3, white: "Bb5", black: "a6" },
+            { num: 4, white: "Ba4", black: "Nf6" },
+            { num: 5, white: "O-O", black: "Be7" }
+        ];
+        moveHistory = mockMoves;
+        
+        renderBoard();
+        renderHistory();
+        updateUI();
+    }
+
+    init();
+
+</script>
+</body>
+</html>

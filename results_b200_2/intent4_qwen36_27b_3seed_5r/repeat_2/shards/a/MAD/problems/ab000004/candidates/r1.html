@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Planet Defense</title>
+    <style>
+        :root {
+            --c-bg: #05070a;
+            --c-grid: #1a202c;
+            --c-primary: #00f0ff;
+            --c-primary-dim: #005f66;
+            --c-secondary: #ff0055;
+            --c-secondary-glow: rgba(255, 0, 85, 0.6);
+            --c-warning: #ffcc00;
+            --c-text: #ffffff;
+            --c-text-dim: #94a3b8;
+            --c-panel-bg: rgba(10, 15, 25, 0.85);
+            --c-panel-border: rgba(0, 240, 255, 0.3);
+            
+            --font-mono: 'Courier New', Courier, monospace;
+            --font-sans: system-ui, -apple-system, sans-serif;
+            --font-display: Impact, 'Arial Black', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--c-bg);
+            color: var(--c-text);
+            font-family: var(--font-sans);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 1000px;
+        }
+
+        /* --- BACKGROUND LAYERS --- */
+        #canvas-bg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.6;
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 40%, var(--c-bg) 100%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* --- UI CONTAINER --- */
+        .interface-container {
+            position: relative;
+            z-index: 10;
+            width: 90%;
+            max-width: 1100px;
+            height: 90vh;
+            display: grid;
+            grid-template-rows: 60px 1fr auto; /* Fixed Header, Fluid Content, Auto Footer */
+            gap: 20px;
+        }
+
+        /* --- HUD HEADER --- */
+        /* Critique: High contrast, legible, bright white/cyan */
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 10, 20, 0.8);
+            border-bottom: 2px solid var(--c-primary);
+            padding: 0 20px;
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+            letter-spacing: 1px;
+            box-shadow: 0 5px 15px rgba(0, 240, 255, 0.1);
+            clip-path: polygon(
+                0 0, 
+                100% 0, 
+                100% calc(100% - 15px), 
+                calc(100% - 15px) 100%, 
+                0 100%
+            );
+        }
+
+        .hud-group {
+            display: flex;
+            gap: 40px;
+        }
+
+        .hud-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .hud-label {
+            font-size: 0.65rem;
+            color: var(--c-primary);
+            margin-bottom: 2px;
+            opacity: 0.8;
+            letter-spacing: 1px;
+        }
+
+        .hud-value {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: #fff; /* Critique: Bright white */
+            text-shadow: 0 0 8px var(--c-primary-dim);
+            font-family: var(--font-display);
+        }
+
+        .hud-value.hp { color: var(--c-secondary); text-shadow: 0 0 8px var(--c-secondary-glow); }
+        .hud-value.credits { color: var(--c-warning); }
+
+        /* --- MAIN CONTENT AREA --- */
+        .main-view {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 40px;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        /* Left: Title & Art */
+        .title-block {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+            z-index: 2;
+        }
+
+        h1 {
+            font-family: var(--font-display);
+            font-size: 5rem; /* Bigger for impact */
+            line-height: 0.9;
+            text-transform: uppercase;
+            color: #fff;
+            text-shadow: 4px 4px 0px var(--c-primary-dim);
+            margin-bottom: 5px;
+            transform: skewX(-8deg);
+            letter-spacing: -2px;
+        }
+
+        /* Critique: Updated Text */
+        h1 span {
+            display: block;
+            color: transparent;
+            -webkit-text-stroke: 1px var(--c-primary);
+            font-size: 6rem;
+            opacity: 0.9;
+        }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            color: var(--c-primary);
+            letter-spacing: 3px;
+            margin-bottom: 15px;
+            background: var(--c-primary-dim);
+            padding: 4px 10px;
+            width: fit-content;
+            font-weight: bold;
+            clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+        }
+
+        /* Right: Mission Briefing */
+        /* Critique: Reduced size, lower opacity, unified chamfered geometry */
+        .briefing-panel {
+            background: var(--c-panel-bg);
+            border: 1px solid var(--c-panel-border);
+            padding: 20px;
+            position: relative;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.05);
+            /* 45-degree chamfered corners */
+            clip-path: polygon(
+                0 0, 
+                calc(100% - 25px) 0, 
+                100% 25px, 
+                100% 100%, 
+                25px 100%, 
+                0 calc(100% - 25px)
+            );
+            height: fit-content;
+            max-height: 320px; /* Reduced height */
+            overflow: hidden;
+        }
+
+        .panel-header {
+            font-family: var(--font-mono);
+            color: var(--c-primary);
+            border-bottom: 1px solid var(--c-panel-border);
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+        }
+
+        .briefing-text {
+            font-size: 0.8rem;
+            line-height: 1.6;
+            color: var(--c-text-dim); /* Lower opacity text */
+            opacity: 0.8;
+        }
+
+        .briefing-text strong {
+            color: var(--c-text);
+        }
+
+        .warning-box {
+            margin-top: 15px;
+            border: 1px solid var(--c-secondary);
+            background: rgba(255, 0, 85, 0.1);
+            padding: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--c-secondary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+        }
+
+        /* --- UNIFIED ACTION BAR --- */
+        /* Critique: Unified container at bottom, horizontal row */
+        .action-bar {
+            background: rgba(5, 10, 15, 0.9);
+            border-top: 2px solid var(--c-primary-dim);
+            padding: 20px 30px;
+            display: flex;
+            align-items: stretch;
+            gap: 20px;
+            /* Chamfered top corners for the bar itself */
+            clip-path: polygon(
+                25px 0, 
+                calc(100% - 25px) 0, 
+                100% 25px, 
+                100% 100%, 
+                0 100%, 
+                0 25px
+            );
+            margin-bottom: 10px;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* Upgrade Cards in the row */
+        .upgrades-row {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .upgrade-card {
+            flex: 1;
+            background: linear-gradient(180deg, rgba(0,240,255,0.05) 0%, rgba(0,0,0,0.6) 100%);
+            border: 1px solid var(--c-primary-dim);
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            /* Chamfered corners for cards */
+            clip-path: polygon(
+                0 0, 
+                calc(100% - 15px) 0, 
+                100% 15px, 
+                100% 100%, 
+                15px 100%, 
+                0 calc(100% - 15px)
+            );
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .upgrade-card:hover {
+            border-color: var(--c-primary);
+            background: rgba(0,240,255,0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 240, 255, 0.1);
+        }
+
+        .uc-icon {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+            color: var(--c-primary);
+            text-shadow: 0 0 5px var(--c-primary);
+        }
+
+        .uc-title {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: var(--c-text);
+            margin-bottom: 4px;
+            letter-spacing: 1px;
+        }
+
+        .uc-desc {
+            font-size: 0.65rem;
+            color: var(--c-text-dim);
+            margin-bottom: 8px;
+        }
+
+        .uc-cost {
+            font-size: 0.75rem;
+            color: var(--c-warning);
+            font-family: var(--font-mono);
+            background: rgba(255, 204, 0, 0.1);
+            padding: 2px 6px;
+            align-self: center;
+            border: 1px solid rgba(255, 204, 0, 0.3);
+        }
+
+        /* START Button */
+        /* Critique: Increased weight, high contrast pink, glow, chamfered */
+        .btn-start {
+            background: var(--c-secondary);
+            color: #fff;
+            border: none;
+            padding: 0 50px;
+            min-width: 200px;
+            font-family: var(--font-display);
+            font-size: 2rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            /* Chamfered corners matching theme */
+            clip-path: polygon(
+                20px 0, 
+                100% 0, 
+                100% calc(100% - 20px), 
+                calc(100% - 20px) 100%, 
+                0 100%, 
+                0 20px
+            );
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            /* Glow effect */
+            box-shadow: 0 0 20px var(--c-secondary-glow);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-start:hover {
+            background: #ff2a77;
+            box-shadow: 0 0 40px var(--c-secondary-glow), 0 0 10px #fff;
+            transform: scale(1.02);
+        }
+
+        .btn-start::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            transition: 0.5s;
+        }
+
+        .btn-start:hover::after {
+            left: 100%;
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 800px) {
+            .interface-container {
+                width: 100%;
+                height: 100vh;
+                grid-template-rows: 50px 1fr auto;
+                gap: 10px;
+            }
+            .main-view {
+                grid-template-columns: 1fr;
+                padding: 10px;
+                align-items: flex-start;
+            }
+            .title-block {
+                margin-bottom: 20px;
+            }
+            h1 { font-size: 3rem; }
+            h1 span { font-size: 3.5rem; }
+            .briefing-panel {
+                max-height: 200px;
+            }
+            .action-bar {
+                flex-direction: column;
+                padding: 15px;
+                gap: 10px;
+            }
+            .upgrades-row {
+                flex-direction: row; /* Keep row on mobile if space permits, or col */
+            }
+            .btn-start {
+                width: 100%;
+                padding: 20px;
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL FX LAYERS -->
+    <canvas id="canvas-bg"></canvas>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- MAIN UI -->
+    <div class="interface-container">
+        
+        <!-- HEADER HUD -->
+        <div class="hud-header">
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Sector</span>
+                    <span class="hud-value">Alpha-9</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Wave</span>
+                    <span class="hud-value">001</span>
+                </div>
+            </div>
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Shield HP</span>
+                    <span class="hud-value hp">100%</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Credits</span>
+                    <span class="hud-value credits">500</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER CONTENT -->
+        <div class="main-view">
+            
+            <!-- Left: Title & Planet Art -->
+            <div class="title-block">
+                <div class="subtitle">PLANETARY DEFENSE INITIATIVE</div>
+                <h1>
+                    JS<br>
+                    <!-- Critique: Updated Title Text -->
+                    <span>PLANET DEFENSE</span>
+                </h1>
+                
+                <!-- Canvas for the Planet Graphic (Overlay) -->
+                <canvas id="planet-canvas" width="250" height="250" style="position: absolute; right: -40px; top: 0px; z-index: -1; opacity: 0.7; pointer-events: none;"></canvas>
+            </div>
+
+            <!-- Right: Briefing -->
+            <div class="briefing-panel">
+                <div class="panel-header">
+                    <span>// MISSION BRIEFING</span>
+                    <span>SECURE</span>
+                </div>
+                <div class="briefing-text">
+                    <p><strong>Commander,</strong></p>
+                    <p style="margin-top: 8px;">
+                        The <strong>Xenon Swarm</strong> has entered the sector. Primary orbital shields are holding at 100%.
+                    </p>
+                    <p style="margin-top: 8px;">
+                        Configure automated turret network to repel the initial vanguard.
+                    </p>
+                    
+                    <div class="warning-box">
+                        <span class="warning-icon">⚠</span>
+                        <span>WARNING: PROXIMITY ALERT DETECTED.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UNIFIED ACTION BAR -->
+        <!-- Critique: Combined container, horizontal layout -->
+        <div class="action-bar">
+            
+            <div class="upgrades-row">
+                <div class="upgrade-card">
+                    <div class="uc-icon">⚡</div>
+                    <div class="uc-title">DAMAGE</div>
+                    <div class="uc-desc">Plasma Output</div>
+                    <div class="uc-cost">100 CR</div>
+                </div>
+                <div class="upgrade-card">
+                    <div class="uc-icon">⏱</div>
+                    <div class="uc-title">FIRE RATE</div>
+                    <div class="uc-desc">Cycling Speed</div>
+                    <div class="uc-cost">150 CR</div>
+                </div>
+                <div class="upgrade-card">
+                    <div class="uc-icon">🚀</div>
+                    <div class="uc-title">SPEED</div>
+                    <div class="uc-desc">Projectile Vel.</div>
+                    <div class="uc-cost">120 CR</div>
+                </div>
+            </div>
+
+            <!-- Critique: Renamed Button Text -->
+            <button class="btn-start">START</button>
+
+        </div>
+    </div>
+
+    <script>
+        /**
+         * BACKGROUND STARFIELD
+         */
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let stars = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((width * height) / 3000);
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 1.5,
+                    speed: Math.random() * 0.5 + 0.1,
+                    opacity: Math.random()
+                });
+            }
+        }
+
+        function animateBg() {
+            ctx.fillStyle = '#05070a'; 
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw Grid (Subtle)
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.05)';
+            ctx.lineWidth = 1;
+            const gridSize = 60;
+            
+            // Moving grid effect
+            const offset = (Date.now() / 50) % gridSize;
+
+            ctx.beginPath();
+            for(let x = 0; x < width; x += gridSize) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+            }
+            for(let y = offset; y < height; y += gridSize) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+
+            // Draw Stars
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                star.y += star.speed;
+                if (star.y > height) star.y = 0;
+            });
+            ctx.globalAlpha = 1;
+
+            requestAnimationFrame(animateBg);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animateBg();
+
+
+        /**
+         * PLANET CANVAS (THE "ART")
+         */
+        const pCanvas = document.getElementById('planet-canvas');
+        const pCtx = pCanvas.getContext('2d');
+        const pW = pCanvas.width;
+        const pH = pCanvas.height;
+        const centerX = pW / 2;
+        const centerY = pH / 2;
+        const radius = 80;
+
+        function drawPlanet() {
+            pCtx.clearRect(0, 0, pW, pH);
+
+            // Atmosphere Glow
+            const grad = pCtx.createRadialGradient(centerX, centerY, radius, centerX, centerY, radius + 20);
+            grad.addColorStop(0, 'rgba(0, 240, 255, 0.2)');
+            grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, pW, pH);
+
+            // Planet Body
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.fillStyle = '#0b101a';
+            pCtx.fill();
+            pCtx.lineWidth = 2;
+            pCtx.strokeStyle = '#00f0ff';
+            pCtx.stroke();
+
+            // Wireframe Grid
+            pCtx.save();
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.clip(); 
+
+            pCtx.strokeStyle = 'rgba(0, 240, 255, 0.3)';
+            pCtx.lineWidth = 1;
+
+            // Vertical lines
+            for (let i = -radius; i <= radius; i += 20) {
+                pCtx.beginPath();
+                pCtx.ellipse(centerX + i, centerY, 10, radius, 0, 0, Math.PI * 2);
+                pCtx.stroke();
+            }
+
+            // Horizontal lines
+            const time = Date.now() * 0.0005;
+            for (let i = -radius; i <= radius; i += 20) {
+                pCtx.beginPath();
+                let y = i + Math.sin(time + i) * 5; 
+                pCtx.moveTo(centerX - radius, y);
+                pCtx.lineTo(centerX + radius, y);
+                pCtx.stroke();
+            }
+
+            pCtx.restore();
+
+            // Rotation Ring
+            pCtx.save();
+            pCtx.translate(centerX, centerY);
+            pCtx.rotate(Date.now() * 0.001);
+            pCtx.scale(1, 0.3); 
+            
+            pCtx.beginPath();
+            pCtx.arc(0, 0, radius + 25, 0, Math.PI * 2);
+            pCtx.strokeStyle = '#ff0055';
+            pCtx.lineWidth = 2;
+            pCtx.setLineDash([10, 5]);
+            pCtx.stroke();
+            pCtx.setLineDash([]);
+            pCtx.restore();
+
+            requestAnimationFrame(drawPlanet);
+        }
+
+        drawPlanet();
+
+        /**
+         * INTERACTIVITY
+         */
+        const startBtn = document.querySelector('.btn-start');
+        startBtn.addEventListener('click', () => {
+            startBtn.innerText = "LAUNCHING...";
+            startBtn.style.background = "#fff";
+            startBtn.style.color = "#000";
+            startBtn.style.boxShadow = "0 0 30px #fff";
+            
+            setTimeout(() => {
+                alert("SIMULATION STARTED: WAVE 1 INCOMING");
+                startBtn.innerText = "START";
+                startBtn.style.background = ""; 
+                startBtn.style.color = "";
+                startBtn.style.boxShadow = "";
+            }, 500);
+        });
+
+        // Tilt effect on upgrade cards
+        document.querySelectorAll('.upgrade-card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(0,240,255,0.2), rgba(0,0,0,0.6))`;
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.background = 'linear-gradient(180deg, rgba(0,240,255,0.05) 0%, rgba(0,0,0,0.6) 100%)';
+            });
+        });
+
+    </script>
+</body>
+</html>

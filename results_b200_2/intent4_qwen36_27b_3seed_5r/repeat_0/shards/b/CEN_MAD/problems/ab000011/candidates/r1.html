@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON & FLUX: GRID PROTOCOL</title>
+<style>
+    :root {
+        --bg-base: #0b0c10;
+        --panel-bg: #12141a;
+        --grid-line: #1f232e;
+        
+        /* Accents */
+        --c-cyan: #45f3ff;
+        --c-cyan-dim: #1a5c63;
+        --c-orange: #ff8800;
+        --c-orange-dim: #632e00;
+        --c-magenta: #ff2a6d;
+        --c-text: #c5c6c7;
+        --c-text-dim: #6f727a;
+        
+        /* Industrial textures */
+        --metal-light: #2e323b;
+        --metal-dark: #1a1c23;
+        --shadow-deep: 0 20px 50px rgba(0,0,0,0.8);
+        --glow-core: 0 0 20px var(--c-cyan);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+    body {
+        background-color: var(--bg-base);
+        /* Subtle background grid pattern */
+        background-image: 
+            linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+        background-size: 40px 40px;
+        color: var(--c-text);
+        font-family: 'Courier New', Courier, monospace; /* Monospaced for industrial feel */
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    /* --- CONTAINER --- */
+    .machine-case {
+        position: relative;
+        width: 100%;
+        max-width: 860px;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    /* --- HUD (Hierarchy: Secondary) --- */
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        border-bottom: 2px solid var(--grid-line);
+        padding-bottom: 1rem;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        font-weight: 900;
+        letter-spacing: 0.2em;
+        color: var(--c-text-dim);
+        text-transform: uppercase;
+        opacity: 0.8;
+    }
+
+    .hud-stats {
+        display: flex;
+        gap: 2rem;
+        font-size: 0.85rem;
+        color: var(--c-text-dim);
+        letter-spacing: 0.1em;
+    }
+
+    .stat-val {
+        color: var(--c-cyan);
+        font-weight: bold;
+        text-shadow: 0 0 5px var(--c-cyan-dim);
+    }
+
+    /* --- THE BOARD (Hierarchy: Primary) --- */
+    .viewport {
+        position: relative;
+        background: var(--panel-bg);
+        border: 1px solid var(--metal-light);
+        padding: 10px;
+        box-shadow: var(--shadow-deep), inset 0 0 60px rgba(0,0,0,0.9);
+        border-radius: 2px;
+        display: flex;
+        justify-content: center;
+    }
+
+    /* Screws on the casing */
+    .viewport::before, .viewport::after,
+    .viewport .screw-tl, .viewport .screw-br {
+        content: ''; position: absolute; width: 8px; height: 8px;
+        background: radial-gradient(circle, #555 20%, #111 80%);
+        border-radius: 50%;
+        border: 1px solid #000;
+        z-index: 10;
+    }
+    .viewport::before { top: 6px; left: 6px; }
+    .viewport::after { bottom: 6px; right: 6px; }
+    .screw-tl { top: 6px; right: 6px; }
+    .screw-br { bottom: 6px; left: 6px; }
+
+    #grid-canvas {
+        display: block;
+        cursor: crosshair;
+        /* Texture overlay on canvas */
+        background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
+        background-size: 20px 20px;
+    }
+
+    /* --- CONTROLS LEGEND (Industrial UI) --- */
+    .control-panel {
+        display: flex;
+        justify-content: center;
+        gap: 1.5rem;
+        margin-top: 1rem;
+    }
+
+    .control-module {
+        background: linear-gradient(180deg, #1a1c23 0%, #0f1014 100%);
+        border: 1px solid var(--metal-light);
+        border-bottom: 3px solid #050505;
+        padding: 10px 15px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-radius: 4px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        transition: transform 0.1s;
+    }
+
+    .control-module:active {
+        transform: translateY(2px);
+        border-bottom: 1px solid #050505;
+    }
+
+    .key-stencil {
+        background: #050505;
+        color: var(--c-text);
+        padding: 4px 8px;
+        font-size: 0.7rem;
+        font-weight: bold;
+        border-radius: 3px;
+        border-top: 2px solid #333;
+        letter-spacing: 0.1em;
+        min-width: 30px;
+        text-align: center;
+    }
+
+    .action-label {
+        font-size: 0.75rem;
+        color: var(--c-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+
+    .module-icon {
+        opacity: 0.7;
+        filter: drop-shadow(0 0 2px rgba(0,0,0,0.8));
+    }
+
+</style>
+</head>
+<body>
+
+<div class="machine-case">
+    <header>
+        <h1>Iron & Flux <span style="font-size:0.6em; vertical-align:middle; color:var(--c-magenta)">// v0.9</span></h1>
+        <div class="hud-stats">
+            <div>SEC: <span class="stat-val">04</span></div>
+            <div>MOVES: <span class="stat-val">12</span></div>
+        </div>
+    </header>
+
+    <div class="viewport">
+        <div class="screw-tl"></div>
+        <div class="screw-br"></div>
+        <canvas id="grid-canvas"></canvas>
+    </div>
+
+    <div class="control-panel">
+        <div class="control-module">
+            <svg class="module-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--c-cyan)" stroke-width="2">
+                <path d="M12 2L12 22M12 2L6 8M12 2L18 8" />
+            </svg>
+            <div class="key-stencil">↑↓←→</div>
+            <span class="action-label">Move Core</span>
+        </div>
+        <div class="control-module">
+            <svg class="module-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--c-orange)" stroke-width="2">
+                <rect x="5" y="5" width="14" height="14" rx="2" />
+                <path d="M9 9L15 15M15 9L9 15" />
+            </svg>
+            <div class="key-stencil">WALK</div>
+            <span class="action-label">Push Load</span>
+        </div>
+        <div class="control-module">
+            <svg class="module-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--c-magenta)" stroke-width="2">
+                <path d="M12 22V12" />
+                <path d="M12 12L19 5" />
+                <circle cx="12" cy="22" r="2" fill="var(--c-magenta)" />
+            </svg>
+            <div class="key-stencil">SPACE</div>
+            <span class="action-label">Pull Lever</span>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * VISUAL ENGINE
+ * Focus on depth, lighting, and texture.
+ */
+
+const canvas = document.getElementById('grid-canvas');
+const ctx = canvas.getContext('2d');
+
+// Configuration
+const TILE_SIZE = 70;
+const GRID_ROWS = 6;
+const GRID_COLS = 8;
+
+// Game State
+let gameState = {
+    player: { x: 1, y: 3 },
+    crates: [{ x: 3, y: 3 }, { x: 5, y: 2 }],
+    lever: { x: 4, y: 1, active: false },
+    door: { x: 6, y: 4, open: false },
+    target: { x: 2, y: 4 },
+    walls: [
+        {x:2, y:0}, {x:2, y:1}, {x:2, y:2}, 
+        {x:4, y:3}, {x:4, y:4}, {x:4, y:5},
+        {x:6, y:2}, {x:6, y:3}
+    ]
+};
+
+function init() {
+    const width = GRID_COLS * TILE_SIZE;
+    const height = GRID_ROWS * TILE_SIZE;
+    const dpr = window.devicePixelRatio || 1;
+    
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.scale(dpr, dpr);
+
+    draw();
+}
+
+// --- RENDERING HELPERS ---
+
+function getTile(x, y) {
+    return { x: x * TILE_SIZE, y: y * TILE_SIZE };
+}
+
+function drawRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+}
+
+function drawInsetRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+    // Inner highlight for depth
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x+1, y+1, w-2, h-2);
+}
+
+// --- DRAWING FUNCTIONS ---
+
+function drawFloor() {
+    for (let y = 0; y < GRID_ROWS; y++) {
+        for (let x = 0; x < GRID_COLS; x++) {
+            const {x: px, y: py} = getTile(x, y);
+            // Base concrete
+            drawRect(px, py, TILE_SIZE, TILE_SIZE, '#16181e');
+            // Grid lines
+            ctx.strokeStyle = '#222630';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
+        }
+    }
+}
+
+function drawWalls() {
+    gameState.walls.forEach(w => {
+        const {x: px, y: py} = getTile(w.x, w.y);
+        const pad = 2;
+        
+        // Wall Base (Dark Metal)
+        const grad = ctx.createLinearGradient(px, py, px, py + TILE_SIZE);
+        grad.addColorStop(0, '#2c313c');
+        grad.addColorStop(1, '#1a1d24');
+        drawRect(px + pad, py + pad, TILE_SIZE - pad*2, TILE_SIZE - pad*2, grad);
+        
+        // Bevel Top (Light)
+        ctx.fillStyle = '#4a505e';
+        ctx.beginPath();
+        ctx.moveTo(px + pad, py + pad);
+        ctx.lineTo(px + TILE_SIZE - pad, py + pad);
+        ctx.lineTo(px + TILE_SIZE - pad - 4, py + pad + 4);
+        ctx.lineTo(px + pad + 4, py + pad + 4);
+        ctx.fill();
+
+        // Bevel Left (Dark)
+        ctx.fillStyle = '#0f1115';
+        ctx.beginPath();
+        ctx.moveTo(px + pad, py + pad);
+        ctx.lineTo(px + pad + 4, py + pad + 4);
+        ctx.lineTo(px + pad + 4, py + TILE_SIZE - pad - 4);
+        ctx.lineTo(px + pad, py + TILE_SIZE - pad);
+        ctx.fill();
+
+        // Industrial Rivets
+        ctx.fillStyle = '#0a0b0e';
+        ctx.beginPath(); ctx.arc(px + 12, py + 12, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + TILE_SIZE - 12, py + 12, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + 12, py + TILE_SIZE - 12, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + TILE_SIZE - 12, py + TILE_SIZE - 12, 2, 0, Math.PI*2); ctx.fill();
+    });
+}
+
+function drawTarget() {
+    const t = gameState.target;
+    const {x: px, y: py} = getTile(t.x, t.y);
+    const cx = px + TILE_SIZE/2;
+    const cy = py + TILE_SIZE/2;
+
+    // Floor Marking
+    ctx.strokeStyle = '#333842';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Center Cross
+    ctx.fillStyle = '#333842';
+    ctx.fillRect(cx - 2, cy - 8, 4, 16);
+    ctx.fillRect(cx - 8, cy - 2, 16, 4);
+}
+
+function drawDoor() {
+    const d = gameState.door;
+    const {x: px, y: py} = getTile(d.x, d.y);
+    const cx = px + TILE_SIZE/2;
+    const cy = py + TILE_SIZE/2;
+
+    if (d.open) {
+        // Open Portal
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#45f3ff';
+        ctx.fillStyle = 'rgba(69, 243, 255, 0.15)';
+        ctx.fillRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+        ctx.shadowBlur = 0;
+        
+        // Frame
+        ctx.strokeStyle = '#45f3ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+    } else {
+        // Closed Heavy Door
+        const grad = ctx.createLinearGradient(px, py, px, py + TILE_SIZE);
+        grad.addColorStop(0, '#3a1c1c');
+        grad.addColorStop(1, '#220e0e');
+        drawRect(px + 8, py + 8, TILE_SIZE - 16, TILE_SIZE - 16, grad);
+        
+        // Warning Stripes
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(px + 8, py + 8, TILE_SIZE - 16, TILE_SIZE - 16);
+        ctx.clip();
+        ctx.strokeStyle = '#ff2a6d';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + TILE_SIZE, py + TILE_SIZE);
+        ctx.moveTo(px + 20, py);
+        ctx.lineTo(px + TILE_SIZE + 20, py + TILE_SIZE);
+        ctx.moveTo(px - 20, py);
+        ctx.lineTo(px + TILE_SIZE - 20, py + TILE_SIZE);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+function drawLever() {
+    const l = gameState.lever;
+    const {x: px, y: py} = getTile(l.x, l.y);
+    const cx = px + TILE_SIZE/2;
+    const cy = py + TILE_SIZE/2;
+
+    // Base Plate
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 18, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Mechanical Arm
+    ctx.strokeStyle = l.active ? '#45f3ff' : '#ff2a6d';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    // Rotation logic
+    const angle = l.active ? -Math.PI/4 : Math.PI/4;
+    ctx.lineTo(cx + Math.cos(angle)*15, cy + Math.sin(angle)*15);
+    ctx.stroke();
+
+    // Handle Knob
+    ctx.fillStyle = l.active ? '#fff' : '#ff2a6d';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = l.active ? '#45f3ff' : '#ff2a6d';
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(angle)*15, cy + Math.sin(angle)*15, 4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+}
+
+function drawCrates() {
+    gameState.crates.forEach(c => {
+        const {x: px, y: py} = getTile(c.x, c.y);
+        const pad = 6;
+        
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(px + pad + 4, py + pad + 4, TILE_SIZE - pad*2, TILE_SIZE - pad*2);
+
+        // Body (Industrial Metal)
+        const grad = ctx.createLinearGradient(px, py, px, py + TILE_SIZE);
+        grad.addColorStop(0, '#e69900');
+        grad.addColorStop(1, '#b37400');
+        drawRect(px + pad, py + pad, TILE_SIZE - pad*2, TILE_SIZE - pad*2, grad);
+
+        // Top Highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(px + pad, py + pad, TILE_SIZE - pad*2, 4);
+
+        // Rivets
+        ctx.fillStyle = '#5c4000';
+        const rSize = 2;
+        ctx.beginPath(); ctx.arc(px + pad + 6, py + pad + 6, rSize, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + TILE_SIZE - pad - 6, py + pad + 6, rSize, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + pad + 6, py + TILE_SIZE - pad - 6, rSize, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + TILE_SIZE - pad - 6, py + TILE_SIZE - pad - 6, rSize, 0, Math.PI*2); ctx.fill();
+
+        // Center Marking
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px + pad + 10, py + pad + 10, TILE_SIZE - pad*2 - 20, TILE_SIZE - pad*2 - 20);
+    });
+}
+
+function drawPlayer() {
+    const p = gameState.player;
+    const {x: px, y: py} = getTile(p.x, p.y);
+    const cx = px + TILE_SIZE/2;
+    const cy = py + TILE_SIZE/2;
+
+    // Glow Aura
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#45f3ff';
+
+    // Core Shape (Diamond/Square rotated)
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 15);
+    ctx.lineTo(cx + 15, cy);
+    ctx.lineTo(cx, cy + 15);
+    ctx.lineTo(cx - 15, cy);
+    ctx.fill();
+
+    // Inner Dark
+    ctx.fillStyle = '#45f3ff';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 8);
+    ctx.lineTo(cx + 8, cy);
+    ctx.lineTo(cx, cy + 8);
+    ctx.lineTo(cx - 8, cy);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawFloor();
+    drawTarget();
+    drawDoor();
+    drawWalls();
+    drawLever();
+    drawCrates();
+    drawPlayer();
+}
+
+// --- LOGIC ---
+
+function movePlayer(dx, dy) {
+    const newX = gameState.player.x + dx;
+    const newY = gameState.player.y + dy;
+
+    // Bounds
+    if (newX < 0 || newX >= GRID_COLS || newY < 0 || newY >= GRID_ROWS) return;
+
+    // Walls
+    if (gameState.walls.some(w => w.x === newX && w.y === newY)) return;
+
+    // Door (Closed)
+    if (gameState.door.x === newX && gameState.door.y === newY && !gameState.door.open) return;
+
+    // Crates
+    const crateIdx = gameState.crates.findIndex(c => c.x === newX && c.y === newY);
+    if (crateIdx !== -1) {
+        const newCrateX = newX + dx;
+        const newCrateY = newY + dy;
+        
+        // Check Crate Collision
+        const blocked = 
+            newCrateX < 0 || newCrateX >= GRID_COLS || newCrateY < 0 || newCrateY >= GRID_ROWS ||
+            gameState.walls.some(w => w.x === newCrateX && w.y === newCrateY) ||
+            gameState.crates.some(c => c.x === newCrateX && c.y === newCrateY) ||
+            (gameState.door.x === newCrateX && gameState.door.y === newCrateY); // Can't push into door
+
+        if (!blocked) {
+            gameState.crates[crateIdx].x = newCrateX;
+            gameState.crates[crateIdx].y = newCrateY;
+            gameState.player.x = newX;
+            gameState.player.y = newY;
+            draw();
+        }
+    } else {
+        gameState.player.x = newX;
+        gameState.player.y = newY;
+        draw();
+    }
+}
+
+function pullLever() {
+    const p = gameState.player;
+    const l = gameState.lever;
+    
+    // Manhattan Distance check for adjacency
+    if (Math.abs(p.x - l.x) + Math.abs(p.y - l.y) === 1) {
+        l.active = !l.active;
+        gameState.door.open = l.active;
+        draw();
+    }
+}
+
+window.addEventListener('keydown', (e) => {
+    switch(e.key) {
+        case 'ArrowUp': movePlayer(0, -1); break;
+        case 'ArrowDown': movePlayer(0, 1); break;
+        case 'ArrowLeft': movePlayer(-1, 0); break;
+        case 'ArrowRight': movePlayer(1, 0); break;
+        case ' ': pullLever(); break;
+    }
+});
+
+init();
+</script>
+</body>
+</html>

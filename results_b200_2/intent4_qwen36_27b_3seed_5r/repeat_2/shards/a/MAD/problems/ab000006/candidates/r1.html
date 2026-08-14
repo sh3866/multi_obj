@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree - Retro Edition</title>
+<style>
+  /* 
+    NO EXTERNAL FONTS. 
+    We use a system monospace stack that resembles pixel fonts best, 
+    but we rely on CSS text-rendering to enforce blockiness.
+  */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Courier New', 'Lucida Console', 'VCR OSD Mono', monospace;
+    /* Critical for pixel font rendering */
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: crisp-edges;
+  }
+
+  #game-container {
+    position: relative;
+    width: 640px;
+    height: 480px;
+    /* Retro hardware bezel look */
+    background: #222;
+    box-shadow: 
+      0 0 0 4px #000,
+      0 0 0 8px #333,
+      0 20px 50px rgba(0,0,0,0.8);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* The secret sauce for pixel art upscaling */
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* CRT Effects */
+  #scanlines {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.15),
+      rgba(0,0,0,0.15) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 10;
+  }
+
+  #vignette {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 11;
+    background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.6) 100%);
+  }
+
+  /* UI Overlay */
+  #ui-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; /* Let clicks pass through to canvas if needed, but we'll catch on button */
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* 1. TYPOGRAPHY: Pixel Font applied */
+  #title {
+    margin-top: 40px;
+    font-size: 48px;
+    font-weight: bold;
+    color: #fff;
+    /* Hard drop shadow for retro depth, no blur */
+    text-shadow: 
+      4px 4px 0 #004080,
+      -2px -2px 0 #ffcc00; 
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    user-select: none;
+    text-align: center;
+    line-height: 1;
+  }
+
+  /* 3. COMPOSITION: HUD Management */
+  #score-hud {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+    text-align: right;
+    line-height: 1.4;
+    z-index: 6;
+    pointer-events: none;
+  }
+  
+  #score-hud span {
+    color: #ffcc00;
+  }
+
+  /* 2. UI ELEMENTS: Hard-edged Button */
+  #start-btn {
+    margin-top: 15px;
+    padding: 10px 30px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #fff;
+    background: #e04040; /* Retro red */
+    border: none;
+    /* Pixelated border simulation using box-shadow */
+    box-shadow: 
+      inset -4px -4px 0px 0px #a02020,
+      inset 4px 4px 0px 0px #ff8080,
+      4px 4px 0px 0px #000;
+    cursor: pointer;
+    pointer-events: all;
+    position: relative;
+    user-select: none;
+    transition: transform 0.05s;
+  }
+
+  #start-btn:hover {
+    background: #f05050;
+    color: #fff;
+  }
+
+  #start-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 
+      inset -2px -2px 0px 0px #a02020,
+      inset 2px 2px 0px 0px #ff8080,
+      2px 2px 0px 0px #000;
+  }
+
+  /* 3. COMPOSITION: Instructions at bottom */
+  #instructions {
+    position: absolute;
+    bottom: 20px;
+    font-size: 12px;
+    color: #fff;
+    text-shadow: 1px 1px 0 #000;
+    text-align: center;
+    line-height: 1.6;
+    opacity: 0.9;
+    width: 100%;
+  }
+
+  #instructions kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #333;
+    border: 2px solid #666;
+    border-bottom-width: 4px;
+    color: #ffcc00;
+    font-family: inherit;
+    font-size: 12px;
+    margin: 0 2px;
+    box-shadow: 0 2px 0 #000;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="scene" width="320" height="240"></canvas>
+  <div id="vignette"></div>
+  <div id="scanlines"></div>
+  
+  <div id="ui-overlay">
+    <div id="title">SkiFree</div>
+    <button id="start-btn">Start Game</button>
+    <div id="instructions">
+      <kbd>←</kbd> <kbd>→</kbd> Steer &nbsp;|&nbsp; <kbd>↑</kbd> Speed &nbsp;|&nbsp; <kbd>↓</kbd> Brake<br>
+      Avoid trees. Don't stop.
+    </div>
+  </div>
+
+  <div id="score-hud">
+    SCORE: <span>00000</span><br>
+    SPEED: <span>0</span> MPH
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const W = 320, H = 240;
+
+// 4. BACKGROUND TEXTURE: Palette for "Stepped" gradients
+const PAL = {
+  sky1: '#000040', // Deep retro blue
+  sky2: '#000080',
+  sky3: '#0000cc',
+  snow1: '#a0c0e0',
+  snow2: '#b0d0f0',
+  snow3: '#c0e0ff',
+  snow4: '#80a0c0',
+  tree1: '#003000',
+  tree2: '#004000',
+  trunk: '#301000',
+  skier_body: '#cc0000',
+  skier_skin: '#ffccaa',
+  skier_hair: '#402000',
+  skier_pants: '#0000cc',
+  skier_skis: '#eeeeee',
+  skier_poles: '#aaaaaa',
+  skier_goggles: '#000000',
+  shadow: 'rgba(0, 0, 50, 0.25)',
+  cloud: '#ffffff',
+  mountain: '#203050',
+  mountainSnow: '#607090',
+};
+
+// State
+let time = 0;
+let skierX = W / 2;
+let skierY = 120; // 3. COMPOSITION: Skier in upper-middle
+let skierDir = 1;
+let isMoving = false;
+let speed = 0;
+let score = 0;
+
+// Trees
+const trees = [];
+for (let i = 0; i < 25; i++) {
+  trees.push({
+    x: Math.random() * W,
+    y: 60 + Math.random() * 170, // Spread vertically
+    size: 0.5 + Math.random() * 0.6,
+    shade: Math.random() > 0.5 ? 0 : 1
+  });
+}
+trees.sort((a, b) => a.y - b.y);
+
+// Clouds
+const clouds = [];
+for (let i = 0; i < 4; i++) {
+  clouds.push({
+    x: Math.random() * W,
+    y: 10 + Math.random() * 20,
+    w: 20 + Math.random() * 30,
+    speed: 0.1 + Math.random() * 0.15
+  });
+}
+
+// Snow particles (for atmosphere)
+const snowflakes = [];
+for (let i = 0; i < 50; i++) {
+  snowflakes.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    speed: 1 + Math.random() * 2,
+    size: Math.random() > 0.8 ? 2 : 1
+  });
+}
+
+// Controls
+const keys = {};
+window.addEventListener('keydown', e => keys[e.key] = true);
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  isMoving = true;
+  document.getElementById('start-btn').style.display = 'none';
+  document.getElementById('title').style.opacity = '0.3'; // Dim title
+});
+
+// --- Drawing Functions ---
+
+function drawSky() {
+  // 4. BACKGROUND TEXTURE: Stepped Gradient
+  const bandHeight = 12;
+  const bands = [PAL.sky1, PAL.sky1, PAL.sky2, PAL.sky2, PAL.sky3, PAL.sky3, PAL.sky3];
+  
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(0, i * bandHeight, W, bandHeight);
+  }
+}
+
+function drawClouds() {
+  ctx.fillStyle = PAL.cloud;
+  clouds.forEach(c => {
+    c.x += c.speed;
+    if (c.x > W + 20) c.x = -c.w;
+    
+    // Pixelated cloud shape
+    const cx = Math.round(c.x);
+    const cy = Math.round(c.y);
+    const cw = Math.round(c.w);
+    
+    ctx.fillRect(cx, cy + 4, cw, 4); // Base
+    ctx.fillRect(cx + 4, cy, cw - 8, 4); // Top
+    ctx.fillRect(cx + 2, cy + 8, cw - 4, 2); // Bottom
+  });
+}
+
+function drawMountains() {
+  ctx.fillStyle = PAL.mountain;
+  // Draw simple jagged mountain range
+  ctx.beginPath();
+  ctx.moveTo(0, 60);
+  ctx.lineTo(40, 30);
+  ctx.lineTo(80, 50);
+  ctx.lineTo(120, 20);
+  ctx.lineTo(160, 45);
+  ctx.lineTo(200, 25);
+  ctx.lineTo(240, 55);
+  ctx.lineTo(280, 35);
+  ctx.lineTo(320, 60);
+  ctx.lineTo(320, 80);
+  ctx.lineTo(0, 80);
+  ctx.fill();
+  
+  // Snow caps
+  ctx.fillStyle = PAL.mountainSnow;
+  ctx.beginPath();
+  ctx.moveTo(30, 35); ctx.lineTo(40, 30); ctx.lineTo(50, 35);
+  ctx.moveTo(110, 25); ctx.lineTo(120, 20); ctx.lineTo(130, 25);
+  ctx.moveTo(190, 30); ctx.lineTo(200, 25); ctx.lineTo(210, 30);
+  ctx.lineTo(0, 80); // close to fill properly
+  ctx.fill();
+}
+
+function drawSnow() {
+  // 4. BACKGROUND TEXTURE: Stepped Gradient for ground
+  const startH = 60;
+  const bandH = 15;
+  const colors = [PAL.snow1, PAL.snow2, PAL.snow3, PAL.snow4];
+  
+  for (let y = startH; y < H; y += bandH) {
+    ctx.fillStyle = colors[Math.floor((y - startH) / bandH) % colors.length];
+    ctx.fillRect(0, y, W, bandH);
+  }
+  
+  // Add subtle "noise" texture to break up bands
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for(let i=0; i<100; i++) {
+    const rx = Math.random() * W;
+    const ry = startH + Math.random() * (H - startH);
+    ctx.fillRect(Math.round(rx), Math.round(ry), 2, 1);
+  }
+}
+
+function drawTree(x, y, size, shade) {
+  const s = Math.floor(size * 10); // Scale factor
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  
+  // Shadow
+  ctx.fillStyle = PAL.shadow;
+  ctx.fillRect(tx - 2, ty, 4, 2);
+  
+  // Trunk
+  ctx.fillStyle = PAL.trunk;
+  ctx.fillRect(tx - 1, ty - 2, 2, 4);
+  
+  // Leaves (Triangle stack)
+  ctx.fillStyle = shade === 0 ? PAL.tree1 : PAL.tree2;
+  
+  // Top tier
+  ctx.fillRect(tx, ty - 10, 2, 2);
+  ctx.fillRect(tx - 2, ty - 8, 6, 2);
+  ctx.fillRect(tx - 4, ty - 6, 10, 2);
+  
+  // Bottom tier
+  ctx.fillRect(tx - 6, ty - 4, 14, 2);
+  ctx.fillRect(tx - 8, ty - 2, 16, 2);
+  ctx.fillRect(tx - 10, ty, 20, 2);
+  
+  // Snow on branches
+  ctx.fillStyle = PAL.snow3;
+  ctx.fillRect(tx - 1, ty - 10, 2, 1);
+  ctx.fillRect(tx - 3, ty - 8, 2, 1);
+  ctx.fillRect(tx + 1, ty - 6, 2, 1);
+}
+
+function drawSkier(x, y, dir) {
+  const sx = Math.round(x);
+  const sy = Math.round(y);
+  
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(dir, 1); // Flip if moving left
+  
+  // Skis
+  ctx.fillStyle = PAL.skier_skis;
+  ctx.fillRect(-6, 10, 5, 1); // Left ski
+  ctx.fillRect(1, 10, 5, 1);  // Right ski
+  
+  // Legs
+  ctx.fillStyle = PAL.skier_pants;
+  ctx.fillRect(-4, 6, 2, 4);
+  ctx.fillRect(2, 6, 2, 4);
+  
+  // Body
+  ctx.fillStyle = PAL.skier_body;
+  ctx.fillRect(-4, -2, 8, 8);
+  
+  // Head
+  ctx.fillStyle = PAL.skier_skin;
+  ctx.fillRect(-2, -6, 4, 4);
+  
+  // Goggles
+  ctx.fillStyle = PAL.skier_goggles;
+  ctx.fillRect(0, -5, 3, 2);
+  
+  // Poles
+  ctx.fillStyle = PAL.skier_poles;
+  ctx.fillRect(-5, 0, 1, 10);
+  ctx.fillRect(4, 0, 1, 10);
+  
+  ctx.restore();
+}
+
+function drawSnowflakes() {
+  ctx.fillStyle = '#fff';
+  snowflakes.forEach(f => {
+    f.y += f.speed + (isMoving ? speed * 0.5 : 0); // Move faster when skiing
+    f.x += Math.sin(time * 0.05 + f.y * 0.1) * 0.5;
+    
+    if (f.y > H) f.y = 0;
+    if (f.x > W) f.x = 0;
+    if (f.x < 0) f.x = W;
+    
+    ctx.fillRect(Math.round(f.x), Math.round(f.y), f.size, f.size);
+  });
+}
+
+// --- Main Loop ---
+
+function update() {
+  time++;
+  
+  if (isMoving) {
+    // Physics
+    if (keys['ArrowUp']) speed = Math.min(speed + 0.05, 4);
+    else if (keys['ArrowDown']) speed = Math.max(speed - 0.1, 0);
+    else speed = Math.min(speed + 0.01, 2); // Auto accelerate slightly
+    
+    // Steering
+    if (speed > 0.5) {
+      if (keys['ArrowLeft']) { skierX -= 1.5; skierDir = -1; }
+      if (keys['ArrowRight']) { skierX += 1.5; skierDir = 1; }
+    }
+    
+    // Boundaries
+    if (skierX < 10) skierX = 10;
+    if (skierX > W - 10) skierX = W - 10;
+    
+    // Score
+    score += Math.floor(speed);
+    
+    // Update HUD
+    document.querySelector('#score-hud span:first-child').textContent = score.toString().padStart(5, '0');
+    document.querySelector('#score-hud span:last-child').textContent = Math.floor(speed * 20);
+  } else {
+    // Idle animation
+    skierX = W/2 + Math.sin(time * 0.03) * 20;
+    skierDir = Math.cos(time * 0.03) > 0 ? 1 : -1;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  
+  drawSky();
+  drawClouds();
+  drawMountains();
+  drawSnow();
+  
+  // Draw Trees (Background)
+  // Sort trees relative to skier Y to fake depth
+  // If skier is moving, we simulate world moving up by adjusting tree Y relative to skier Y?
+  // For a simple title screen, static trees are fine, but let's move them if moving.
+  
+  const treeOffset = isMoving ? (time * speed * 2) % H : 0;
+  
+  trees.forEach(t => {
+    let ty = t.y + (isMoving ? (treeOffset % H) : 0);
+    // Wrap trees
+    if (ty > H) ty -= H;
+    
+    // Don't draw if off screen
+    if (ty > 0 && ty < H) {
+      // Parallax: trees behind skier move slower? No, just simple depth sort.
+      drawTree(t.x, ty, t.size, t.shade);
+    }
+  });
+  
+  drawSkier(skierX, skierY, skierDir);
+  drawSnowflakes();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+</script>
+</body>
+</html>

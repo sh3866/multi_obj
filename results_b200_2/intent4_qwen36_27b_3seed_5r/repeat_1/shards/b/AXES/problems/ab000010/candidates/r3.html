@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spherical Life // System</title>
+<style>
+    :root {
+        --bg-color: #030305;
+        --panel-bg: rgba(8, 10, 14, 0.75);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text-main: #e0e0e6;
+        --text-muted: #5c6070;
+        --accent: #00f3ff;
+        --accent-dim: rgba(0, 243, 255, 0.15);
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        --panel-width: 340px;
+        --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+
+    body {
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        /* Deep atmospheric background */
+        background: radial-gradient(circle at 50% 50%, #0a0c12 0%, #000000 100%);
+    }
+
+    /* Canvas Area */
+    #canvas-container {
+        flex-grow: 1;
+        position: relative;
+        cursor: grab;
+        overflow: hidden;
+    }
+    #canvas-container:active { cursor: grabbing; }
+
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* UI Overlay - Top Left (Anchors) */
+    .hud-top {
+        position: absolute;
+        top: 40px;
+        left: 40px;
+        pointer-events: none;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .hud-title {
+        font-family: var(--font-ui);
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: #ffffff;
+        text-transform: uppercase;
+        text-shadow: 0 0 20px rgba(255,255,255,0.1);
+    }
+    .hud-subtitle {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-muted);
+        letter-spacing: 2px;
+        font-weight: 600;
+    }
+
+    /* Control Panel (Glassmorphism) */
+    aside {
+        width: var(--panel-width);
+        height: 100%;
+        background: var(--panel-bg);
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border-left: 1px solid var(--panel-border);
+        padding: 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        z-index: 20;
+        box-shadow: -5px 0 40px rgba(0,0,0,0.4);
+    }
+
+    /* Panel Header */
+    .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--panel-border);
+    }
+    .panel-title {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+    }
+    .status-badge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255,255,255,0.03);
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--panel-border);
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--text-main);
+    }
+    .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+        animation: pulse 2s infinite;
+    }
+    .status-dot.paused {
+        background-color: #ffaa00;
+        box-shadow: 0 0 8px #ffaa00;
+        animation: none;
+    }
+
+    /* Stats Block */
+    .stats-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .stat-label {
+        font-family: var(--font-ui);
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        letter-spacing: 0.8px;
+        font-weight: 600;
+    }
+    .stat-val {
+        font-family: var(--font-mono);
+        font-size: 24px;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: -0.5px;
+        line-height: 1;
+    }
+
+    /* Control Groups */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding-top: 8px;
+    }
+    .control-group:first-of-type { padding-top: 0; }
+    
+    .label {
+        font-family: var(--font-ui);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .label span:last-child {
+        font-family: var(--font-mono);
+        color: var(--text-main);
+        font-weight: 400;
+        opacity: 0.8;
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin-top: 4px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        margin-top: -7px;
+        box-shadow: 0 0 10px rgba(255,255,255,0.4);
+        border: 2px solid #000;
+        transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); }
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 4px;
+    }
+
+    /* Buttons */
+    .btn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+    }
+    button {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text-main);
+        padding: 12px 0;
+        font-family: var(--font-ui);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        transition: all 0.2s var(--ease);
+        border-radius: 6px;
+        width: 100%;
+    }
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.2);
+        transform: translateY(-1px);
+    }
+    button:active { transform: translateY(1px); }
+    
+    /* Primary Action: Play/Pause */
+    button.primary {
+        background: var(--accent-dim);
+        border: 1px solid rgba(0, 243, 255, 0.3);
+        color: var(--accent);
+    }
+    button.primary:hover {
+        background: rgba(0, 243, 255, 0.25);
+        box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+        border-color: var(--accent);
+    }
+
+    button.danger {
+        color: #ff6b6b;
+        border-color: rgba(255, 107, 107, 0.1);
+    }
+    button.danger:hover {
+        background: rgba(255, 107, 107, 0.1);
+        border-color: rgba(255, 107, 107, 0.3);
+    }
+
+    /* Theme Toggles */
+    .theme-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+    }
+    .theme-btn {
+        padding: 10px;
+        font-size: 10px;
+        text-align: center;
+        border-radius: 6px;
+    }
+    .theme-btn.active {
+        background: rgba(255,255,255,0.1);
+        border-color: rgba(255,255,255,0.3);
+        color: #fff;
+        box-shadow: 0 0 10px rgba(255,255,255,0.05);
+    }
+
+    /* Footer */
+    .footer {
+        margin-top: auto;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: rgba(255,255,255,0.3);
+        line-height: 1.6;
+        border-top: 1px solid var(--panel-border);
+        padding-top: 20px;
+        letter-spacing: 0.5px;
+    }
+
+    @keyframes pulse {
+        0% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.2); }
+        100% { opacity: 0.5; transform: scale(1); }
+    }
+</style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="sphereCanvas"></canvas>
+        
+        <div class="hud-top">
+            <div class="hud-title">Spherical Life</div>
+            <div class="hud-subtitle">TOPOLOGY: CLOSED MANIFOLD</div>
+        </div>
+    </div>
+
+    <aside>
+        <!-- Header: State -> Action -->
+        <div class="panel-header">
+            <div class="panel-title">System Control</div>
+            <div class="status-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">RUNNING</span>
+            </div>
+        </div>
+
+        <!-- Primary Action Button (Moved up for hierarchy) -->
+        <div class="control-group">
+            <button class="primary" id="btn-toggle">Pause Simulation</button>
+        </div>
+
+        <!-- Metrics -->
+        <div class="stats-container">
+            <div class="stat-item">
+                <span class="stat-label">Generation</span>
+                <span class="stat-val" id="gen-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Population</span>
+                <span class="stat-val" id="pop-count">0</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="label">
+                <span>Simulation Speed</span>
+                <span id="speed-val">30</span>
+            </div>
+            <input type="range" id="speedRange" min="1" max="60" value="30">
+        </div>
+
+        <div class="control-group">
+            <div class="label">
+                <span>Grid Resolution</span>
+                <span id="res-val">80</span>
+            </div>
+            <input type="range" id="resRange" min="40" max="120" value="80">
+        </div>
+
+        <div class="control-group">
+            <div class="label">Visual Theme</div>
+            <div class="theme-grid">
+                <button class="theme-btn active" onclick="setTheme('neon')">Neon</button>
+                <button class="theme-btn" onclick="setTheme('heat')">Solar</button>
+                <button class="theme-btn" onclick="setTheme('matrix')">Data</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="label">Manual Overrides</div>
+            <div class="btn-grid">
+                <button class="danger" id="btn-reset">Random</button>
+                <button id="btn-clear">Clear</button>
+                <button id="btn-step">Step</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            RENDER: HTML5 CANVAS 2D<br>
+            LOGIC: CONWAY'S GOL<br>
+            DRAG TO ROTATE • CLICK TO SPAWN
+        </div>
+    </aside>
+
+<script>
+/**
+ * Spherical Game of Life - High Density Visualizer
+ * Optimized for Volumetric Rendering and Performance
+ */
+
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const container = document.getElementById('canvas-container');
+
+// State
+let width, height;
+let cols = 80; 
+let rows = 40;
+let grid = [];
+let nextGrid = [];
+let generation = 0;
+let isRunning = true;
+let lastTime = 0;
+let fpsInterval = 33; 
+let theme = 'neon';
+
+// Camera / Rotation
+let rotX = 0.3; // Initial tilt
+let rotY = 0;
+let autoRotate = true;
+let isDragging = false;
+let lastMouse = { x: 0, y: 0 };
+
+// Themes Configuration
+const themes = {
+    neon: {
+        bg: '#030305',
+        sphereRim: '#00f3ff',
+        gridColor: 'rgba(255, 255, 255, 0.02)',
+        cellColor: (n, age) => {
+            // High saturation, shifting hue based on neighbors
+            const hue = (n * 40 + 180) % 360; 
+            const sat = 85;
+            const light = 55 + (n * 2);
+            return `hsla(${hue}, ${sat}%, ${light}%, 1)`;
+        }
+    },
+    heat: {
+        bg: '#080202',
+        sphereRim: '#ff4500',
+        gridColor: 'rgba(255, 100, 50, 0.02)',
+        cellColor: (n, age) => {
+            const hue = 60 - (n * 8); 
+            return `hsla(${hue}, 100%, 55%, 1)`;
+        }
+    },
+    matrix: {
+        bg: '#020502',
+        sphereRim: '#00ff00',
+        gridColor: 'rgba(0, 255, 0, 0.02)',
+        cellColor: (n, age) => {
+            const light = 45 + (n * 5);
+            return `hsla(120, 100%, ${light}%, 1)`;
+        }
+    }
+};
+
+// Setup Canvas
+function resize() {
+    width = container.clientWidth;
+    height = container.clientHeight;
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    width = width; 
+    height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Grid Logic
+function initGrid() {
+    grid = new Array(cols * rows).fill(0);
+    nextGrid = new Array(cols * rows).fill(0);
+    randomize();
+    generation = 0;
+}
+
+function randomize() {
+    for (let i = 0; i < grid.length; i++) {
+        // 30% density for better initial visual
+        grid[i] = Math.random() > 0.7 ? 1 : 0;
+    }
+    updateStats();
+}
+
+function clearGrid() {
+    grid.fill(0);
+    updateStats();
+}
+
+function getIdx(x, y) {
+    return y * cols + x;
+}
+
+// Get neighbor count (Torus/Sphere wrapping)
+function countNeighbors(x, y) {
+    let sum = 0;
+    for (let i = -1; i < 2; i++) {
+        for (let j = -1; j < 2; j++) {
+            if (i === 0 && j === 0) continue;
+            
+            let col = (x + i + cols) % cols;
+            let row = (y + j + rows) % rows;
+            
+            sum += grid[getIdx(col, row)];
+        }
+    }
+    return sum;
+}
+
+function update() {
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const state = grid[getIdx(x, y)];
+            const neighbors = countNeighbors(x, y);
+            
+            if (state === 0 && neighbors === 3) {
+                nextGrid[getIdx(x, y)] = 1;
+            } else if (state === 1 && (neighbors < 2 || neighbors > 3)) {
+                nextGrid[getIdx(x, y)] = 0;
+            } else {
+                nextGrid[getIdx(x, y)] = state;
+            }
+        }
+    }
+    
+    let temp = grid;
+    grid = nextGrid;
+    nextGrid = temp;
+    
+    generation++;
+    updateStats();
+}
+
+function updateStats() {
+    let pop = grid.reduce((a, b) => a + b, 0);
+    document.getElementById('gen-count').innerText = generation;
+    document.getElementById('pop-count').innerText = pop;
+}
+
+// Rendering
+function drawSphere() {
+    // Clear with background color
+    ctx.fillStyle = themes[theme].bg;
+    ctx.fillRect(0, 0, width, height);
+    
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.min(width, height) * 0.32;
+
+    // 1. Volumetric Body (Dark core)
+    // Create a deep 3D feel with a dark gradient sphere
+    const grad = ctx.createRadialGradient(cx - radius*0.2, cy - radius*0.2, radius * 0.1, cx, cy, radius);
+    grad.addColorStop(0, 'rgba(30, 30, 40, 0.1)');
+    grad.addColorStop(0.8, 'rgba(10, 10, 15, 0.5)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+    
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 2. Draw Cells
+    const cellsToDraw = [];
+
+    // Pre-calculate trig for rotation
+    const cosY = Math.cos(rotY);
+    const sinY = Math.sin(rotY);
+    const cosX = Math.cos(rotX);
+    const sinX = Math.sin(rotX);
+
+    // Optimization: Calculate sphere projection once per frame
+    // We iterate through the grid, map UV to 3D, rotate, project, and sort.
+    
+    for (let y = 0; y < rows; y++) {
+        const phi = (y / rows) * Math.PI;
+        const sinPhi = Math.sin(phi);
+        const cosPhi = Math.cos(phi);
+
+        for (let x = 0; x < cols; x++) {
+            const idx = getIdx(x, y);
+            if (grid[idx] === 1) {
+                const theta = (x / cols) * Math.PI * 2;
+                const cosTheta = Math.cos(theta);
+                const sinTheta = Math.sin(theta);
+
+                // 3D Position (Unit Sphere)
+                let px = sinPhi * cosTheta;
+                let py = sinPhi * sinTheta;
+                let pz = cosPhi;
+
+                // Rotate Y
+                let px2 = px * cosY - pz * sinY;
+                let pz2 = px * sinY + pz * cosY;
+                
+                // Rotate X
+                let py2 = py * cosX - pz2 * sinX;
+                let pz3 = py * sinX + pz2 * cosX;
+
+                // Project
+                // Simple perspective
+                const fov = 400;
+                const scale = fov / (fov + pz3 * radius);
+                
+                // Culling: Only draw if in front of camera (with some tolerance)
+                if (pz3 < 0.9) { 
+                    const sx = cx + px2 * radius * scale;
+                    const sy = cy + py2 * radius * scale;
+                    
+                    // Dynamic cell size based on position
+                    // Smaller cells for "lots of small cells" requirement
+                    const baseSize = (Math.PI * radius) / cols; 
+                    const size = Math.max(1.5, baseSize * scale * 0.7); 
+
+                    // Calculate neighbor count for color mapping
+                    const n = countNeighbors(x, y);
+                    const color = themes[theme].cellColor(n, generation);
+                    
+                    cellsToDraw.push({ sx, sy, size, z: pz3, color });
+                }
+            }
+        }
+    }
+
+    // Sort by Z (Painter's Algorithm) - back to front
+    cellsToDraw.sort((a, b) => b.z - a.z);
+
+    // Draw Cells
+    // Use 'lighter' for additive glow effect
+    ctx.globalCompositeOperation = 'lighter';
+    
+    for (let cell of cellsToDraw) {
+        // Depth fog: fade out back cells
+        // Map z from -1 to 1 -> opacity
+        const alpha = Math.max(0.3, 1 - ((cell.z + 1) / 2));
+        
+        ctx.fillStyle = cell.color;
+        ctx.globalAlpha = alpha;
+        
+        // Small glow
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = cell.color;
+        
+        ctx.beginPath();
+        ctx.arc(cell.sx, cell.sy, cell.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Reset Context
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // 3. Rim Light (Fresnel effect)
+    // Adds volume and separation
+    const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.85, cx, cy, radius);
+    rimGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    rimGrad.addColorStop(0.95, 'rgba(0,0,0,0.5)');
+    rimGrad.addColorStop(1, themes[theme].sphereRim);
+    
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = rimGrad;
+    ctx.fill();
+    
+    // Thin outer stroke
+    ctx.strokeStyle = themes[theme].sphereRim;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.3;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+// Main Loop
+function loop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const elapsed = timestamp - lastTime;
+
+    if (isRunning && elapsed > fpsInterval) {
+        update();
+        lastTime = timestamp;
+    }
+
+    if (autoRotate && !isDragging) {
+        rotY += 0.004;
+    }
+
+    drawSphere();
+    requestAnimationFrame(loop);
+}
+
+// Interactions
+container.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastMouse = { x: e.clientX, y: e.clientY };
+    autoRotate = false;
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+        const dx = e.clientX - lastMouse.x;
+        const dy = e.clientY - lastMouse.y;
+        rotY += dx * 0.005;
+        rotX += dy * 0.005;
+        lastMouse = { x: e.clientX, y: e.clientY };
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+// Click to spawn life
+container.addEventListener('click', (e) => {
+    // Toggle a random block of cells
+    const startIdx = Math.floor(Math.random() * grid.length);
+    for(let i=0; i<30; i++) {
+        grid[(startIdx + i) % grid.length] = 1;
+    }
+    updateStats();
+});
+
+// UI Controls
+document.getElementById('btn-toggle').addEventListener('click', () => {
+    isRunning = !isRunning;
+    const btn = document.getElementById('btn-toggle');
+    const statusText = document.getElementById('status-text');
+    const statusDot = document.getElementById('status-dot');
+    
+    if (isRunning) {
+        btn.innerText = "Pause Simulation";
+        statusText.innerText = "RUNNING";
+        statusText.style.color = "var(--accent)";
+        statusDot.classList.remove('paused');
+    } else {
+        btn.innerText = "Resume Simulation";
+        statusText.innerText = "PAUSED";
+        statusText.style.color = "#ffaa00";
+        statusDot.classList.add('paused');
+    }
+});
+
+document.getElementById('btn-step').addEventListener('click', () => {
+    isRunning = false;
+    const btn = document.getElementById('btn-toggle');
+    btn.innerText = "Resume Simulation";
+    const statusText = document.getElementById('status-text');
+    statusText.innerText = "PAUSED";
+    statusText.style.color = "#ffaa00";
+    const statusDot = document.getElementById('status-dot');
+    statusDot.classList.add('paused');
+    
+    update();
+});
+
+document.getElementById('btn-reset').addEventListener('click', randomize);
+document.getElementById('btn-clear').addEventListener('click', clearGrid);
+
+document.getElementById('speedRange').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('speed-val').innerText = val;
+    fpsInterval = 1000 / val;
+});
+
+document.getElementById('resRange').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('res-val').innerText = val;
+    cols = val;
+    rows = Math.floor(val / 2);
+    initGrid();
+});
+
+function setTheme(name) {
+    theme = name;
+    document.body.style.backgroundColor = themes[name].bg;
+    
+    // Update active button state
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.innerText.toLowerCase() === name || 
+           (name === 'heat' && btn.innerText.toLowerCase() === 'solar')) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// Start
+initGrid();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

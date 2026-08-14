@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault Breaker: Industrial Puzzle</title>
+    <style>
+        :root {
+            /* Palette - Industrial Vault */
+            --bg-void: #050608;
+            --bg-panel: #121418;
+            
+            --wall-face: #2d343e;
+            --wall-shadow: #15181d;
+            --wall-highlight: #45505e;
+
+            --floor-base: #1a1d23;
+            --floor-recess: #0d0f12;
+
+            --accent-player: #00f2ff; /* Cyan Neon */
+            --accent-player-glow: rgba(0, 242, 255, 0.4);
+
+            --accent-crate: #c24e00; /* Rust Orange */
+            --accent-crate-top: #e66a18;
+            --accent-crate-dark: #783000;
+
+            --accent-lever: #ff3333;
+            --accent-lever-base: #555;
+
+            --accent-target: #00ff66; /* Toxic Green */
+            
+            --text-primary: #e0e6ed;
+            --text-muted: #6b7787;
+
+            /* Dimensions */
+            --tile-size: 60px;
+            --gap-size: 0px; /* Seamless grid for floor, walls use borders */
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            /* Brushed Metal / Noise Texture Background */
+            background-image: 
+                radial-gradient(circle at 50% 0%, #2a303a 0%, var(--bg-void) 80%),
+                url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+        }
+
+        /* --- Main Layout --- */
+        .game-container {
+            display: flex;
+            flex-direction: row;
+            width: 95vw;
+            height: 90vh;
+            max-width: 1100px;
+            background: var(--bg-panel);
+            border-radius: 4px;
+            /* Industrial Panel Look */
+            box-shadow: 
+                0 0 0 1px #2a303a,
+                0 20px 50px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+        }
+
+        /* --- Sidebar (Control Panel) --- */
+        .sidebar {
+            width: 280px;
+            background: #0e1014;
+            border-right: 1px solid #2a303a;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            position: relative;
+            z-index: 10;
+            box-shadow: 5px 0 20px rgba(0,0,0,0.5);
+        }
+
+        /* Decorative Screws */
+        .sidebar::before, .sidebar::after {
+            content: '';
+            position: absolute;
+            width: 12px; height: 12px;
+            background: radial-gradient(circle, #555 10%, #222 90%);
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .sidebar::before { top: 10px; left: 10px; }
+        .sidebar::after { bottom: 10px; right: 10px; }
+
+        /* Header */
+        .brand {
+            margin-bottom: 3rem;
+            border-bottom: 2px solid #2a303a;
+            padding-bottom: 1rem;
+        }
+        .brand h1 {
+            font-size: 1.25rem;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            line-height: 1.2;
+        }
+        .brand span {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--accent-player);
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            margin-top: 0.25rem;
+            text-transform: uppercase;
+            text-shadow: 0 0 5px var(--accent-player-glow);
+        }
+
+        /* Controls - Physical Buttons */
+        .controls-section {
+            margin-top: auto; /* Push to bottom */
+            background: #08090b;
+            padding: 1.5rem;
+            border-radius: 6px;
+            border: 1px solid #1f232b;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.6);
+        }
+        
+        .controls-title {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.1em;
+            text-align: center;
+            border-bottom: 1px solid #1f232b;
+            padding-bottom: 5px;
+        }
+
+        .key-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            width: 150px;
+            margin: 0 auto;
+        }
+
+        .key-cap {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(180deg, #3a414c 0%, #22262e 100%);
+            border-radius: 6px;
+            display: grid;
+            place-items: center;
+            font-family: monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #a0aec0;
+            position: relative;
+            /* Bevel & Depth */
+            border-top: 1px solid #4a5360;
+            border-bottom: 4px solid #0d0f12;
+            box-shadow: 0 5px 10px rgba(0,0,0,0.4);
+            transition: all 0.1s ease;
+        }
+        
+        .key-cap.active {
+            transform: translateY(3px);
+            border-bottom-width: 1px;
+            background: linear-gradient(180deg, #22262e 0%, #3a414c 100%);
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.6);
+            color: var(--accent-player);
+            text-shadow: 0 0 8px var(--accent-player);
+        }
+
+        .key-w { grid-column: 2; }
+        .key-a { grid-column: 1; grid-row: 2; }
+        .key-s { grid-column: 2; grid-row: 2; }
+        .key-d { grid-column: 3; grid-row: 2; }
+
+        /* --- Game Area --- */
+        .game-area {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #080a0d;
+            /* Subtle Blueprint Grid */
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 20px 20px;
+            overflow: hidden;
+        }
+
+        /* HUD - Horizontal Bar */
+        .hud-bar {
+            width: 100%;
+            height: 60px;
+            background: #0d0f12;
+            border-bottom: 1px solid #2a303a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+            z-index: 20;
+        }
+
+        .hud-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .hud-label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+            margin-bottom: 2px;
+        }
+
+        .hud-value {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            letter-spacing: -0.02em;
+        }
+
+        /* The Board Container - "Recessed Pit" */
+        .puzzle-board-wrapper {
+            margin-top: 3rem;
+            padding: 20px;
+            background: #000;
+            border-radius: 4px;
+            /* Deep inset shadow to look like a pit */
+            box-shadow: 
+                inset 0 10px 30px rgba(0,0,0,1),
+                inset 0 0 0 1px #2a303a,
+                0 0 0 1px #1a1d23;
+            position: relative;
+        }
+
+        .puzzle-board {
+            display: grid;
+            grid-template-columns: repeat(8, var(--tile-size));
+            grid-template-rows: repeat(8, var(--tile-size));
+            gap: 1px; /* Hairline gap for grid lines */
+            background: #000;
+            border: 1px solid #1a1d23;
+        }
+
+        /* --- Tiles --- */
+        .tile {
+            width: var(--tile-size);
+            height: var(--tile-size);
+            position: relative;
+        }
+
+        /* Floor: Recessed Tile */
+        .tile.floor {
+            background-color: var(--floor-base);
+            /* The inset shadow creates the physical "pressed in" look */
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.6), inset -1px -1px 2px rgba(255,255,255,0.02);
+        }
+        
+        /* Floor Texture Detail */
+        .tile.floor::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 6px; height: 6px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.8);
+        }
+
+        /* Walls: Metallic Blocks */
+        .tile.wall {
+            background: var(--wall-face);
+            /* 3D Bevel Effect */
+            box-shadow: 
+                inset 1px 1px 0 var(--wall-highlight),
+                inset -1px -1px 0 var(--wall-shadow),
+                2px 2px 5px rgba(0,0,0,0.5);
+            border: 1px solid #111;
+            z-index: 5;
+        }
+        /* Wall Texture */
+        .tile.wall::before {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            background: repeating-linear-gradient(45deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 2px, transparent 2px, transparent 4px);
+        }
+
+        /* --- Tile Decals --- */
+        
+        /* Target: Glowing Toxic Zone */
+        .tile.target {
+            background: rgba(0, 255, 102, 0.05);
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.6);
+            display: grid;
+            place-items: center;
+        }
+        .tile.target::before {
+            content: '';
+            width: 40px; height: 40px;
+            border: 2px solid var(--accent-target);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-target), inset 0 0 10px var(--accent-target);
+            opacity: 0.6;
+            animation: pulse-target 2s infinite;
+        }
+        .tile.target::after {
+            content: 'EXIT';
+            font-size: 0.5rem;
+            font-weight: 900;
+            color: var(--accent-target);
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 5px var(--accent-target);
+        }
+
+        /* Door: Heavy Blast Door */
+        .tile.door {
+            background: repeating-linear-gradient(
+                90deg,
+                #2a303a,
+                #2a303a 10px,
+                #1e222a 10px,
+                #1e222a 11px
+            );
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.9);
+            border: 1px solid #000;
+            position: relative;
+        }
+        .door-handle {
+            position: absolute;
+            right: 4px; top: 50%;
+            width: 10px; height: 24px;
+            background: linear-gradient(90deg, #444, #888);
+            border-radius: 2px;
+            transform: translateY(-50%);
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+
+        /* Lever: Mechanical Switch */
+        .tile.lever {
+            background: var(--floor-base);
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.6);
+            display: grid;
+            place-items: center;
+        }
+        .lever-assembly {
+            width: 40px; height: 40px;
+            position: relative;
+        }
+        .lever-base {
+            position: absolute;
+            bottom: 5px; left: 50%;
+            transform: translateX(-50%);
+            width: 16px; height: 8px;
+            background: #333;
+            border-radius: 2px;
+            border-bottom: 2px solid #000;
+        }
+        .lever-handle {
+            position: absolute;
+            bottom: 8px; left: 50%;
+            transform: translateX(-50%) rotate(-15deg);
+            width: 6px; height: 22px;
+            background: linear-gradient(90deg, #888, #ccc);
+            border-radius: 2px;
+            transform-origin: bottom center;
+            box-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+        }
+        .lever-knob {
+            position: absolute;
+            top: -4px; left: 50%;
+            transform: translateX(-50%);
+            width: 14px; height: 14px;
+            background: radial-gradient(circle at 30% 30%, #ff6666, var(--accent-lever));
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            border: 1px solid #500;
+        }
+
+        /* --- Entities (3D Objects) --- */
+        .entity {
+            position: absolute;
+            width: var(--tile-size);
+            height: var(--tile-size);
+            pointer-events: none;
+            z-index: 20;
+            transition: top 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            /* Center in tile */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Player: Cyber Drone */
+        .player-drone {
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 242, 255, 0.1);
+            border: 2px solid var(--accent-player);
+            transform: rotate(45deg);
+            box-shadow: 
+                0 0 15px var(--accent-player),
+                inset 0 0 10px var(--accent-player);
+            position: relative;
+        }
+        .player-core {
+            position: absolute;
+            inset: 0;
+            background: var(--accent-player);
+            transform: scale(0.4);
+            box-shadow: 0 0 10px #fff;
+        }
+
+        /* Crate: Heavy Industrial Block */
+        .crate {
+            width: 48px;
+            height: 48px;
+            position: relative;
+            /* The "Side" of the crate (Thickness) */
+            box-shadow: 
+                0 8px 0 var(--accent-crate-dark),
+                0 10px 15px rgba(0,0,0,0.7);
+        }
+        /* The "Top" of the crate */
+        .crate-top {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--accent-crate-top) 0%, var(--accent-crate) 100%);
+            border: 1px solid rgba(0,0,0,0.3);
+            /* Rivets */
+            background-image: radial-gradient(rgba(0,0,0,0.3) 15%, transparent 16%);
+            background-size: 12px 12px;
+            background-position: 2px 2px;
+        }
+        /* Cross Bracing */
+        .crate-top::after {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 2px solid rgba(0,0,0,0.2);
+            background: rgba(0,0,0,0.1);
+        }
+
+        /* Animations */
+        @keyframes pulse-target {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .game-container { flex-direction: column; height: 95vh; }
+            .sidebar { width: 100%; height: auto; padding: 1rem; flex-direction: row; justify-content: space-between; align-items: center; }
+            .controls-section { margin: 0; padding: 0.5rem; }
+            .key-grid { width: 100px; }
+            .brand { margin-bottom: 0; border: none; padding: 0; }
+            .hud-bar { height: 50px; }
+            .puzzle-board-wrapper { margin-top: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <h1>Vault<br>Breaker</h1>
+                <span>Level 04: The Core</span>
+            </div>
+
+            <!-- Controls moved to sidebar as physical buttons -->
+            <div class="controls-section">
+                <div class="controls-title">Manual Override</div>
+                <div class="key-grid">
+                    <div class="key-cap key-w">W</div>
+                    <div class="key-cap key-a">A</div>
+                    <div class="key-cap key-s">S</div>
+                    <div class="key-cap key-d">D</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Game Area -->
+        <main class="game-area">
+            
+            <!-- HUD Bar -->
+            <div class="hud-bar">
+                <div class="hud-stat">
+                    <span class="hud-label">Moves</span>
+                    <span class="hud-value" id="move-count">04</span>
+                </div>
+                <div class="hud-stat">
+                    <span class="hud-label">Time</span>
+                    <span class="hud-value" id="timer">00:12</span>
+                </div>
+            </div>
+
+            <div class="puzzle-board-wrapper">
+                <div class="puzzle-board" id="board">
+                    <!-- Grid generated by JS -->
+                </div>
+                <!-- Entities injected by JS -->
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const TILE_SIZE = 60;
+        const GAP_SIZE = 1; // CSS gap
+        const STEP = TILE_SIZE + GAP_SIZE;
+        const GRID_SIZE = 8;
+        
+        // Map Codes: 0: Floor, 1: Wall, 2: Lever, 3: Door, 4: Target, 9: Start
+        // Updated map to show more features
+        const levelMap = [
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 1, 0, 3, 1], // 3 is Door
+            [1, 0, 1, 1, 1, 0, 1, 1],
+            [1, 0, 1, 4, 0, 0, 0, 1], // 4 is Target
+            [1, 0, 0, 0, 1, 0, 0, 1],
+            [1, 1, 1, 0, 1, 2, 1, 1], // 2 is Lever
+            [1, 9, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        // State
+        const player = { x: 1, y: 6 };
+        const crates = [
+            { x: 4, y: 2 }, // One near door
+            { x: 3, y: 4 }  // One in middle
+        ]; 
+        let moves = 4;
+
+        const boardEl = document.getElementById('board');
+        const gameAreaEl = document.querySelector('.game-area');
+        const moveDisplay = document.getElementById('move-count');
+
+        // --- Render Logic ---
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const tileVal = levelMap[y][x];
+                    const tile = document.createElement('div');
+                    tile.classList.add('tile');
+                    
+                    // Determine Base Type
+                    if (tileVal === 1) {
+                        tile.classList.add('wall');
+                    } else {
+                        tile.classList.add('floor');
+                        
+                        // Add Decals
+                        if (tileVal === 2) { // Lever
+                            tile.classList.add('lever');
+                            tile.innerHTML = `
+                                <div class="lever-assembly">
+                                    <div class="lever-base"></div>
+                                    <div class="lever-handle">
+                                        <div class="lever-knob"></div>
+                                    </div>
+                                </div>`;
+                        } else if (tileVal === 3) { // Door
+                            tile.classList.add('door');
+                            tile.innerHTML = '<div class="door-handle"></div>';
+                        } else if (tileVal === 4) { // Target
+                            tile.classList.add('target');
+                        }
+                    }
+                    
+                    boardEl.appendChild(tile);
+                }
+            }
+        }
+
+        function renderEntities() {
+            // Remove existing
+            document.querySelectorAll('.entity').forEach(e => e.remove());
+
+            // Render Player
+            const playerEl = document.createElement('div');
+            playerEl.className = 'entity';
+            playerEl.id = 'player';
+            playerEl.innerHTML = '<div class="player-drone"><div class="player-core"></div></div>';
+            updateEntityPosition(playerEl, player.x, player.y);
+            gameAreaEl.appendChild(playerEl);
+
+            // Render Crates
+            crates.forEach(crate => {
+                const crateEl = document.createElement('div');
+                crateEl.className = 'entity';
+                crateEl.innerHTML = '<div class="crate"><div class="crate-top"></div></div>';
+                updateEntityPosition(crateEl, crate.x, crate.y);
+                gameAreaEl.appendChild(crateEl);
+            });
+        }
+
+        function updateEntityPosition(el, x, y) {
+            // Get the board wrapper relative to game area
+            const wrapper = document.querySelector('.puzzle-board-wrapper');
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const areaRect = gameAreaEl.getBoundingClientRect();
+            
+            // Offset is the padding of the wrapper
+            const offsetX = wrapperRect.left - areaRect.left;
+            const offsetY = wrapperRect.top - areaRect.top;
+
+            // Position based on grid coordinates
+            const top = offsetY + (y * STEP);
+            const left = offsetX + (x * STEP);
+
+            el.style.top = `${top}px`;
+            el.style.left = `${left}px`;
+        }
+
+        // --- Game Logic ---
+
+        function movePlayer(dx, dy) {
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+
+            // Bounds Check
+            if (newX < 0 || newX >= GRID_SIZE || newY < 0 || newY >= GRID_SIZE) return;
+
+            // Wall Check
+            if (levelMap[newY][newX] === 1) return;
+
+            // Crate Check
+            const crateIndex = crates.findIndex(c => c.x === newX && c.y === newY);
+            
+            if (crateIndex !== -1) {
+                // Attempt Push
+                const nextCrateX = newX + dx;
+                const nextCrateY = newY + dy;
+
+                // Check if push is valid (not wall, not another crate)
+                const isWall = levelMap[nextCrateY][nextCrateX] === 1;
+                const isCrate = crates.some(c => c.x === nextCrateX && c.y === nextCrateY);
+
+                if (!isWall && !isCrate && nextCrateX >= 0 && nextCrateX < GRID_SIZE && nextCrateY >= 0 && nextCrateY < GRID_SIZE) {
+                    crates[crateIndex] = { x: nextCrateX, y: nextCrateY };
+                    player.x = newX;
+                    player.y = newY;
+                    incrementMoves();
+                    renderEntities();
+                }
+            } else {
+                // Empty Move
+                player.x = newX;
+                player.y = newY;
+                incrementMoves();
+                renderEntities();
+            }
+        }
+
+        function incrementMoves() {
+            moves++;
+            moveDisplay.textContent = moves.toString().padStart(2, '0');
+        }
+
+        // --- Init & Events ---
+
+        function init() {
+            renderBoard();
+            // Wait for layout
+            requestAnimationFrame(() => {
+                renderEntities();
+                window.addEventListener('resize', renderEntities);
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            let keyClass = null;
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': 
+                    movePlayer(0, -1); 
+                    keyClass = 'key-w';
+                    break;
+                case 'ArrowDown': case 's': case 'S': 
+                    movePlayer(0, 1); 
+                    keyClass = 'key-s';
+                    break;
+                case 'ArrowLeft': case 'a': case 'A': 
+                    movePlayer(-1, 0); 
+                    keyClass = 'key-a';
+                    break;
+                case 'ArrowRight': case 'd': case 'D': 
+                    movePlayer(1, 0); 
+                    keyClass = 'key-d';
+                    break;
+            }
+
+            // Visual feedback on keys
+            if (keyClass) {
+                const keyEl = document.querySelector(`.${keyClass}`);
+                if (keyEl) {
+                    keyEl.classList.add('active');
+                    setTimeout(() => keyEl.classList.remove('active'), 150);
+                }
+            }
+        });
+
+        init();
+
+    </script>
+</body>
+</html>

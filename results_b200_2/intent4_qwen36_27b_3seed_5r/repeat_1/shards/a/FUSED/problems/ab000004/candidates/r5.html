@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense: Orbital Command</title>
+<style>
+  :root {
+    /* Palette */
+    --bg-color: #020305;
+    
+    --primary: #00f3ff; 
+    --primary-dim: rgba(0, 243, 255, 0.1);
+    --primary-glow: rgba(0, 243, 255, 0.6);
+    --primary-dark: #004d55;
+    
+    /* Secondary Accent (Amber) */
+    --accent: #ffaa00; 
+    --accent-dim: rgba(255, 170, 0, 0.1);
+    --accent-glow: rgba(255, 170, 0, 0.5);
+    
+    --danger: #ff2a2a;
+    
+    --text-main: #ffffff;
+    --text-muted: #8892b0;
+    
+    /* Glassmorphism Base */
+    --glass-bg: rgba(5, 12, 20, 0.75);
+    --glass-border: rgba(0, 243, 255, 0.3);
+    
+    /* Typography */
+    --font-hud: 'Courier New', Courier, monospace;
+    --font-ui: system-ui, -apple-system, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    font-family: var(--font-ui);
+    color: var(--text-main);
+  }
+
+  /* --- BACKGROUND & FX --- */
+  #scene-container {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* Grid Overlay - Global Environment */
+  .grid-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: 
+      linear-gradient(var(--primary-dim) 1px, transparent 1px),
+      linear-gradient(90deg, var(--primary-dim) 1px, transparent 1px);
+    background-size: 80px 80px;
+    background-position: center center;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+    mask-image: radial-gradient(circle at center, black 20%, transparent 90%);
+    -webkit-mask-image: radial-gradient(circle at center, black 20%, transparent 90%);
+  }
+
+  /* Scanlines */
+  .scanlines {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.15) 2px,
+      rgba(0, 0, 0, 0.15) 4px
+    );
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0.7;
+  }
+
+  /* Vignette */
+  .vignette {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.9) 100%);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* --- UI LAYOUT --- */
+  .ui-layer {
+    position: relative;
+    z-index: 20;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 40px;
+  }
+
+  /* --- HUD HEADER --- */
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 15px 25px;
+    background: linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,20,40,0.6) 50%, rgba(0,0,0,0.8) 100%);
+    border-bottom: 1px solid var(--glass-border);
+    border-left: 5px solid var(--primary);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    margin-bottom: auto;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%);
+  }
+
+  .hud-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 100px;
+  }
+  .hud-group.center { flex-grow: 1; align-items: center; }
+  .hud-group.right { align-items: flex-end; }
+
+  .hud-label {
+    font-family: var(--font-hud);
+    font-size: 0.7rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 5px;
+    text-shadow: 0 0 5px var(--primary-glow);
+  }
+
+  .hud-value {
+    font-family: var(--font-hud);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 2px;
+  }
+
+  .hud-credits .hud-value { 
+    color: var(--accent); 
+    text-shadow: 0 0 15px var(--accent-glow);
+  }
+
+  /* Segmented HP Bar */
+  .hp-bar-wrapper {
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .hp-bar-container {
+    width: 100%;
+    height: 12px;
+    display: flex;
+    gap: 4px;
+    transform: skewX(-20deg);
+    background: rgba(0,0,0,0.5);
+    padding: 2px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .hp-segment {
+    flex: 1;
+    background-color: var(--primary-dark);
+    border-right: 1px solid rgba(0,0,0,0.5);
+    transition: background-color 0.3s;
+  }
+  .hp-segment.active {
+    background-color: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+  }
+  .hp-segment.damaged {
+    background-color: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+  }
+
+  /* --- CENTER STAGE --- */
+  .center-stage {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+    margin-bottom: 40px;
+  }
+
+  /* Title */
+  .game-title {
+    font-size: 5.5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 12px;
+    margin: 0 0 10px 0;
+    color: #fff;
+    position: relative;
+    text-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
+    line-height: 0.9;
+    font-family: 'Arial Black', system-ui, sans-serif; 
+    z-index: 2;
+  }
+
+  .game-title::before, .game-title::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
+  .game-title::before {
+    color: var(--primary);
+    z-index: -1;
+    transform: translate(-4px, -2px);
+    clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+  }
+  .game-title::after {
+    color: var(--danger);
+    z-index: -2;
+    transform: translate(4px, 2px);
+    clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%);
+    animation: glitch-2 4s infinite linear alternate-reverse;
+  }
+
+  @keyframes glitch-1 {
+    0%, 100% { transform: translate(0); }
+    20% { transform: translate(-3px, -1px); }
+    40% { transform: translate(-2px, 2px); }
+    60% { transform: translate(3px, -1px); }
+    80% { transform: translate(2px, 1px); }
+  }
+  @keyframes glitch-2 {
+    0%, 100% { transform: translate(0); }
+    20% { transform: translate(3px, 1px); }
+    40% { transform: translate(2px, -2px); }
+    60% { transform: translate(-3px, 1px); }
+    80% { transform: translate(-2px, -1px); }
+  }
+
+  .game-subtitle {
+    font-family: var(--font-hud);
+    color: var(--primary);
+    font-size: 1.1rem;
+    letter-spacing: 8px;
+    margin-bottom: 40px;
+    text-transform: uppercase;
+    opacity: 0.9;
+    text-shadow: 0 0 10px var(--primary);
+    background: rgba(0,0,0,0.4);
+    padding: 5px 15px;
+    border-radius: 20px;
+  }
+
+  /* --- HOLOGRAPHIC BRIEFING PANEL --- */
+  .mission-brief {
+    background: var(--glass-bg);
+    /* Tech pattern background */
+    background-image: 
+      linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+    
+    border: 1px solid var(--glass-border);
+    /* Glowing border effect */
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.1), inset 0 0 20px rgba(0, 243, 255, 0.05);
+    
+    /* Angled corners */
+    clip-path: polygon(30px 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%, 0 30px);
+    
+    padding: 30px 50px;
+    width: 100%;
+    max-width: 650px;
+    margin-bottom: 50px;
+    
+    text-align: left;
+    position: relative;
+    backdrop-filter: blur(8px);
+  }
+  
+  /* Decorative corner markers */
+  .mission-brief::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 30px; width: 10px; height: 10px;
+    border-top: 2px solid var(--primary);
+    border-left: 2px solid var(--primary);
+  }
+  .mission-brief::after {
+    content: '';
+    position: absolute;
+    bottom: 30px; right: 0; width: 10px; height: 10px;
+    border-bottom: 2px solid var(--primary);
+    border-right: 2px solid var(--primary);
+  }
+
+  .briefing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(0, 243, 255, 0.3);
+    padding-bottom: 12px;
+    margin-bottom: 15px;
+  }
+  
+  .briefing-title {
+    font-family: var(--font-hud);
+    font-size: 0.9rem;
+    color: #fff;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  
+  .briefing-status {
+    font-family: var(--font-hud);
+    font-size: 0.8rem;
+    color: var(--accent);
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 5px var(--accent);
+    animation: pulse 1s infinite;
+  }
+
+  .mission-text {
+    font-family: var(--font-hud);
+    font-size: 1.05rem; /* Increased for readability */
+    line-height: 1.7;
+    color: #cde0f0;
+    font-weight: 400;
+    text-shadow: 0 1px 2px rgba(0,0,0,1);
+  }
+  
+  .mission-text strong { 
+    color: var(--primary); 
+    font-weight: 700; 
+    text-shadow: 0 0 5px var(--primary-glow);
+  }
+
+  /* Blinking Cursor */
+  .cursor {
+    display: inline-block;
+    width: 10px;
+    height: 1.1em;
+    background-color: var(--primary);
+    vertical-align: middle;
+    margin-left: 5px;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  
+  @keyframes pulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  /* --- THE BUTTON (ENGAGE) --- */
+  .start-btn-container {
+    position: relative;
+    z-index: 10;
+  }
+
+  .start-btn {
+    background: var(--primary);
+    border: none;
+    color: #000; 
+    
+    padding: 24px 90px;
+    font-family: var(--font-ui);
+    font-size: 1.5rem;
+    font-weight: 900;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    
+    /* Geometric Shape */
+    clip-path: polygon(30px 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%, 0 30px);
+    
+    /* Strong Glow & Pulse */
+    box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(0, 243, 255, 0.4);
+    animation: btn-pulse 2s infinite;
+  }
+
+  .start-btn:hover {
+    background: #fff;
+    box-shadow: 0 0 30px var(--primary), 0 0 60px var(--primary);
+    transform: scale(1.05);
+  }
+  
+  .start-btn:active {
+    transform: scale(0.98);
+    background: var(--primary-dim);
+  }
+
+  @keyframes btn-pulse {
+    0% { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(0, 243, 255, 0.4); }
+    50% { box-shadow: 0 0 30px var(--primary-glow), 0 0 60px rgba(0, 243, 255, 0.6); }
+    100% { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(0, 243, 255, 0.4); }
+  }
+
+  /* --- FOOTER / UPGRADES --- */
+  .footer-panel {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    padding-bottom: 20px;
+  }
+
+  .upgrade-card {
+    width: 200px;
+    height: 130px;
+    
+    /* Module Look */
+    background: linear-gradient(180deg, rgba(10,15,25,0.95) 0%, rgba(5,8,15,0.95) 100%);
+    /* Tech pattern inside card */
+    background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 100% 20px;
+    
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top: 3px solid var(--card-accent);
+    
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+    
+    clip-path: polygon(0 0, 100% 0, 100% 85%, 85% 100%, 0 100%);
+    
+    backdrop-filter: blur(5px);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+  }
+
+  .upgrade-card:hover {
+    transform: translateY(-10px);
+    background: linear-gradient(180deg, rgba(15,25,40,1) 0%, rgba(10,15,25,1) 100%);
+    border-color: var(--card-accent);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 0 15px var(--card-accent-dim);
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .card-title {
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+
+  .card-icon {
+    width: 24px;
+    height: 24px;
+    fill: var(--card-accent);
+    filter: drop-shadow(0 0 3px var(--card-accent));
+  }
+
+  .card-stats {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    width: 100%;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 10px;
+  }
+
+  .stat-label {
+    font-family: var(--font-hud);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  /* Cost Button */
+  .card-cost {
+    font-family: var(--font-hud);
+    font-size: 1rem;
+    color: #fff;
+    font-weight: bold;
+    background: rgba(0,0,0,0.4);
+    padding: 4px 8px;
+    border: 1px solid var(--card-accent);
+    color: var(--card-accent);
+    box-shadow: 0 0 5px var(--card-accent-dim);
+    transition: all 0.2s;
+  }
+  
+  .upgrade-card:hover .card-cost {
+    background: var(--card-accent);
+    color: #000;
+    box-shadow: 0 0 15px var(--card-accent);
+  }
+  
+  /* Card Colors */
+  .card-damage { --card-accent: var(--primary); --card-accent-dim: var(--primary-dim); }
+  .card-rate { --card-accent: var(--primary); --card-accent-dim: var(--primary-dim); }
+  .card-speed { --card-accent: var(--accent); --card-accent-dim: var(--accent-dim); }
+
+</style>
+</head>
+<body>
+
+<!-- Background Canvas -->
+<div id="scene-container">
+  <canvas id="bgCanvas"></canvas>
+  <div class="grid-overlay"></div>
+</div>
+
+<!-- Overlays -->
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<!-- Main UI -->
+<div class="ui-layer">
+  
+  <!-- HUD Header -->
+  <header class="hud-header">
+    <!-- Left: Wave -->
+    <div class="hud-group">
+      <span class="hud-label">Target Wave</span>
+      <span class="hud-value">05</span>
+    </div>
+
+    <!-- Center: HP Indicator -->
+    <div class="hud-group center hp-bar-wrapper">
+      <div style="display:flex; justify-content:space-between; width:100%; margin-bottom:6px;">
+        <span class="hud-label" style="margin:0; color:#fff;">Planet Integrity</span>
+        <span style="font-family:var(--font-hud); font-size:0.8rem; color:var(--primary); font-weight:bold;">85%</span>
+      </div>
+      <!-- Segmented Bar -->
+      <div class="hp-bar-container">
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment active"></div>
+        <div class="hp-segment damaged"></div> <!-- Damage visual -->
+      </div>
+    </div>
+
+    <!-- Right: Credits -->
+    <div class="hud-group right hud-credits">
+      <span class="hud-label">Credits</span>
+      <span class="hud-value">2,450</span>
+    </div>
+  </header>
+
+  <!-- Center Content -->
+  <main class="center-stage">
+    <h1 class="game-title" data-text="PLANET DEFENSE">PLANET DEFENSE</h1>
+    <div class="game-subtitle">Orbital Command Interface</div>
+    
+    <!-- Holographic Briefing Panel -->
+    <div class="mission-brief">
+      <div class="briefing-header">
+        <span class="briefing-title">PRE-WAVE BRIEFING // SEC 7</span>
+        <span class="briefing-status"><div class="status-dot"></div> LIVE</span>
+      </div>
+      <p class="mission-text">
+        <strong>COMMANDER:</strong> Orbital grid synchronization complete. 
+        Sensors indicate heavy swarm approaching southern hemisphere. 
+        Current loadouts insufficient for incoming alpha-class drones.
+        <br><br>
+        Select upgrades below or proceed with current configuration<span class="cursor"></span>
+      </p>
+    </div>
+
+    <!-- Primary Action -->
+    <div class="start-btn-container">
+      <button class="start-btn">ENGAGE</button>
+    </div>
+  </main>
+
+  <!-- Footer / Upgrades -->
+  <footer class="footer-panel">
+    
+    <!-- 1. Damage (Cyan) -->
+    <div class="upgrade-card card-damage">
+      <div class="card-header">
+        <span class="card-title">DAMAGE</span>
+        <!-- Lightning Icon -->
+        <svg class="card-icon" viewBox="0 0 24 24"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.72-.29-1.01l8.9-9.9c.28-.29.71-.29.99 0l.01.01 3.9 3.9c.28.28.28.72 0 .99L14 13v8h-3z"/></svg>
+      </div>
+      <div class="card-stats">
+        <span class="stat-label">Output</span>
+        <span class="card-cost">100cr</span>
+      </div>
+    </div>
+
+    <!-- 2. Fire Rate (Cyan) -->
+    <div class="upgrade-card card-rate">
+      <div class="card-header">
+        <span class="card-title">FIRE RATE</span>
+        <!-- Clock Icon -->
+        <svg class="card-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+      </div>
+      <div class="card-stats">
+        <span class="stat-label">Cycles</span>
+        <span class="card-cost">150cr</span>
+      </div>
+    </div>
+
+    <!-- 3. Speed (Amber - Accent) -->
+    <div class="upgrade-card card-speed">
+      <div class="card-header">
+        <span class="card-title">PROJ. SPD</span>
+        <!-- Graph/Speed Icon -->
+        <svg class="card-icon" viewBox="0 0 24 24"><path d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 1.45-.39 2.81-1.06 3.98l1.73 1C21.52 15.32 22 13.21 22 11c0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V3.03c-4.06.5-7.2 3.88-7.2 7.97 0 4.42 3.58 8 8 8 3.07 0 5.73-1.82 6.93-4.44l-1.73-1C16.11 15.66 14.18 17 12 19z"/></svg>
+      </div>
+      <div class="card-stats">
+        <span class="stat-label">Velocity</span>
+        <span class="card-cost">200cr</span>
+      </div>
+    </div>
+
+  </footer>
+</div>
+
+<script>
+/**
+ * VISUAL ENGINE
+ * Enhanced Planet with brighter wireframe and atmospheric glow.
+ */
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+let width, height, cx, cy;
+let stars = [];
+let time = 0;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  cx = width / 2;
+  cy = height / 2 + 80; 
+  initStars();
+}
+
+function initStars() {
+  stars = [];
+  const numStars = 300;
+  for (let i = 0; i < numStars; i++) {
+    stars.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 1.5,
+      alpha: Math.random(),
+      speed: Math.random() * 0.1 + 0.02
+    });
+  }
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    const flicker = 0.5 + 0.5 * Math.sin(time * 0.03 + star.x);
+    ctx.globalAlpha = star.alpha * flicker;
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    star.y += star.speed;
+    if (star.y > height) {
+      star.y = 0;
+      star.x = Math.random() * width;
+    }
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawPlanet() {
+  const radius = Math.min(width, height) * 0.35;
+  
+  // 1. Atmosphere Glow (More Visible)
+  const glow = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.6);
+  glow.addColorStop(0, 'rgba(0, 243, 255, 0.25)'); // Brighter
+  glow.addColorStop(0.4, 'rgba(0, 100, 255, 0.1)');
+  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Planet Body
+  const planetGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.1, cx, cy, radius);
+  planetGrad.addColorStop(0, '#1a2530'); 
+  planetGrad.addColorStop(0.4, '#0d1117'); 
+  planetGrad.addColorStop(1, '#000000'); 
+  
+  ctx.fillStyle = planetGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. Wireframe Overlay (Brighter per critique)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+
+  // Grid Lines
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.3)'; // Increased opacity
+  ctx.lineWidth = 1.5;
+  
+  // Longitudes
+  for(let i=1; i<=5; i++) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, radius * (i/6), radius, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Latitudes
+  for(let i=-4; i<=4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx - radius, cy + i * (radius/4.5));
+    ctx.lineTo(cx + radius, cy + i * (radius/4.5));
+    ctx.stroke();
+  }
+  
+  // Rotating scanline
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.6)';
+  ctx.lineWidth = 3;
+  const scanY = cy + Math.sin(time * 0.02) * radius;
+  ctx.beginPath();
+  ctx.moveTo(cx - radius, scanY);
+  ctx.lineTo(cx + radius, scanY);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Main Loop
+function loop() {
+  ctx.clearRect(0, 0, width, height);
+  time++;
+  
+  // 1. Stars
+  drawStars();
+  
+  // 2. Back Orbital Ring
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 6); 
+  const rW = Math.min(width, height) * 0.35 * 2.4;
+  const rH = Math.min(width, height) * 0.35 * 0.5;
+  
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.25)'; 
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rW, rH, 0, 0, Math.PI); 
+  ctx.stroke();
+  ctx.restore();
+
+  // 3. Planet
+  drawPlanet();
+
+  // 4. Front Orbital Ring
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 6);
+  
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.5)'; 
+  ctx.lineWidth = 3;
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = 'rgba(0, 243, 255, 0.5)';
+  
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rW, rH, 0, 0, Math.PI); 
+  ctx.stroke();
+  
+  // Satellite
+  const satAngle = time * 0.015;
+  const satX = Math.cos(satAngle) * rW;
+  const satY = Math.sin(satAngle) * rH;
+  
+  const normalizedAngle = satAngle % (Math.PI * 2);
+  if (normalizedAngle > 0 && normalizedAngle < Math.PI) {
+     ctx.fillStyle = '#fff';
+     ctx.shadowBlur = 10;
+     ctx.beginPath();
+     ctx.arc(satX, satY, 5, 0, Math.PI*2);
+     ctx.fill();
+  }
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize', resize);
+resize();
+loop();
+
+</script>
+</body>
+</html>

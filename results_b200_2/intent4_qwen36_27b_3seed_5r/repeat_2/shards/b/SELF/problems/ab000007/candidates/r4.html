@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aether Catcher: Deep Dive</title>
+<style>
+  :root {
+    /* Palette: Deep Space & Neon Bioluminescence */
+    --bg-deep: #050914;
+    --bg-surface: #0f172a;
+    --primary: #22d3ee; /* Cyan */
+    --primary-glow: rgba(34, 211, 238, 0.4);
+    --accent: #c084fc; /* Soft Purple */
+    --gold: #fbbf24;
+    --gold-glow: rgba(251, 191, 36, 0.5);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    
+    /* Typography */
+    --font-display: 'Arial Black', 'Helvetica Neue', sans-serif;
+    --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+    
+    /* Glassmorphism */
+    --glass-bg: rgba(15, 23, 42, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background-color: var(--bg-deep);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: none; /* We use a custom net cursor */
+  }
+
+  /* --- Layout & UI --- */
+  .app-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: radial-gradient(circle at 50% 120%, #1e293b 0%, #020617 60%, #000000 100%);
+    overflow: hidden;
+  }
+
+  /* Ambient Background Noise/Texture */
+  .app-container::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* HUD Header */
+  header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 2.5rem 3rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .title-group {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 2;
+  }
+
+  .title-group h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(255,255,255,0.15);
+    line-height: 1;
+  }
+
+  .title-group p {
+    font-size: 0.7rem;
+    color: var(--primary);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .title-group p::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: var(--primary);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--primary);
+    animation: pulse 2s infinite;
+  }
+
+  .hud-stats {
+    display: flex;
+    gap: 1rem;
+    pointer-events: auto;
+  }
+
+  .stat-pill {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-top: 1px solid var(--glass-highlight);
+    padding: 0.75rem 1.5rem;
+    border-radius: 100px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s;
+    min-width: 130px;
+  }
+
+  .stat-pill:hover {
+    transform: translateY(-2px) scale(1.02);
+    border-color: rgba(255,255,255,0.25);
+  }
+
+  .stat-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.05);
+    color: var(--primary);
+  }
+
+  .stat-info {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: #fff;
+  }
+
+  .stat-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  /* Canvas Layer */
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+  }
+
+  /* Bottom Action Bar */
+  .action-bar {
+    position: absolute;
+    bottom: 4rem;
+    left: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .btn-collect {
+    pointer-events: auto;
+    background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 100%);
+    color: #451a03;
+    border: none;
+    padding: 1.25rem 4.5rem;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    border-radius: 16px;
+    cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 20px 50px -10px var(--gold-glow);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Shine effect on button */
+  .btn-collect::after {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 60%);
+    opacity: 0;
+    transform: scale(0.5);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+
+  .btn-collect:hover {
+    transform: scale(1.05) translateY(-2px);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.2), 0 30px 60px -10px var(--gold-glow);
+  }
+  
+  .btn-collect:hover::after {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+
+  .btn-collect:active {
+    transform: scale(0.96);
+  }
+
+  /* Notification Toast */
+  .toast {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(2, 6, 23, 0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--primary);
+    padding: 1.2rem 2.5rem;
+    border-radius: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 30;
+    text-align: center;
+    box-shadow: 0 0 50px rgba(34, 211, 238, 0.15);
+  }
+
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .toast h3 { 
+    color: var(--primary); 
+    margin-bottom: 0.2rem; 
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .toast p { 
+    font-family: var(--font-display);
+    font-size: 1.5rem; 
+    color: #fff; 
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  }
+
+  /* Decorative corner grid */
+  .corner-grid {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200px; height: 200px;
+    background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+    z-index: 1;
+    pointer-events: none;
+    mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+    -webkit-mask-image: linear-gradient(to bottom, black 20%, transparent 80%);
+    border-right: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  
+  .corner-grid-br {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 200px; height: 200px;
+    background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+    z-index: 1;
+    pointer-events: none;
+    mask-image: linear-gradient(to top, black 20%, transparent 80%);
+    -webkit-mask-image: linear-gradient(to top, black 20%, transparent 80%);
+    border-left: 1px solid rgba(255,255,255,0.05);
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+
+  @keyframes pulse {
+    0% { opacity: 0.5; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+    100% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  
+  <!-- HUD -->
+  <header>
+    <div class="title-group">
+      <h1>Aether Catcher</h1>
+      <p>Region 04: The Floating Isles</p>
+    </div>
+    
+    <div class="hud-stats">
+      <div class="stat-pill">
+        <div class="stat-icon">
+          <!-- Target Icon -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value" id="score">0</div>
+          <div class="stat-label">Caught</div>
+        </div>
+      </div>
+      
+      <div class="stat-pill">
+        <div class="stat-icon" style="color: var(--accent)">
+          <!-- Chart Icon -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">74%</div>
+          <div class="stat-label">Completion</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Decorative Grids -->
+  <div class="corner-grid"></div>
+  <div class="corner-grid-br"></div>
+
+  <!-- Game Field -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <h3>Captured!</h3>
+    <p id="catchName">Mist Sprite</p>
+  </div>
+
+  <!-- Action Bar -->
+  <div class="action-bar">
+    <button class="btn-collect" id="collectBtn">Open Collection</button>
+  </div>
+
+</div>
+
+<script>
+/**
+ * Aether Catcher - Deep Dive Version
+ * Visuals: Improved particle systems, organic movement, depth of field.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const toast = document.getElementById('toast');
+const catchNameEl = document.getElementById('catchName');
+
+// State
+let width, height;
+let score = 0;
+let mouse = { x: 0, y: 0 };
+let netMouse = { x: 0, y: 0 }; // Smoothed mouse for net
+let particles = [];
+let creatures = [];
+let floatingTexts = [];
+let time = 0;
+
+// Resize Handler
+function resize() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Mouse Tracking
+window.addEventListener('mousemove', (e) => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+// Touch Support
+window.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  mouse.x = e.touches[0].clientX;
+  mouse.y = e.touches[0].clientY;
+}, { passive: false });
+
+// --- Classes ---
+
+class Particle {
+  constructor(x, y, color, speedMult = 1) {
+    this.x = x;
+    this.y = y;
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 5 * speedMult;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1.0;
+    this.decay = Math.random() * 0.025 + 0.01;
+    this.color = color;
+    this.size = Math.random() * 4 + 1;
+  }
+
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.92; // Friction
+    this.vy *= 0.92;
+    this.life -= this.decay;
+    this.size *= 0.96;
+  }
+
+  draw(ctx) {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, Math.max(0, this.size), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
+}
+
+class FloatingText {
+  constructor(x, y, text) {
+    this.x = x;
+    this.y = y;
+    this.text = text;
+    this.life = 1.0;
+    this.vy = -3;
+  }
+
+  update() {
+    this.y += this.vy;
+    this.vy *= 0.9;
+    this.life -= 0.012;
+  }
+
+  draw(ctx) {
+    ctx.globalAlpha = Math.max(0, this.life);
+    ctx.fillStyle = '#fff';
+    ctx.font = '800 20px system-ui';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(this.text, this.x, this.y);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
+  }
+}
+
+class Creature {
+  constructor() {
+    this.init();
+  }
+
+  init() {
+    this.x = Math.random() * width;
+    this.y = Math.random() * height;
+    this.baseSize = Math.random() * 18 + 14;
+    this.size = this.baseSize;
+    this.vx = (Math.random() - 0.5) * 1.5;
+    this.vy = (Math.random() - 0.5) * 1.5;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = Math.random() * 0.04 + 0.02;
+    this.color = this.getColor();
+    this.caught = false;
+    this.caughtScale = 1;
+    this.rotation = 0;
+  }
+
+  getColor() {
+    // Vibrant palette
+    const colors = ['#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#fb923c', '#fbbf24'];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  update() {
+    this.wobble += this.wobbleSpeed;
+
+    // Movement
+    if (!this.caught) {
+      this.x += this.vx;
+      this.y += this.vy;
+      
+      // Bounce
+      if (this.x < -50 || this.x > width + 50) this.vx *= -1;
+      if (this.y < -50 || this.y > height + 50) this.vy *= -1;
+
+      // Breathing size
+      this.size = this.baseSize + Math.sin(this.wobble) * 3;
+
+      // Catch Logic
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < this.size + 30) { // 30 is net radius approx
+        this.catch();
+      }
+    } else {
+      // Lerp towards mouse
+      this.x += (mouse.x - this.x) * 0.12;
+      this.y += (mouse.y - this.y) * 0.12;
+      this.rotation += 0.05;
+      this.caughtScale = 0.5 + Math.sin(time * 0.15) * 0.05;
+    }
+  }
+
+  catch() {
+    this.caught = true;
+    score++;
+    scoreEl.innerText = score;
+    
+    // Visual feedback
+    createExplosion(this.x, this.y, this.color);
+    floatingTexts.push(new FloatingText(this.x, this.y, "+1"));
+    
+    // Show Toast
+    if (Math.random() > 0.6) {
+      const names = ["Mist Sprite", "Ember Wisp", "Crystal Shard", "Void Moth", "Aether Jelly"];
+      catchNameEl.innerText = names[Math.floor(Math.random() * names.length)];
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 2000);
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    
+    if (this.caught) {
+        ctx.scale(this.caughtScale, this.caughtScale);
+        ctx.rotate(this.rotation);
+    }
+
+    // Glow
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = this.color;
+    
+    // Body
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    
+    // Organic Blob Shape
+    const points = 7;
+    for (let i = 0; i < points; i++) {
+        const a = (Math.PI * 2 / points) * i + (this.caught ? 0 : time * 0.02);
+        const r = this.size + Math.sin(this.wobble + i * 1.5) * (this.size * 0.25);
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner Highlight (Glassy effect)
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.arc(-this.size*0.2, -this.size*0.2, this.size*0.35, 0, Math.PI*2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 0;
+    const eyeOffset = this.size * 0.35;
+    
+    // Eyes follow mouse slightly
+    const lookX = (mouse.x - this.x) * 0.03;
+    const lookY = (mouse.y - this.y) * 0.03;
+    
+    ctx.beginPath();
+    ctx.arc(-eyeOffset + lookX*0.5, -eyeOffset/2 + lookY*0.5, this.size * 0.28, 0, Math.PI*2);
+    ctx.arc(eyeOffset + lookX*0.5, -eyeOffset/2 + lookY*0.5, this.size * 0.28, 0, Math.PI*2);
+    ctx.fill();
+
+    // Pupils
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(-eyeOffset + lookX, -eyeOffset/2 + lookY, this.size * 0.12, 0, Math.PI*2);
+    ctx.arc(eyeOffset + lookX, -eyeOffset/2 + lookY, this.size * 0.12, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function createExplosion(x, y, color) {
+  for (let i = 0; i < 25; i++) {
+    particles.push(new Particle(x, y, color, 1.5));
+  }
+}
+
+// Draw The Net
+function drawNet() {
+  // Smooth net movement
+  netMouse.x += (mouse.x - netMouse.x) * 0.25;
+  netMouse.y += (mouse.y - netMouse.y) * 0.25;
+  
+  const size = 35;
+  
+  ctx.save();
+  ctx.translate(netMouse.x, netMouse.y);
+  
+  // Outer Ring
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(255,255,255,0.6)';
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(0, 0, size, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner Ring (Target)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  
+  // Crosshair lines
+  ctx.beginPath();
+  ctx.moveTo(-size - 8, 0); ctx.lineTo(-size + 4, 0);
+  ctx.moveTo(size - 4, 0); ctx.lineTo(size + 8, 0);
+  ctx.moveTo(0, -size - 8); ctx.lineTo(0, -size + 4);
+  ctx.moveTo(0, size - 4); ctx.lineTo(0, size + 8);
+  ctx.stroke();
+
+  // Grid lines (subtle)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 1;
+  for(let i = -size; i <= size; i+=12) {
+      ctx.beginPath();
+      ctx.moveTo(i, -Math.sqrt(Math.max(0, size*size - i*i)));
+      ctx.lineTo(i, Math.sqrt(Math.max(0, size*size - i*i)));
+      ctx.moveTo(-Math.sqrt(Math.max(0, size*size - i*i)), i);
+      ctx.lineTo(Math.sqrt(Math.max(0, size*size - i*i)), i);
+      ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// Draw Background Stars
+const stars = Array(120).fill().map(() => ({
+    x: Math.random() * 3000,
+    y: Math.random() * 3000,
+    size: Math.random() * 1.5,
+    alpha: Math.random(),
+    speed: Math.random() * 0.2
+}));
+
+function drawBackground() {
+    ctx.clearRect(0, 0, width, height);
+
+    // Stars
+    ctx.fillStyle = '#ffffff';
+    stars.forEach(star => {
+        const px = (mouse.x - width/2) * star.speed * 0.05;
+        const py = (mouse.y - height/2) * star.speed * 0.05;
+        
+        ctx.globalAlpha = Math.abs(Math.sin(Date.now() * 0.0005 + star.x)) * star.alpha + 0.2;
+        ctx.beginPath();
+        ctx.arc((star.x % width) + px, (star.y % height) + py, star.size, 0, Math.PI*2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+}
+
+// Init
+for (let i = 0; i < 14; i++) {
+  creatures.push(new Creature());
+}
+
+// Animation Loop
+function animate() {
+  time++;
+  drawBackground();
+  
+  // Draw Creatures (sort by size/depth for pseudo-3D feel)
+  creatures.sort((a, b) => a.size - b.size);
+  creatures.forEach(c => {
+    c.update();
+    c.draw(ctx);
+  });
+
+  // Draw Particles
+  particles.forEach((p, index) => {
+    p.update();
+    p.draw(ctx);
+    if (p.life <= 0) particles.splice(index, 1);
+  });
+
+  // Draw Floating Text
+  floatingTexts.forEach((t, index) => {
+    t.update();
+    t.draw(ctx);
+    if (t.life <= 0) floatingTexts.splice(index, 1);
+  });
+
+  drawNet();
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// UI Interactions
+document.getElementById('collectBtn').addEventListener('click', () => {
+    const btn = document.getElementById('collectBtn');
+    btn.style.transform = 'scale(0.95)';
+    setTimeout(() => btn.style.transform = '', 150);
+    
+    // Logic: Reset game
+    score = 0;
+    scoreEl.innerText = 0;
+    creatures.forEach(c => {
+        c.caught = false;
+        c.init();
+    });
+    createExplosion(mouse.x, mouse.y, '#fff');
+});
+
+</script>
+</body>
+</html>

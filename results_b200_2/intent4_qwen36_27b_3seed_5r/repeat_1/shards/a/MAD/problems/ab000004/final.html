@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense - Command Interface</title>
+<style>
+  :root {
+    /* Palette: Deep Void, Tactical Teal, Warning Orange */
+    --bg-deep: #020408;
+    --bg-panel: #0a121e;
+    
+    --primary: #2a9d8f; 
+    --primary-dim: #144a44;
+    --primary-glow: rgba(42, 157, 143, 0.6);
+    
+    --accent: #ff7e39;
+    --accent-glow: rgba(255, 126, 57, 0.6);
+    
+    --text-main: #e0f2f1;
+    --text-muted: #7a9aa5;
+    
+    /* Card Accents */
+    --stat-dmg: #e76f51;
+    --stat-rate: #2a9d8f;
+    --stat-spd: #4cc9f0;
+    
+    /* Typography */
+    --font-ui: 'Impact', 'Arial Black', sans-serif;
+    --font-mono: 'Courier New', monospace;
+    
+    /* Chamfer Geometry (Cut Corners) */
+    --cut: 15px;
+    --cut-small: 8px;
+  }
+
+  * { box-sizing: border-box; user-select: none; }
+
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-deep);
+    font-family: var(--font-ui);
+    color: var(--text-main);
+  }
+
+  /* --- BACKGROUND SCENE --- */
+  #scene-container {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
+    background: radial-gradient(circle at 50% 30%, #0b1a2b 0%, #000000 80%);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* --- OVERLAYS --- */
+  .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+  .scanlines {
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0) 4px);
+    opacity: 0.5;
+  }
+  .vignette {
+    background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.85) 100%);
+  }
+
+  /* --- UI LAYOUT --- */
+  .ui-layer {
+    position: relative; z-index: 20; width: 100%; height: 100%;
+    display: grid; grid-template-rows: 80px 1fr;
+  }
+
+  /* --- HUD HEADER (Chamfered) --- */
+  .hud-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 40px;
+    background: rgba(2, 4, 8, 0.8);
+    border-bottom: 1px solid var(--primary-dim);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.6);
+    /* Chamfered Header Bottom */
+    clip-path: polygon(
+      0% 0%, 100% 0%, 
+      100% 100%, 
+      calc(100% - 60px) 100%, 
+      calc(100% - 80px) calc(100% - 20px), 
+      80px calc(100% - 20px), 
+      60px 100%, 
+      0% 100%
+    );
+  }
+
+  .hud-item { display: flex; flex-direction: column; align-items: center; position: relative; }
+  
+  /* Vertical dividers between HUD items */
+  .hud-item:not(:last-child)::after {
+    content: ''; position: absolute; right: -40px; top: 10%; height: 80%; width: 1px;
+    background: linear-gradient(to bottom, transparent, var(--primary-dim), transparent);
+  }
+
+  .hud-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .hud-value {
+    font-family: var(--font-ui);
+    font-size: 1.8rem;
+    color: #fff;
+    text-shadow: 0 0 10px var(--primary-glow);
+    letter-spacing: 1px;
+  }
+  
+  .hud-value.hp { color: var(--stat-dmg); text-shadow: 0 0 10px rgba(231, 111, 81, 0.5); }
+  .hud-value.credits { color: var(--stat-spd); text-shadow: 0 0 10px rgba(76, 201, 240, 0.5); }
+
+  /* --- CENTER STAGE --- */
+  .center-stage {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px; gap: 24px;
+    position: relative;
+  }
+
+  /* --- TITLE --- */
+  .title-container { text-align: center; z-index: 2; margin-bottom: 10px; }
+  
+  .game-title {
+    font-size: 5rem;
+    line-height: 0.85;
+    margin: 0;
+    text-transform: uppercase;
+    color: #fff;
+    /* Crisp Stroke + Glow instead of heavy shadow */
+    -webkit-text-stroke: 1px rgba(42, 157, 143, 0.5);
+    text-shadow: 0 0 20px rgba(42, 157, 143, 0.4);
+    transform: skewX(-5deg);
+    letter-spacing: 4px;
+  }
+
+  .game-subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    letter-spacing: 6px;
+    color: var(--primary);
+    margin-top: 10px;
+    border-top: 1px solid var(--primary-dim);
+    display: inline-block;
+    padding-top: 5px;
+    background: rgba(2,4,8,0.6);
+    padding-left: 20px; padding-right: 20px;
+  }
+
+  /* --- MISSION BRIEFING (Chamfered Panel) --- */
+  .mission-brief {
+    width: 600px; max-width: 95%;
+    background: rgba(10, 18, 30, 0.85);
+    border: 1px solid var(--primary-dim);
+    /* Chamfered Corners */
+    clip-path: polygon(
+      var(--cut) 0, 100% 0, 
+      100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 
+      0 100%, 0 var(--cut)
+    );
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+  }
+
+  .brief-accent {
+    width: 6px; background: var(--primary);
+    /* Inner chamfer to match clip path flow visually */
+    clip-path: polygon(
+      0 0, 100% 0, 
+      100% calc(100% - 10px), 0 100%
+    );
+  }
+
+  .brief-content { padding: 20px 25px; flex: 1; }
+
+  .brief-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 5px;
+  }
+
+  .brief-title {
+    font-family: var(--font-ui); font-size: 1rem; letter-spacing: 1px; color: #fff;
+  }
+  .brief-id { font-family: var(--font-mono); font-size: 0.7rem; color: var(--primary); }
+
+  .mission-text {
+    font-family: var(--font-mono); font-size: 0.95rem; line-height: 1.5;
+    color: var(--text-muted); margin: 0;
+  }
+  .mission-text strong { color: #fff; }
+
+  /* --- UPGRADE CARDS (Unified Grid) --- */
+  .preparation-zone {
+    width: 100%; max-width: 900px;
+    display: flex; justify-content: center; gap: 20px;
+  }
+
+  .upgrade-card {
+    flex: 1;
+    height: 120px;
+    background: rgba(6, 12, 20, 0.9);
+    /* Unified Chamfered Shape */
+    clip-path: polygon(
+      var(--cut) 0, 100% 0, 
+      100% calc(100% - var(--cut-small)), calc(100% - var(--cut-small)) 100%, 
+      0 100%, 0 var(--cut-small)
+    );
+    border: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex; flex-direction: column;
+  }
+
+  /* Colored Borders via Pseudo-element for Chamfered shapes */
+  .upgrade-card::before {
+    content: ''; position: absolute; inset: 0;
+    border: 2px solid transparent;
+    /* We use a background gradient trick or just standard borders on a slightly inset box for chamfered */
+    /* Simpler approach: Colored Left Border */
+    border-left: 4px solid var(--border-color);
+    box-shadow: -5px 0 15px var(--border-color-glow);
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+
+  .upgrade-card:hover {
+    background: rgba(15, 25, 40, 1);
+    transform: translateY(-2px);
+  }
+  .upgrade-card:hover::before { opacity: 1; box-shadow: -5px 0 25px var(--border-color-glow); }
+
+  /* Card Specifics */
+  .card-dmg { --border-color: var(--stat-dmg); --border-color-glow: rgba(231, 111, 81, 0.4); }
+  .card-rate { --border-color: var(--stat-rate); --border-color-glow: rgba(42, 157, 143, 0.4); }
+  .card-spd { --border-color: var(--stat-spd); --border-color-glow: rgba(76, 201, 240, 0.4); }
+
+  .card-top { padding: 15px 20px; display: flex; align-items: center; gap: 15px; height: 50%; }
+  
+  .card-icon {
+    width: 32px; height: 32px;
+    color: var(--border-color);
+    filter: drop-shadow(0 0 5px var(--border-color));
+  }
+  
+  .card-name {
+    font-family: var(--font-ui); font-size: 1.2rem; letter-spacing: 1px;
+    text-transform: uppercase; color: #fff;
+  }
+
+  .card-bottom {
+    padding: 0 20px 15px 20px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .card-cost {
+    font-family: var(--font-mono); font-size: 1.1rem; color: #fff;
+    font-weight: bold;
+  }
+  
+  .card-action {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  /* --- START BUTTON (Aggressive Chamfer) --- */
+  .start-btn {
+    width: 100%; max-width: 900px; height: 70px;
+    background: linear-gradient(90deg, #b33900, var(--accent), #b33900);
+    background-size: 200% 100%;
+    animation: slideBg 3s infinite linear;
+    color: #fff;
+    border: none;
+    font-family: var(--font-ui); font-size: 1.8rem;
+    letter-spacing: 6px; text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    /* Aggressive Sci-Fi Cut Corners */
+    clip-path: polygon(
+      0% 0%, 100% 0%, 
+      100% 70%, calc(100% - 40px) 70%, 
+      calc(100% - 20px) 100%, 20px 100%, 
+      0% 70%
+    );
+    box-shadow: 0 10px 30px rgba(255, 100, 50, 0.3);
+    transition: transform 0.1s;
+  }
+
+  .start-btn:hover {
+    transform: scale(1.02);
+    text-shadow: 0 0 10px #fff;
+    box-shadow: 0 0 40px rgba(255, 100, 50, 0.6);
+  }
+  .start-btn:active { transform: scale(0.98); }
+
+  @keyframes slideBg { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
+
+  /* --- RESPONSIVE --- */
+  @media (max-width: 768px) {
+    .game-title { font-size: 3rem; }
+    .hud-header { padding: 0 10px; clip-path: none; border-bottom: 1px solid var(--primary-dim); }
+    .hud-item:not(:last-child)::after { display: none; }
+    .hud-value { font-size: 1.2rem; }
+    .hud-label { font-size: 0.6rem; }
+    
+    .preparation-zone { flex-direction: column; max-width: 350px; }
+    .upgrade-card { height: 80px; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 20px; }
+    .card-top { border: none; padding: 0; height: auto; }
+    .card-bottom { border: none; padding: 0; }
+    
+    .start-btn { max-width: 350px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Canvas Background -->
+<div id="scene-container">
+  <canvas id="bgCanvas"></canvas>
+</div>
+
+<!-- Overlays -->
+<div class="overlay scanlines"></div>
+<div class="overlay vignette"></div>
+
+<!-- UI Layer -->
+<div class="ui-layer">
+  
+  <!-- HUD Header -->
+  <header class="hud-header">
+    <div class="hud-item">
+      <span class="hud-label">Mission Wave</span>
+      <span class="hud-value">01</span>
+    </div>
+    
+    <div class="hud-item">
+      <span class="hud-label">Shield Integrity</span>
+      <span class="hud-value hp">100%</span>
+    </div>
+    
+    <div class="hud-item">
+      <span class="hud-label">Credits</span>
+      <span class="hud-value credits">500</span>
+    </div>
+  </header>
+
+  <!-- Center Content -->
+  <main class="center-stage">
+    
+    <!-- Title Block -->
+    <div class="title-container">
+      <h1 class="game-title">PLANET<br>DEFENSE</h1>
+      <div class="game-subtitle">SECTOR 7 // ORBITAL COMMAND</div>
+    </div>
+      
+    <!-- Mission Briefing Panel -->
+    <div class="mission-brief">
+      <div class="brief-accent"></div>
+      <div class="brief-content">
+        <div class="brief-header">
+          <span class="brief-title">PRE-MISSION BRIEF</span>
+          <span class="brief-id">STATUS: STANDBY</span>
+        </div>
+        <p class="mission-text">
+          <strong>DEFENSE PROTOCOLS INITIALIZED.</strong> 
+          Configure your orbital loadout before the swarm arrives. 
+          Allocate credits to maximize turret efficiency.
+          <br><span style="color:var(--accent)">READY TO ENGAGE.</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- UPGRADES ROW -->
+    <div class="preparation-zone">
+      
+      <!-- Upgrade 1: Damage -->
+      <div class="upgrade-card card-dmg">
+        <div class="card-top">
+          <!-- Lightning Bolt Icon -->
+          <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span class="card-name">Damage</span>
+        </div>
+        <div class="card-bottom">
+          <span class="card-action">Upgrade</span>
+          <span class="card-cost">100 CR</span>
+        </div>
+      </div>
+
+      <!-- Upgrade 2: Fire Rate -->
+      <div class="upgrade-card card-rate">
+        <div class="card-top">
+          <!-- Clock Icon -->
+          <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="card-name">Fire Rate</span>
+        </div>
+        <div class="card-bottom">
+          <span class="card-action">Upgrade</span>
+          <span class="card-cost">150 CR</span>
+        </div>
+      </div>
+
+      <!-- Upgrade 3: Speed -->
+      <div class="upgrade-card card-spd">
+        <div class="card-top">
+          <!-- Chevron/Speed Icon -->
+          <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="13 17 18 12 13 7"></polyline>
+            <polyline points="6 17 11 12 6 7"></polyline>
+          </svg>
+          <span class="card-name">Reload</span>
+        </div>
+        <div class="card-bottom">
+          <span class="card-action">Upgrade</span>
+          <span class="card-cost">200 CR</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CTA Button -->
+    <button class="start-btn">INITIATE DEFENSE</button>
+  </main>
+
+</div>
+
+<script>
+/**
+ * PLANET DEFENSE VISUAL ENGINE
+ * Renders a stylized "Tactical Core" and Nebula background.
+ */
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+let width, height, cx, cy;
+let particles = [];
+let time = 0;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  cx = width / 2;
+  cy = height / 2 + 40;
+  initParticles();
+}
+
+function initParticles() {
+  particles = [];
+  // Create a dense starfield
+  for (let i = 0; i < 300; i++) {
+    particles.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 1.5,
+      alpha: Math.random(),
+      speed: Math.random() * 0.2 + 0.05
+    });
+  }
+}
+
+function drawBackground() {
+  // Deep Space Gradient
+  const grad = ctx.createRadialGradient(cx, cy - 100, 0, cx, cy, height);
+  grad.addColorStop(0, '#0f1c2e'); // Deep Blue
+  grad.addColorStop(0.5, '#050a10'); // Dark Navy
+  grad.addColorStop(1, '#000000');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+  
+  // Nebula clouds (Subtle)
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = 'rgba(42, 157, 143, 0.05)';
+  ctx.beginPath();
+  ctx.arc(cx - 100, cy - 100, 300, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 126, 57, 0.03)';
+  ctx.beginPath();
+  ctx.arc(cx + 200, cy + 100, 400, 0, Math.PI*2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  particles.forEach(p => {
+    ctx.globalAlpha = p.alpha * (0.5 + 0.5 * Math.sin(time * 0.05 + p.x));
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    p.y += p.speed;
+    if(p.y > height) p.y = 0;
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawTacticalCore() {
+  const radius = Math.min(width, height) * 0.25;
+  
+  ctx.save();
+  ctx.translate(cx, cy);
+  
+  // 1. Outer Rings (Rotating)
+  ctx.strokeStyle = 'rgba(42, 157, 143, 0.15)';
+  ctx.lineWidth = 1;
+  
+  // Ring 1
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.4, 0, Math.PI * 2);
+  ctx.stroke();
+  
+  // Ring 2 (Dashed)
+  ctx.setLineDash([10, 20]);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.6, time * 0.005, Math.PI * 2 + time * 0.005);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 2. The Planet Core (Stylized)
+  // Glow
+  const coreGlow = ctx.createRadialGradient(0, 0, radius * 0.5, 0, 0, radius * 1.2);
+  coreGlow.addColorStop(0, 'rgba(42, 157, 143, 0.1)');
+  coreGlow.addColorStop(1, 'transparent');
+  ctx.fillStyle = coreGlow;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sphere
+  const sphereGrad = ctx.createRadialGradient(-radius*0.3, -radius*0.3, radius*0.1, 0, 0, radius);
+  sphereGrad.addColorStop(0, '#1a3a45');
+  sphereGrad.addColorStop(0.5, '#0b1a2b');
+  sphereGrad.addColorStop(1, '#020408');
+  
+  ctx.fillStyle = sphereGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Grid Overlay on Planet
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(42, 157, 143, 0.2)';
+  ctx.lineWidth = 1;
+  
+  // Horizontal scan lines
+  for(let i = -radius; i < radius; i += 20) {
+    ctx.beginPath();
+    ctx.moveTo(-radius, i);
+    ctx.lineTo(radius, i + Math.sin(time*0.02 + i)*5); // Wobbly tech look
+    ctx.stroke();
+  }
+  
+  ctx.restore();
+}
+
+function animate() {
+  ctx.clearRect(0, 0, width, height);
+  time++;
+  
+  drawBackground();
+  drawStars();
+  drawTacticalCore();
+  
+  requestAnimationFrame(animate);
+}
+
+window.addEventListener('resize', resize);
+resize();
+animate();
+</script>
+</body>
+</html>

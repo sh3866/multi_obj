@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+  :root {
+    /* Palette: Desaturated Teal/Cyan & Warning Amber */
+    --bg-color: #030508;
+    --panel-bg: rgba(5, 12, 20, 0.92);
+    --panel-border: rgba(60, 180, 180, 0.4);
+    
+    --primary: #2a9d8f; /* Desaturated Teal */
+    --primary-bright: #5be0d4;
+    --primary-glow: rgba(42, 157, 143, 0.5);
+    
+    --accent: #e76f51; /* Warning Amber/Red */
+    --accent-glow: rgba(231, 111, 81, 0.6);
+    
+    --text-main: #e0f7fa;
+    --text-muted: #7daeb5;
+    
+    /* Typography */
+    --font-ui: 'Orbitron', 'Segoe UI', Tahoma, sans-serif;
+    --font-mono: 'Consolas', 'Monaco', monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    font-family: var(--font-ui);
+    color: var(--text-main);
+  }
+
+  /* --- BACKGROUND SCENE --- */
+  #scene-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+  }
+
+  /* CRT Scanline & Vignette */
+  .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+  }
+  
+  .scanlines {
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0),
+      rgba(0, 0, 0, 0) 1px,
+      rgba(0, 0, 0, 0.2) 2px,
+      rgba(0, 0, 0, 0.2) 4px
+    );
+    opacity: 0.6;
+  }
+
+  .vignette {
+    background: radial-gradient(circle at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.9) 100%);
+  }
+
+  /* --- UI LAYOUT --- */
+  .ui-layer {
+    position: relative;
+    z-index: 20;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr; /* Header + Main Content */
+    padding: 20px;
+  }
+
+  /* --- HUD HEADER (Cockpit Style) --- */
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 70px;
+    background: linear-gradient(90deg, rgba(5, 12, 20, 0.95) 0%, rgba(5, 12, 20, 0.7) 50%, rgba(5, 12, 20, 0.95) 100%);
+    border: 1px solid var(--panel-border);
+    /* Hard Sci-Fi Chamfered Shape */
+    clip-path: polygon(
+      10px 0, 100% 0, 
+      calc(100% - 10px) 20px, calc(100% - 20px) 100%, 
+      20px 100%, 0 calc(100% - 20px)
+    );
+    padding: 0 30px;
+  }
+
+  .hud-panel {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .hud-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .hud-item.right-align {
+    align-items: flex-end;
+  }
+
+  .hud-label {
+    font-family: var(--font-ui);
+    font-size: 0.65rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 2px;
+    font-weight: 700;
+  }
+
+  .hud-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 5px var(--primary-glow);
+    line-height: 1;
+  }
+
+  .hud-value.hp { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
+  .hud-value.credits { color: var(--primary-bright); }
+
+  /* --- CENTER STAGE (Preparation Zone) --- */
+  .center-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* Center vertically */
+    position: relative;
+    padding-top: 20px;
+  }
+
+  /* Unified Container for Title & Brief */
+  .command-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 2;
+    width: 100%;
+    max-width: 800px;
+  }
+
+  .game-title {
+    font-size: 4rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin: 0;
+    text-transform: uppercase;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(42, 157, 143, 0.4);
+    text-align: center;
+    position: relative;
+    margin-bottom: 25px;
+  }
+
+  .game-title span {
+    display: block;
+    font-size: 1.2rem;
+    letter-spacing: 8px;
+    color: var(--primary);
+    margin-top: 10px;
+    text-shadow: 0 0 10px var(--primary-glow);
+    border-bottom: 1px solid var(--primary);
+    padding-bottom: 15px;
+  }
+
+  /* --- MISSION BRIEFING PANEL --- */
+  .mission-brief {
+    width: 100%;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    /* High contrast container with header */
+    padding: 0; 
+    position: relative;
+    /* Chamfered corners */
+    clip-path: polygon(
+      15px 0, 100% 0, 
+      100% calc(100% - 15px), calc(100% - 15px) 100%, 
+      0 100%, 0 15px
+    );
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    margin-bottom: 40px; /* Space before upgrades */
+  }
+
+  .brief-header {
+    background: rgba(42, 157, 143, 0.2);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 8px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .brief-title {
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--primary-bright);
+  }
+
+  .brief-id {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .brief-content {
+    padding: 20px;
+  }
+
+  .mission-text {
+    font-family: var(--font-ui);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+    margin: 0;
+    text-align: justify;
+  }
+
+  .mission-text strong {
+    color: #fff;
+  }
+  
+  .mission-text .alert {
+    color: var(--accent);
+    font-weight: bold;
+    text-shadow: 0 0 5px var(--accent-glow);
+  }
+
+  /* --- UPGRADES ROW (The Preparation Zone) --- */
+  .preparation-zone {
+    width: 100%;
+    max-width: 800px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+
+  .upgrade-card {
+    background: rgba(10, 15, 25, 0.8);
+    border: 1px solid rgba(255,255,255,0.1);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    /* Chamfered corners */
+    clip-path: polygon(
+      10px 0, 100% 0, 
+      100% calc(100% - 10px), calc(100% - 10px) 100%, 
+      0 100%, 0 10px
+    );
+  }
+
+  .upgrade-card:hover {
+    border-color: var(--primary);
+    background: rgba(42, 157, 143, 0.1);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+  }
+
+  .upgrade-card:hover .upgrade-icon {
+    color: var(--primary-bright);
+    filter: drop-shadow(0 0 4px var(--primary));
+  }
+  
+  .upgrade-card:hover .upgrade-cost {
+    background: var(--primary);
+    color: #000;
+  }
+
+  .upgrade-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 15px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .upgrade-icon {
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    transition: 0.2s;
+  }
+
+  .upgrade-name {
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-main);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .upgrade-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: rgba(0,0,0,0.2);
+  }
+
+  .upgrade-level {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--primary);
+    font-weight: bold;
+  }
+
+  /* Progress Bar */
+  .upgrade-bar-bg {
+    width: 80px;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    clip-path: polygon(0 0, 100% 0, 95% 100%, 0% 100%);
+  }
+
+  .upgrade-bar-fill {
+    height: 100%;
+    background: var(--primary);
+    box-shadow: 0 0 5px var(--primary);
+  }
+  
+  /* Actionable Cost Button */
+  .upgrade-cost {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    border: 1px solid var(--panel-border);
+    padding: 2px 8px;
+    background: rgba(0,0,0,0.3);
+    transition: 0.2s;
+  }
+
+  /* --- START BUTTON (Hierarchy) --- */
+  .start-btn {
+    position: relative;
+    z-index: 10;
+    background: rgba(10, 15, 25, 0.8); /* Dark outline style */
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    padding: 15px 80px;
+    font-family: var(--font-ui);
+    font-size: 1.5rem;
+    font-weight: 900;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    /* Chamfered Style */
+    clip-path: polygon(
+      15px 0, 100% 0, 
+      100% calc(100% - 15px), calc(100% - 15px) 100%, 
+      0 100%, 0 15px
+    );
+    box-shadow: 0 0 10px rgba(42, 157, 143, 0.2);
+  }
+
+  .start-btn:hover {
+    background: var(--primary);
+    color: #000;
+    box-shadow: 0 0 30px var(--primary-glow);
+    transform: scale(1.02);
+  }
+
+  .start-btn:active {
+    transform: scale(0.98);
+  }
+
+  /* Decorative UI elements */
+  .hud-corner {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--primary);
+    opacity: 0.6;
+    z-index: 15;
+  }
+  .tl { top: 20px; left: 20px; border-right: 0; border-bottom: 0; }
+  .tr { top: 20px; right: 20px; border-left: 0; border-bottom: 0; }
+  .bl { bottom: 20px; left: 20px; border-right: 0; border-top: 0; }
+  .br { bottom: 20px; right: 20px; border-left: 0; border-top: 0; }
+
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .game-title { font-size: 2.5rem; }
+    .preparation-zone { flex-direction: column; }
+    .hud-header { padding: 0 15px; height: auto; flex-direction: column; gap: 10px; padding-top: 10px; }
+    .hud-panel { width: 100%; justify-content: space-between; }
+    .hud-item { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+    .hud-item.right-align { align-items: center; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Canvas Background -->
+<div id="scene-container">
+  <canvas id="bgCanvas"></canvas>
+</div>
+
+<!-- Overlays -->
+<div class="overlay scanlines"></div>
+<div class="overlay vignette"></div>
+
+<!-- UI Layer -->
+<div class="ui-layer">
+  
+  <!-- HUD Header -->
+  <header class="hud-header">
+    <!-- Left Panel: Wave & HP -->
+    <div class="hud-panel">
+      <div class="hud-item">
+        <div class="hud-label">Wave</div>
+        <div class="hud-value">04 <span style="font-size:0.6em; color:var(--text-muted)">/ 12</span></div>
+      </div>
+      <div class="hud-item">
+        <div class="hud-label" style="color:var(--accent)">Integrity</div>
+        <div class="hud-value hp">85%</div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Credits -->
+    <div class="hud-panel">
+      <div class="hud-item right-align">
+        <div class="hud-label">Credits</div>
+        <div class="hud-value credits">1,450</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Decorative Corners -->
+  <div class="hud-corner tl"></div>
+  <div class="hud-corner tr"></div>
+  <div class="hud-corner bl"></div>
+  <div class="hud-corner br"></div>
+
+  <!-- Center Content -->
+  <main class="center-stage">
+    
+    <div class="command-container">
+      <h1 class="game-title">PLANET<br>DEFENSE<span>ORBITAL COMMAND</span></h1>
+      
+      <!-- Mission Briefing Panel -->
+      <div class="mission-brief">
+        <div class="brief-header">
+          <span class="brief-title">MISSION BRIEFING</span>
+          <span class="brief-id">SEC-7 // PRIORITY: HIGH</span>
+        </div>
+        <div class="brief-content">
+          <p class="mission-text">
+            <strong>COMMANDER:</strong> The orbital shields are failing. Alien swarms detected in Sector 7. 
+            Allocate resources to turret upgrades and prepare the defense grid. 
+            <br><span class="alert">FAILURE IS NOT AN OPTION.</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREPARATION ZONE (Upgrades moved here) -->
+    <div class="preparation-zone">
+      
+      <!-- Upgrade 1: Damage -->
+      <div class="upgrade-card">
+        <div class="upgrade-header">
+          <!-- Lightning Icon -->
+          <svg class="upgrade-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span class="upgrade-name">Turret Dmg</span>
+        </div>
+        <div class="upgrade-footer">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+             <span class="upgrade-level">LVL 3</span>
+             <div class="upgrade-bar-bg"><div class="upgrade-bar-fill" style="width: 60%;"></div></div>
+          </div>
+          <div class="upgrade-cost">100 CR</div>
+        </div>
+      </div>
+
+      <!-- Upgrade 2: Fire Rate -->
+      <div class="upgrade-card">
+        <div class="upgrade-header">
+          <!-- Clock/Rate Icon -->
+          <svg class="upgrade-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="upgrade-name">Fire Rate</span>
+        </div>
+        <div class="upgrade-footer">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+             <span class="upgrade-level">LVL 1</span>
+             <div class="upgrade-bar-bg"><div class="upgrade-bar-fill" style="width: 25%;"></div></div>
+          </div>
+          <div class="upgrade-cost">150 CR</div>
+        </div>
+      </div>
+
+      <!-- Upgrade 3: Speed -->
+      <div class="upgrade-card">
+        <div class="upgrade-header">
+          <!-- Speed/Tacho Icon -->
+          <svg class="upgrade-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20V10"></path>
+            <path d="M18 20V4"></path>
+            <path d="M6 20v-4"></path>
+          </svg>
+          <span class="upgrade-name">Reload</span>
+        </div>
+        <div class="upgrade-footer">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+             <span class="upgrade-level">LVL 2</span>
+             <div class="upgrade-bar-bg"><div class="upgrade-bar-fill" style="width: 40%;"></div></div>
+          </div>
+          <div class="upgrade-cost">200 CR</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CTA Button -->
+    <button class="start-btn">START MISSION</button>
+  </main>
+
+</div>
+
+<script>
+/**
+ * PLANET DEFENSE VISUAL ENGINE
+ * Renders a procedural planet, starfield, and orbital rings.
+ */
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+let width, height, cx, cy;
+let stars = [];
+let time = 0;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  cx = width / 2;
+  cy = height / 2 + 100; // Shift planet down
+  initStars();
+}
+
+function initStars() {
+  stars = [];
+  const numStars = 250;
+  for (let i = 0; i < numStars; i++) {
+    stars.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 1.5 + 0.5,
+      speed: Math.random() * 0.2 + 0.05,
+      brightness: Math.random()
+    });
+  }
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    ctx.globalAlpha = star.brightness * (0.5 + 0.5 * Math.sin(time * 0.02 + star.x));
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Subtle movement
+    star.y += star.speed;
+    if (star.y > height) star.y = 0;
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawPlanet() {
+  const radius = Math.min(width, height) * 0.35;
+  
+  // 1. Atmosphere Glow (Outer) - Desaturated Teal
+  const glow = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.5);
+  glow.addColorStop(0, 'rgba(42, 157, 143, 0.15)');
+  glow.addColorStop(0.4, 'rgba(42, 157, 143, 0.05)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Planet Body
+  const planetGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 0.1, cx, cy, radius);
+  planetGrad.addColorStop(0, '#2a4c52'); // Highlight
+  planetGrad.addColorStop(0.6, '#0b1018'); // Mid
+  planetGrad.addColorStop(1, '#000000'); // Shadow edge
+  
+  ctx.fillStyle = planetGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. Surface Details (Grid & Continents)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+
+  // Tech Grid
+  ctx.strokeStyle = 'rgba(42, 157, 143, 0.2)';
+  ctx.lineWidth = 1;
+  
+  // Latitudes
+  for(let i=-3; i<=3; i++) {
+    ctx.beginPath();
+    let y = cy + (i * radius * 0.35);
+    ctx.ellipse(cx, y, radius * 0.9, Math.abs(i)*15 + 5, 0, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  
+  // Longitudes
+  for(let i=1; i<=4; i++) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, radius * (i/5), radius, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Abstract "Landmasses" / Tech zones
+  ctx.fillStyle = 'rgba(42, 157, 143, 0.1)';
+  for(let i=0; i<4; i++) {
+    ctx.beginPath();
+    let px = cx + Math.cos(time * 0.001 + i) * (radius * 0.5);
+    let py = cy + Math.sin(time * 0.001 + i * 2) * (radius * 0.5);
+    ctx.ellipse(px, py, radius * 0.3, radius * 0.2, i, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // 4. Orbital Rings
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(Math.PI / 12); // Tilt
+  
+  // Front Ring
+  ctx.strokeStyle = 'rgba(42, 157, 143, 0.6)';
+  ctx.lineWidth = 4;
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = 'rgba(42, 157, 143, 0.5)';
+  
+  ctx.beginPath();
+  // Draw only the bottom half of the ellipse to simulate passing in front
+  ctx.ellipse(0, 0, radius * 1.6, radius * 0.25, 0, 0, Math.PI); 
+  ctx.stroke();
+  
+  // Orbiting Satellite
+  const satAngle = time * 0.015;
+  const satX = Math.cos(satAngle) * (radius * 1.6);
+  const satY = Math.sin(satAngle) * (radius * 0.25);
+  
+  // Only draw if on front side (sin > 0)
+  if (Math.sin(satAngle) > 0) {
+     ctx.fillStyle = '#fff';
+     ctx.shadowBlur = 10;
+     ctx.shadowColor = '#fff';
+     ctx.beginPath();
+     ctx.arc(satX, satY, 5, 0, Math.PI*2);
+     ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function animate() {
+  ctx.clearRect(0, 0, width, height);
+  
+  time++;
+  
+  drawStars();
+  drawPlanet();
+  
+  requestAnimationFrame(animate);
+}
+
+// Initialization
+window.addEventListener('resize', resize);
+resize();
+animate();
+
+</script>
+</body>
+</html>

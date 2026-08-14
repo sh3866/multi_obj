@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON & ORE</title>
+<style>
+    :root {
+        /* Palette: Industrial, Tactile, High Contrast */
+        --bg-deep: #121214;
+        --bg-panel: rgba(20, 20, 24, 0.85);
+        
+        --text-primary: #ececec;
+        --text-secondary: #9ca3af;
+        
+        --accent-orange: #ff5500; /* Safety Orange */
+        --accent-orange-dim: #802b00;
+        --accent-cyan: #00f0ff;   /* Electric Cyan */
+        --accent-green: #00ff41;
+        
+        --metal-light: #4a4e59;
+        --metal-dark: #23252b;
+        --wall-top: #555a66;
+        --wall-side: #2a2d35;
+        
+        --shadow-hard: 4px 4px 0px rgba(0,0,0,0.5);
+        --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.4);
+        --glow-orange: 0 0 15px rgba(255, 85, 0, 0.3);
+    }
+
+    * { box-sizing: border-box; user-select: none; }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-deep);
+        /* Industrial concrete noise texture */
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.07'/%3E%3C/svg%3E");
+        color: var(--text-primary);
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    /* --- Layout Structure --- */
+    .game-container {
+        display: flex;
+        gap: 32px;
+        width: 100%;
+        max-width: 1000px;
+        padding: 20px;
+        align-items: flex-start;
+        justify-content: center;
+    }
+
+    /* --- Left: The Game Board (Dominant) --- */
+    .board-wrapper {
+        position: relative;
+        background: #000;
+        padding: 8px;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+        border: 1px solid #333;
+        flex-shrink: 0;
+        outline: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* HUD: Unified Header Bar */
+    .hud-header {
+        position: absolute;
+        top: -60px;
+        left: 0;
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--bg-panel);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 12px 24px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .game-title {
+        font-size: 1.2rem;
+        font-weight: 900;
+        color: var(--text-primary);
+        text-transform: uppercase;
+        letter-spacing: 4px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .game-title span { color: var(--accent-orange); }
+
+    .hud-stats {
+        display: flex;
+        gap: 32px;
+        font-family: 'Courier New', monospace;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    
+    .stat-box {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1;
+    }
+    .stat-label {
+        font-size: 0.65rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 4px;
+    }
+    .stat-value {
+        font-size: 1.4rem;
+        color: var(--accent-cyan);
+        text-shadow: var(--glow-cyan);
+    }
+
+    /* The Grid */
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(7, 80px);
+        grid-template-rows: repeat(7, 80px);
+        /* Concrete floor texture */
+        background: #1a1c20;
+        gap: 2px;
+        border-radius: 4px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Grid lines overlay */
+    .grid::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: 
+            linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+        background-size: 80px 80px;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .cell {
+        width: 80px;
+        height: 80px;
+        position: relative;
+        z-index: 1;
+        border-radius: 4px;
+        transition: background 0.3s;
+    }
+
+    /* --- Entities (Visual Design - Tactile & 3D) --- */
+
+    /* 1. WALL: Heavy Industrial Block */
+    .wall {
+        position: absolute;
+        inset: 0;
+        background: var(--wall-side);
+        border-radius: 4px;
+        /* 3D Extrusion effect */
+        border-top: 4px solid var(--wall-top);
+        border-left: 2px solid rgba(255,255,255,0.1);
+        border-right: 2px solid rgba(0,0,0,0.4);
+        border-bottom: 6px solid #000;
+        z-index: 5;
+        box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+    }
+
+    /* 2. PLAYER: Distinct Mechanical Avatar */
+    .player {
+        width: 50px;
+        height: 50px;
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        filter: drop-shadow(0 8px 8px rgba(0,0,0,0.6));
+        transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* 3. CRATE: Heavy, Riveted Metal Box */
+    .crate {
+        width: 64px;
+        height: 64px;
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--accent-orange);
+        border-radius: 6px;
+        z-index: 15;
+        box-shadow: 
+            var(--shadow-hard), 
+            inset 0 0 0 4px rgba(0,0,0,0.2),
+            inset 2px 2px 0 rgba(255,255,255,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    /* Crate Detail: Cross Bracing & Rivets */
+    .crate::before {
+        content: '';
+        position: absolute;
+        inset: 6px;
+        border: 2px solid rgba(0,0,0,0.2);
+        background-image: 
+            linear-gradient(45deg, transparent 48%, rgba(0,0,0,0.1) 48%, rgba(0,0,0,0.1) 52%, transparent 52%),
+            linear-gradient(-45deg, transparent 48%, rgba(0,0,0,0.1) 48%, rgba(0,0,0,0.1) 52%, transparent 52%);
+    }
+
+    /* 4. TARGET: Glowing Holographic Portal */
+    .target-zone {
+        position: absolute;
+        inset: 12px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, transparent 70%);
+        border: 2px dashed var(--accent-cyan);
+        z-index: 2;
+        animation: spin-slow 8s linear infinite;
+        box-shadow: var(--glow-cyan);
+    }
+    .target-zone::after {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border: 1px solid rgba(0, 240, 255, 0.5);
+        border-radius: 50%;
+    }
+    @keyframes spin-slow { 100% { transform: rotate(360deg); } }
+
+    /* 5. LEVER: Mechanical Switch */
+    .lever {
+        position: absolute;
+        bottom: 16px; left: 50%;
+        transform: translateX(-50%);
+        width: 32px;
+        height: 32px;
+        background: #222;
+        border-radius: 50%;
+        border: 2px solid #444;
+        z-index: 6;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .lever-stick {
+        width: 8px;
+        height: 24px;
+        background: #666;
+        position: absolute;
+        bottom: 50%;
+        left: 50%;
+        transform: translateX(-50%) rotate(-45deg);
+        transform-origin: bottom center;
+        border-radius: 4px;
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+    }
+    .lever-knob {
+        width: 20px;
+        height: 20px;
+        background: var(--accent-red);
+        border-radius: 50%;
+        position: absolute;
+        top: -12px; left: -6px;
+        box-shadow: inset -2px -2px 5px rgba(0,0,0,0.5), 0 4px 6px rgba(0,0,0,0.4);
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    /* Active State */
+    .lever.active .lever-stick {
+        transform: translateX(-50%) rotate(45deg);
+    }
+    .lever.active .lever-knob {
+        background: var(--accent-green);
+        box-shadow: 0 0 15px var(--accent-green), inset -2px -2px 5px rgba(0,0,0,0.5);
+    }
+
+    /* 6. DOOR: Heavy Shutter */
+    .door-frame {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .door-arch {
+        width: 72px;
+        height: 72px;
+        border: 4px solid #333;
+        border-radius: 6px;
+        background: #050505;
+        position: relative;
+        box-shadow: inset 0 0 30px #000;
+        overflow: hidden;
+    }
+    .door-shutter {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: repeating-linear-gradient(180deg, #3a3d45, #3a3d45 6px, #2a2d35 6px, #2a2d35 12px);
+        transition: transform 0.6s cubic-bezier(0.86, 0, 0.07, 1);
+        transform-origin: top;
+        border-bottom: 2px solid #111;
+    }
+    .door-frame.open .door-shutter {
+        transform: rotateX(-100deg);
+    }
+    .door-light {
+        position: absolute;
+        top: -8px; left: 50%;
+        transform: translateX(-50%);
+        width: 12px; height: 12px;
+        background: #222;
+        border-radius: 50%;
+        border: 1px solid #000;
+        z-index: 11;
+        transition: all 0.3s;
+    }
+    .door-frame.open .door-light {
+        background: var(--accent-cyan);
+        box-shadow: 0 0 20px var(--accent-cyan);
+    }
+
+    /* --- Right: Sidebar (Compact Legend) --- */
+    .sidebar {
+        width: 260px;
+        background: var(--bg-panel);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-radius: 12px;
+        padding: 24px;
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        color: var(--text-secondary);
+    }
+
+    .panel-title {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--text-secondary);
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: 8px;
+        margin-bottom: 12px;
+        font-weight: 700;
+    }
+
+    /* Legend Section */
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    
+    .legend-icon {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.3);
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .legend-text h4 {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    .legend-text p {
+        margin: 2px 0 0 0;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        line-height: 1.3;
+    }
+
+    /* Controls Section */
+    .controls-section {
+        margin-top: auto;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        padding-top: 16px;
+    }
+
+    .key-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        width: 120px;
+        margin: 0 auto 16px auto;
+    }
+    
+    .key-cap {
+        aspect-ratio: 1;
+        background: #2a333e;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        border-bottom: 3px solid #111;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        transition: all 0.1s;
+    }
+    .key-cap:active {
+        transform: translateY(2px);
+        border-bottom-width: 1px;
+    }
+    /* WASD Layout */
+    .key-w { grid-column: 2; }
+    .key-a { grid-column: 1; grid-row: 2; }
+    .key-s { grid-column: 2; grid-row: 2; }
+    .key-d { grid-column: 3; grid-row: 2; }
+
+    .reset-btn {
+        width: 100%;
+        height: 36px;
+        background: rgba(255, 85, 0, 0.1);
+        color: var(--accent-orange);
+        border: 1px solid rgba(255, 85, 0, 0.3);
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.75rem;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.2s;
+    }
+    .reset-btn:hover {
+        background: rgba(255, 85, 0, 0.2);
+        box-shadow: 0 0 10px rgba(255, 85, 0, 0.15);
+    }
+
+    /* --- Status Message --- */
+    .status-overlay {
+        position: absolute;
+        bottom: -50px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-panel);
+        color: var(--text-highlight);
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        letter-spacing: 1px;
+        border: 1px solid var(--accent-orange);
+        box-shadow: var(--glow-orange);
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.3s;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 100;
+    }
+    .status-overlay.visible {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-10px);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        .game-container { flex-direction: column; align-items: center; gap: 24px; }
+        .sidebar { width: 100%; max-width: 500px; flex-direction: row; flex-wrap: wrap; height: auto; }
+        .controls-section { margin-top: 0; border-top: none; padding-top: 0; width: 100%; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px; }
+        .hud-header { top: -60px; }
+    }
+    @media (max-width: 600px) {
+        .grid { grid-template-columns: repeat(7, 46px); grid-template-rows: repeat(7, 46px); }
+        .cell { width: 46px; height: 46px; }
+        .grid::after { background-size: 46px 46px; }
+        .player { width: 34px; height: 34px; }
+        .crate { width: 36px; height: 36px; }
+        .crate::before { inset: 4px; }
+        .lever { width: 22px; height: 22px; bottom: 10px; }
+        .lever-stick { height: 16px; width: 6px; }
+        .lever-knob { width: 12px; height: 12px; top: -8px; left: -3px; }
+        .door-arch { width: 40px; height: 40px; }
+        .sidebar { padding: 16px; }
+        .game-title { font-size: 1rem; }
+    }
+</style>
+</head>
+<body>
+
+<div class="game-container">
+    
+    <!-- Left: Board Area -->
+    <div class="board-wrapper">
+        
+        <!-- HUD: Unified Header -->
+        <div class="hud-header">
+            <div class="game-title">
+                IRON <span>&</span> ORE
+            </div>
+            <div class="hud-stats">
+                <div class="stat-box">
+                    <span class="stat-label">Sector</span>
+                    <span class="stat-value">04</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Moves</span>
+                    <span class="stat-value" id="move-counter">00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- The Puzzle Grid -->
+        <div class="grid" id="game-board">
+            <!-- Generated by JS -->
+        </div>
+
+        <div class="status-overlay" id="status-message">SYSTEM READY</div>
+    </div>
+
+    <!-- Right: Sidebar (Compact Legend) -->
+    <div class="sidebar">
+        
+        <!-- Legend -->
+        <div>
+            <div class="panel-title">Controls Legend</div>
+            
+            <div class="legend-item">
+                <div class="legend-icon" style="color:var(--accent-orange)">
+                    <!-- Box Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20,6H16V4a2,2,0,0,0-2-2H10A2,2,0,0,0,8,4V6H4A2,2,0,0,0,2,8V20a2,2,0,0,0,2,2H20a2,2,0,0,0,2-2V8A2,2,0,0,0,20,6ZM10,4h4V6H10Z"/></svg>
+                </div>
+                <div class="legend-text">
+                    <h4>Heavy Crate</h4>
+                    <p>Push into the cyan target.</p>
+                </div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-icon" style="color:var(--accent-cyan)">
+                    <!-- Target Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/></svg>
+                </div>
+                <div class="legend-text">
+                    <h4>Target Zone</h4>
+                    <p>Align crate to energize grid.</p>
+                </div>
+            </div>
+
+            <div class="legend-item">
+                <div class="legend-icon" style="color:#fff">
+                    <!-- Lever Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="12" width="8" height="10" rx="2"/><line x1="12" y1="12" x2="12" y2="4"/></svg>
+                </div>
+                <div class="legend-text">
+                    <h4>Power Lever</h4>
+                    <p>Walk over to toggle door.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-section">
+            <div class="panel-title">Movement</div>
+            
+            <!-- WASD Grid -->
+            <div class="key-grid">
+                <div class="key-cap key-w">W</div>
+                <div class="key-cap key-a">A</div>
+                <div class="key-cap key-s">S</div>
+                <div class="key-cap key-d">D</div>
+            </div>
+
+            <button class="reset-btn" onclick="initGame()">Reset Level (R)</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // --- Game Configuration ---
+    const BOARD_SIZE = 7;
+    
+    // Entities
+    const TILE_FLOOR = 0;
+    const TILE_WALL = 1;
+    const TILE_TARGET = 2; // Goal
+    const TILE_LEVER = 3;
+    const TILE_DOOR = 4;
+    const TILE_CRATE = 5;
+    const TILE_PLAYER = 6;
+
+    // Level Layout (7x7)
+    const INITIAL_LEVEL = [
+        [1, 1, 1, 1, 1, 1, 1],
+        [1, 6, 0, 0, 3, 0, 1],
+        [1, 0, 1, 1, 0, 0, 1],
+        [1, 0, 5, 0, 0, 0, 1],
+        [1, 0, 1, 1, 0, 0, 1],
+        [1, 0, 0, 2, 4, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1]
+    ];
+
+    // State
+    let grid = [];
+    let playerPos = { x: 1, y: 1 };
+    let moves = 0;
+    let leverActivated = false;
+    let doorOpen = false;
+    let crates = []; // Stores positions of crates {x, y}
+
+    // --- Initialization ---
+    const boardEl = document.getElementById('game-board');
+    const moveEl = document.getElementById('move-counter');
+    const statusEl = document.getElementById('status-message');
+
+    function initGame() {
+        grid = JSON.parse(JSON.stringify(INITIAL_LEVEL)); // Deep copy
+        moves = 0;
+        leverActivated = false;
+        doorOpen = false;
+        updateMoveDisplay();
+        statusEl.classList.remove('visible');
+        
+        // Find player and crates
+        crates = [];
+        for(let y=0; y<BOARD_SIZE; y++) {
+            for(let x=0; x<BOARD_SIZE; x++) {
+                if (grid[y][x] === TILE_PLAYER) {
+                    playerPos = {x, y};
+                    grid[y][x] = TILE_FLOOR; // Clear player from grid data
+                } else if (grid[y][x] === TILE_CRATE) {
+                    crates.push({x, y});
+                    grid[y][x] = TILE_FLOOR; // Move crates to separate array
+                }
+            }
+        }
+        renderBoard();
+    }
+
+    // --- Rendering ---
+    function renderBoard() {
+        boardEl.innerHTML = '';
+        
+        for(let y=0; y<BOARD_SIZE; y++) {
+            for(let x=0; x<BOARD_SIZE; x++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                
+                const tileType = grid[y][x];
+
+                // 1. Background Layer (Walls, Targets)
+                if (tileType === TILE_WALL) {
+                    cell.innerHTML = '<div class="wall"></div>';
+                } else if (tileType === TILE_TARGET) {
+                    cell.innerHTML = '<div class="target-zone"></div>';
+                }
+
+                // 2. Interactive Layer (Lever, Door)
+                if (tileType === TILE_LEVER) {
+                    const leverClass = leverActivated ? 'lever active' : 'lever';
+                    cell.innerHTML += `<div class="${leverClass}"><div class="lever-stick"><div class="lever-knob"></div></div></div>`;
+                } else if (tileType === TILE_DOOR) {
+                    const doorClass = doorOpen ? 'door-frame open' : 'door-frame';
+                    cell.innerHTML += `<div class="${doorClass}"><div class="door-arch"><div class="door-light"></div><div class="door-shutter"></div></div></div>`;
+                }
+
+                // 3. Dynamic Layer (Crates, Player)
+                const crateIndex = crates.findIndex(c => c.x === x && c.y === y);
+                if (crateIndex !== -1) {
+                    cell.innerHTML += '<div class="crate"></div>';
+                }
+
+                if (playerPos.x === x && playerPos.y === y) {
+                    // SVG Player Avatar (Robot)
+                    cell.innerHTML += `
+                    <svg class="player" viewBox="0 0 100 100">
+                        <defs>
+                            <linearGradient id="playerGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#e0e0e0"/>
+                                <stop offset="100%" stop-color="#808080"/>
+                            </linearGradient>
+                            <filter id="glow">
+                                <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                                <feMerge>
+                                    <feMergeNode in="coloredBlur"/>
+                                    <feMergeNode in="SourceGraphic"/>
+                                </feMerge>
+                            </filter>
+                        </defs>
+                        <!-- Body -->
+                        <path d="M25,30 L75,30 L85,80 L15,80 Z" fill="url(#playerGrad)" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
+                        <!-- Visor -->
+                        <rect x="30" y="45" width="40" height="16" rx="6" fill="#1a1a1a" stroke="#333" stroke-width="1"/>
+                        <!-- Eyes -->
+                        <circle cx="42" cy="53" r="3" fill="#00f0ff" filter="url(#glow)"/>
+                        <circle cx="58" cy="53" r="3" fill="#00f0ff" filter="url(#glow)"/>
+                    </svg>`;
+                }
+
+                boardEl.appendChild(cell);
+            }
+        }
+    }
+
+    function updateMoveDisplay() {
+        moveEl.textContent = moves.toString().padStart(2, '0');
+    }
+
+    function showStatus(msg, isError = false) {
+        statusEl.textContent = msg;
+        statusEl.style.borderColor = isError ? 'var(--accent-red)' : 'var(--accent-orange)';
+        statusEl.classList.add('visible');
+        // Reset visibility
+        setTimeout(() => {
+            if(!isError) statusEl.classList.remove('visible');
+        }, 2000);
+    }
+
+    // --- Logic ---
+    function movePlayer(dx, dy) {
+        const newX = playerPos.x + dx;
+        const newY = playerPos.y + dy;
+
+        // 1. Check Walls
+        if (grid[newY][newX] === TILE_WALL) return;
+
+        // 2. Check Door (if closed)
+        if (grid[newY][newX] === TILE_DOOR && !doorOpen) {
+            showStatus("LOCKED - PULL LEVER", true);
+            return;
+        }
+
+        // 3. Check Crates
+        const crateIdx = crates.findIndex(c => c.x === newX && c.y === newY);
+        
+        if (crateIdx !== -1) {
+            // Trying to push a crate
+            const nextX = newX + dx;
+            const nextY = newY + dy;
+
+            // Check bounds
+            if (nextX < 0 || nextX >= BOARD_SIZE || nextY < 0 || nextY >= BOARD_SIZE) return;
+
+            // Check Wall
+            if (grid[nextY][nextX] === TILE_WALL) return;
+
+            // Check Door (closed)
+            if (grid[nextY][nextX] === TILE_DOOR && !doorOpen) return;
+
+            // Check another crate
+            if (crates.some(c => c.x === nextX && c.y === nextY)) return;
+
+            // Valid Push
+            crates[crateIdx] = { x: nextX, y: nextY };
+            
+            // Move Player
+            playerPos = { x: newX, y: newY };
+            moves++;
+            updateMoveDisplay();
+            renderBoard();
+            checkWinCondition();
+        } else {
+            // Normal Move
+            playerPos = { x: newX, y: newY };
+            moves++;
+            updateMoveDisplay();
+            
+            // Interactions
+            if (grid[newY][newX] === TILE_LEVER) {
+                if(!leverActivated) {
+                    leverActivated = true;
+                    doorOpen = true;
+                    showStatus("LEVER ACTIVATED");
+                }
+            } else if (grid[newY][newX] === TILE_DOOR && doorOpen) {
+                showStatus("EXIT REACHED - LEVEL COMPLETE");
+                // Win state freeze or reset logic could go here
+            }
+
+            renderBoard();
+        }
+    }
+
+    function checkWinCondition() {
+        // Check if any crate is on a target
+        const onTarget = crates.some(c => grid[c.y][c.x] === TILE_TARGET);
+        if (onTarget) {
+            // Simple visual feedback handled in render loop via target styling if needed, 
+            // but we keep it simple for now.
+        }
+    }
+
+    // --- Input Handling ---
+    window.addEventListener('keydown', (e) => {
+        switch(e.key.toLowerCase()) {
+            case 'w': case 'arrowup': movePlayer(0, -1); break;
+            case 's': case 'arrowdown': movePlayer(0, 1); break;
+            case 'a': case 'arrowleft': movePlayer(-1, 0); break;
+            case 'd': case 'arrowright': movePlayer(1, 0); break;
+            case 'r': initGame(); break;
+        }
+    });
+
+    // Start
+    initGame();
+
+</script>
+</body>
+</html>

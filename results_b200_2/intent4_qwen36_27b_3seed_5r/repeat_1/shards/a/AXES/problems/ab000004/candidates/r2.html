@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+  :root {
+    /* Color Palette - Tactical Ops Identity */
+    --bg-deep: #020408;
+    --bg-panel: rgba(6, 12, 24, 0.85);
+    
+    /* Primary Cyan - Used for UI Borders & Highlights */
+    --primary: #00f0ff;
+    --primary-dim: rgba(0, 240, 255, 0.1);
+    --primary-glow: rgba(0, 240, 255, 0.5);
+    
+    /* Upgrade Semantics - Only used for data viz */
+    --stat-dmg: #ff3860;
+    --stat-rate: #ffcc00;
+    --stat-speed: #00ff9d;
+    
+    /* Resource Color */
+    --res-credits: #ffd700;
+    
+    /* Typography */
+    --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    cursor: default; /* Tactile feel */
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-deep);
+    font-family: var(--font-ui);
+    color: #e0f7fa;
+  }
+
+  /* --- GEOMETRY & SHAPES --- */
+  /* Unified "Chamfered" geometric language */
+  .shape-chamfer {
+    clip-path: polygon(
+      15px 0, 100% 0, 
+      100% calc(100% - 15px), calc(100% - 15px) 100%, 
+      0 100%, 0 15px
+    );
+  }
+
+  /* --- LAYOUT GRID --- */
+  .ui-grid {
+    position: relative;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: 200px 1fr 200px; /* Side columns for HUD */
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    width: 100vw;
+    padding: 2rem;
+    gap: 1rem;
+  }
+
+  /* --- HUD HEADER --- */
+  /* Demoted to secondary info, spread to edges */
+  .hud-header {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0 1rem;
+    margin-bottom: 1rem;
+    z-index: 30;
+  }
+
+  .hud-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hud-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--primary);
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    opacity: 0.7;
+    text-transform: uppercase;
+  }
+
+  .hud-value {
+    font-family: var(--font-mono);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 8px var(--primary-glow);
+    line-height: 1;
+  }
+
+  /* Specific HUD Adjustments */
+  .hud-left { align-items: flex-start; }
+  .hud-right { align-items: flex-end; }
+  
+  .hud-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+  
+  /* HP is now red but smaller and less intrusive */
+  .hp-value {
+    color: var(--stat-dmg);
+    text-shadow: 0 0 8px rgba(255, 56, 96, 0.4);
+    font-size: 1.2rem; 
+  }
+  .hp-label { color: var(--stat-dmg) !important; opacity: 0.8 !important; }
+
+  /* Credits visual link */
+  .credits-value { color: var(--res-credits); text-shadow: 0 0 8px rgba(255, 215, 0, 0.4); }
+
+  /* --- CENTER STAGE --- */
+  .center-stage {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+
+  /* Title: Elevated, glowing, distinct identity */
+  .game-title {
+    font-family: var(--font-ui);
+    font-size: 4.5rem;
+    font-weight: 900;
+    letter-spacing: -2px;
+    margin: 0 0 1rem 0;
+    text-transform: uppercase;
+    text-align: center;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(0, 240, 255, 0.4), 0 0 10px rgba(0, 240, 255, 0.8);
+    line-height: 0.9;
+  }
+  
+  .game-title span {
+    display: block;
+    font-size: 1.2rem;
+    font-weight: 600;
+    letter-spacing: 1em;
+    color: var(--primary);
+    margin-bottom: 0.5rem;
+    text-shadow: 0 0 15px var(--primary);
+  }
+
+  /* Mission Brief: Holographic, scanline effect */
+  .mission-panel {
+    width: 100%;
+    max-width: 650px;
+    background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.05) 20%, rgba(0, 240, 255, 0.05) 80%, transparent 100%);
+    border-left: 2px solid var(--primary);
+    border-right: 2px solid var(--primary);
+    padding: 1.5rem 2rem;
+    margin-bottom: 3rem;
+    text-align: center;
+    position: relative;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  }
+
+  /* Glitch/Scanline overlay for mission text */
+  .mission-panel::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 240, 255, 0.03) 2px,
+      rgba(0, 240, 255, 0.03) 4px
+    );
+    pointer-events: none;
+  }
+
+  .mission-text {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #fff;
+    text-shadow: 0 0 5px var(--primary-glow);
+    letter-spacing: 0.5px;
+  }
+
+  .mission-text strong {
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  /* Start Button: High Contrast, Mechanical Weight */
+  .start-btn {
+    background: var(--primary);
+    color: #000;
+    border: none;
+    padding: 1.5rem 5rem;
+    font-family: var(--font-ui);
+    font-size: 1.2rem;
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 25px var(--primary-glow), inset 0 0 20px rgba(255,255,255,0.5);
+  }
+
+  .start-btn:hover {
+    background: #fff;
+    box-shadow: 0 0 50px var(--primary), inset 0 0 10px var(--primary);
+    transform: scale(1.02);
+    cursor: pointer;
+  }
+
+  .start-btn:active {
+    transform: scale(0.98);
+    filter: brightness(0.9);
+  }
+
+  /* --- FOOTER / UPGRADES --- */
+  /* Solidified container, clear hierarchy */
+  .upgrade-dock {
+    grid-column: 2;
+    grid-row: 3;
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 900px;
+    align-self: end;
+    padding-bottom: 1rem;
+  }
+
+  /* Upgrade Buttons: Actionable, Unified Shape, Clear Data */
+  .upgrade-btn {
+    flex: 1;
+    background: var(--bg-panel);
+    border: 1px solid var(--primary); /* Unified Cyan Border */
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 140px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  }
+
+  .upgrade-btn:hover {
+    background: rgba(0, 240, 255, 0.1);
+    border-color: #fff;
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0, 240, 255, 0.2);
+  }
+
+  .u-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+
+  .u-title {
+    font-family: var(--font-ui);
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fff;
+    text-transform: uppercase;
+  }
+
+  .u-cost {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--res-credits); /* Linked to Credits in header */
+    text-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  
+  .u-cost::before {
+    content: '$'; /* Visual indicator of cost */
+    font-size: 0.7em;
+  }
+
+  .u-level {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--primary);
+    text-transform: uppercase;
+    margin-bottom: auto;
+  }
+
+  /* Progress Bars: Semantic colors only here */
+  .u-bar-track {
+    height: 8px;
+    width: 100%;
+    background: rgba(0,0,0,0.6);
+    margin-top: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .u-bar-fill {
+    height: 100%;
+    width: 0%; /* Set inline */
+    position: relative;
+    box-shadow: 0 0 10px currentColor;
+  }
+  
+  /* Specific semantic colors for the energy bars only */
+  .damage .u-bar-fill { background: var(--stat-dmg); color: var(--stat-dmg); }
+  .rate .u-bar-fill { background: var(--stat-rate); color: var(--stat-rate); }
+  .speed .u-bar-fill { background: var(--stat-speed); color: var(--stat-speed); }
+
+  /* --- VISUAL EFFECTS --- */
+  .scanlines {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0.6;
+  }
+
+  .vignette {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle, rgba(2,4,8,0) 40%, rgba(2,4,8,0.9) 100%);
+    pointer-events: none;
+    z-index: 40;
+  }
+
+  /* Background Canvas */
+  #scene-container {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* Corner Decorations - Unified Geometry */
+  .corner-decor {
+    position: absolute;
+    width: 60px; height: 60px;
+    border: 2px solid var(--primary);
+    opacity: 0.3;
+    z-index: 30;
+    pointer-events: none;
+  }
+  .tl { top: 20px; left: 20px; border-right: 0; border-bottom: 0; }
+  .tr { top: 20px; right: 20px; border-left: 0; border-bottom: 0; }
+  .bl { bottom: 20px; left: 20px; border-right: 0; border-top: 0; }
+  .br { bottom: 20px; right: 20px; border-left: 0; border-top: 0; }
+
+</style>
+</head>
+<body>
+
+<!-- Background -->
+<div id="scene-container">
+  <canvas id="bgCanvas"></canvas>
+</div>
+
+<!-- Overlays -->
+<div class="scanlines"></div>
+<div class="vignette"></div>
+<div class="corner-decor tl"></div>
+<div class="corner-decor tr"></div>
+<div class="corner-decor bl"></div>
+<div class="corner-decor br"></div>
+
+<!-- Main UI Grid -->
+<div class="ui-grid">
+
+  <!-- Header -->
+  <header class="hud-header">
+    <!-- Left: Wave (Updated to READY) -->
+    <div class="hud-item hud-left">
+      <span class="hud-label">Current Wave</span>
+      <div class="hud-value">READY</div>
+    </div>
+    
+    <!-- Center: HP (Demoted, moved to center top but smaller) -->
+    <div class="hud-item hud-center">
+      <span class="hud-label hp-label">Planet Integrity</span>
+      <div class="hud-value hp-value">100%</div>
+    </div>
+
+    <!-- Right: Credits -->
+    <div class="hud-item hud-right">
+      <span class="hud-label">Credits</span>
+      <div class="hud-value credits-value">1,450</div>
+    </div>
+  </header>
+
+  <!-- Center Stage -->
+  <main class="center-stage">
+    <h1 class="game-title">
+      <span>Tactical Ops</span>
+      Planet Defense
+    </h1>
+    
+    <div class="mission-panel">
+      <p class="mission-text">
+        <strong>COMMANDER:</strong> Orbital shields are failing. Hostile swarms detected in Sector 7. 
+        <br>Allocate credits to turret systems immediately.
+      </p>
+    </div>
+
+    <button class="start-btn shape-chamfer">Initialize Defense</button>
+  </main>
+
+  <!-- Upgrade Dock -->
+  <div class="upgrade-dock">
+    
+    <!-- Damage (Red Bar, Cyan Border) -->
+    <div class="upgrade-btn damage shape-chamfer">
+      <div class="u-header">
+        <div class="u-title">DMG Output</div>
+        <div class="u-cost">500</div>
+      </div>
+      <div class="u-level">Current: Lvl 3</div>
+      <div class="u-bar-track">
+        <div class="u-bar-fill" style="width: 60%;"></div>
+      </div>
+    </div>
+
+    <!-- Fire Rate (Yellow Bar, Cyan Border) -->
+    <div class="upgrade-btn rate shape-chamfer">
+      <div class="u-header">
+        <div class="u-title">Fire Rate</div>
+        <div class="u-cost">350</div>
+      </div>
+      <div class="u-level">Current: Lvl 1</div>
+      <div class="u-bar-track">
+        <div class="u-bar-fill" style="width: 25%;"></div>
+      </div>
+    </div>
+
+    <!-- Speed (Green Bar, Cyan Border) -->
+    <div class="upgrade-btn speed shape-chamfer">
+      <div class="u-header">
+        <div class="u-title">Reload SPD</div>
+        <div class="u-cost">800</div>
+      </div>
+      <div class="u-level">Current: Lvl 5</div>
+      <div class="u-bar-track">
+        <div class="u-bar-fill" style="width: 85%;"></div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+/**
+ * PLANET DEFENSE VISUAL ENGINE
+ * Renders a stylized, glowing planetary surface and nebula.
+ */
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+let width, height, cx, cy;
+let stars = [];
+let time = 0;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  cx = width / 2;
+  cy = height / 2 + 50; // Center slightly lower to balance UI
+  initStars();
+}
+
+function initStars() {
+  stars = [];
+  const numStars = 400;
+  for (let i = 0; i < numStars; i++) {
+    stars.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 1.5,
+      speed: Math.random() * 0.2 + 0.05,
+      alpha: Math.random()
+    });
+  }
+}
+
+function drawNebula() {
+  // Deep atmospheric background gradient
+  const gradient = ctx.createRadialGradient(cx, cy, Math.min(width, height) * 0.2, cx, cy, Math.max(width, height) * 0.8);
+  gradient.addColorStop(0, 'rgba(0, 40, 60, 0.3)');
+  gradient.addColorStop(0.5, 'rgba(0, 10, 20, 0.2)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    ctx.globalAlpha = star.alpha * (0.5 + 0.5 * Math.sin(time * 0.02 + star.x));
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Parallax drift
+    star.y += star.speed;
+    if (star.y > height) star.y = 0;
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawPlanet() {
+  const radius = Math.min(width, height) * 0.4;
+  
+  // 1. Atmosphere Glow (Holographic feel)
+  const glow = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.6);
+  glow.addColorStop(0, 'rgba(0, 240, 255, 0.1)');
+  glow.addColorStop(0.4, 'rgba(0, 240, 255, 0.05)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Wireframe Planet Base
+  ctx.save();
+  ctx.translate(cx, cy);
+  
+  // Back of Orbital Ring (Drawn first)
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.15)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 1.8, radius * 0.2, Math.PI / 12, 0, Math.PI); 
+  ctx.stroke();
+
+  // Planet Sphere (Dark body)
+  const planetGrad = ctx.createRadialGradient(-radius*0.3, -radius*0.3, radius*0.1, 0, 0, radius);
+  planetGrad.addColorStop(0, '#1a2530');
+  planetGrad.addColorStop(1, '#05070a');
+  
+  ctx.fillStyle = planetGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wireframe Grid (Latitude/Longitude) - Stronger Cyan
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+  ctx.lineWidth = 1;
+  
+  // Longitudes
+  for(let i=1; i<=3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * (i/4), radius, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Latitudes
+  for(let i=-2; i<=2; i++) {
+    ctx.beginPath();
+    let y = i * (radius * 0.4);
+    let r = Math.sqrt(Math.pow(radius, 2) - Math.pow(y, 2));
+    if (r > 0) {
+        ctx.ellipse(0, y, r, Math.abs(y) * 0.1 + 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+  }
+
+  // "Continents" - Abstract Tech Shapes
+  ctx.fillStyle = 'rgba(0, 240, 255, 0.08)';
+  for(let i=0; i<4; i++) {
+    ctx.beginPath();
+    let angle = (time * 0.001) + (i * 1.5);
+    let dist = radius * 0.6;
+    ctx.arc(Math.cos(angle)*dist, Math.sin(angle)*dist * 0.8, radius*0.3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Front of Orbital Ring (Drawn last)
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.6)';
+  ctx.lineWidth = 3;
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = 'rgba(0, 240, 255, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 1.8, radius * 0.2, Math.PI / 12, Math.PI, Math.PI * 2);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Satellite
+  const satAngle = time * 0.015;
+  const satX = Math.cos(satAngle) * (radius * 1.8);
+  const satY = Math.sin(satAngle) * (radius * 0.2);
+  
+  // Only draw if on front side (sin > 0)
+  if (Math.sin(satAngle) > 0) {
+     ctx.fillStyle = '#fff';
+     ctx.beginPath();
+     ctx.arc(satX, satY, 4, 0, Math.PI*2);
+     ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function animate() {
+  // Clear with deep background color
+  ctx.fillStyle = '#020408';
+  ctx.fillRect(0, 0, width, height);
+  
+  time++;
+  
+  drawNebula();
+  drawStars();
+  drawPlanet();
+  
+  requestAnimationFrame(animate);
+}
+
+// Init
+window.addEventListener('resize', resize);
+resize();
+animate();
+
+</script>
+</body>
+</html>

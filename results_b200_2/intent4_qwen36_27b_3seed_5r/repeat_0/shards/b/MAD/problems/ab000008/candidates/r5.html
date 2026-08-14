@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIXEL DANCE</title>
+    <style>
+        :root {
+            --bg-deep: #05000a;
+            --bg-horizon: #1a0030;
+            --neon-pink: #ff00ff;
+            --neon-cyan: #00ffff;
+            --neon-yellow: #ffe600;
+            --neon-purple: #bc13fe;
+            --neon-red: #ff003c;
+            --neon-blue: #0044ff;
+            
+            /* Palette for the highway lanes */
+            --lane-1: var(--neon-red);
+            --lane-2: var(--neon-blue);
+            --lane-3: var(--neon-yellow);
+            --lane-4: var(--neon-green);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: none;
+            image-rendering: pixelated;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: white;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace; /* Fallback, but we use text-shadow for pixel look */
+        }
+
+        /* --- BACKGROUND SCENE (CANVAS) --- */
+        #world-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* --- MAIN LAYOUT: STRICT VERTICAL HIERARCHY --- */
+        .ui-layer {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between; /* Distribute Title, Highway, Button */
+            padding: 6vh 0 4vh 0;
+        }
+
+        /* 1. TYPOGRAPHY OVERHAUL */
+        .title-container {
+            position: relative;
+            margin-top: 2vh;
+        }
+
+        h1 {
+            font-family: 'Courier New', Courier, monospace; /* Monospace base */
+            font-weight: 900;
+            font-size: clamp(3rem, 8vw, 6rem);
+            text-transform: uppercase;
+            color: #fff;
+            letter-spacing: -2px;
+            line-height: 1;
+            /* The Hard Pixel Shadow */
+            text-shadow: 
+                4px 4px 0px var(--neon-pink), 
+                -2px -2px 0px var(--neon-cyan);
+            /* Pixelated Edge Effect via clip-path simulation or just raw font */
+            /* To make it look more "bitmap", we force pixelation */
+            transform: translateZ(0); 
+        }
+
+        /* 2. HIGHWAY RECONSTRUCTION */
+        .highway-container {
+            position: relative;
+            width: 100%;
+            flex-grow: 1; /* Takes remaining space */
+            max-height: 45vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end; /* Anchor hit line to bottom */
+            perspective: 600px; /* Strong perspective */
+        }
+
+        /* The 3D Stage */
+        .highway-stage {
+            position: relative;
+            width: 300px; /* Base width */
+            height: 100%;
+            transform-style: preserve-3d;
+            transform: rotateX(25deg); /* Tilt back */
+            display: flex;
+            justify-content: space-between;
+            gap: 4px;
+        }
+
+        /* Individual Lanes */
+        .lane {
+            flex: 1;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border-left: 2px solid rgba(255, 255, 255, 0.1);
+            border-right: 2px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+            /* Lane Colors (Subtle Glow) */
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+        
+        .lane:nth-child(1) { background: linear-gradient(to top, rgba(255,0,60,0.1), transparent); border-color: var(--neon-red); }
+        .lane:nth-child(2) { background: linear-gradient(to top, rgba(0,68,255,0.1), transparent); border-color: var(--neon-blue); }
+        .lane:nth-child(3) { background: linear-gradient(to top, rgba(255,230,0,0.1), transparent); border-color: var(--neon-yellow); }
+        .lane:nth-child(4) { background: linear-gradient(to top, rgba(0,255,100,0.1), transparent); border-color: #00ff66; }
+
+        /* The Hit Line */
+        .hit-line {
+            position: absolute;
+            bottom: 0;
+            left: -5%;
+            width: 110%;
+            height: 6px;
+            background: #fff;
+            box-shadow: 0 0 15px var(--neon-cyan), 0 0 30px var(--neon-cyan);
+            z-index: 20;
+            border-top: 2px solid var(--neon-pink);
+        }
+
+        /* The Notes */
+        .note {
+            position: absolute;
+            width: 100%;
+            height: 20px; /* Pixel block height */
+            bottom: 0;
+            opacity: 0;
+            animation: dropNote 2s linear infinite;
+        }
+
+        /* Note Colors & Delays */
+        .lane:nth-child(1) .note { background: var(--neon-red); box-shadow: 0 0 10px var(--neon-red); animation-delay: 0.5s; }
+        .lane:nth-child(2) .note { background: var(--neon-blue); box-shadow: 0 0 10px var(--neon-blue); animation-delay: 1.2s; }
+        .lane:nth-child(3) .note { background: var(--neon-yellow); box-shadow: 0 0 10px var(--neon-yellow); animation-delay: 0.2s; }
+        .lane:nth-child(4) .note { background: #00ff66; box-shadow: 0 0 10px #00ff66; animation-delay: 1.8s; }
+
+        /* Animation: Notes fall from the "top" (distance) to bottom */
+        @keyframes dropNote {
+            0% { bottom: -50px; opacity: 0; transform: scaleY(0.5); }
+            10% { opacity: 1; transform: scaleY(1); }
+            90% { opacity: 1; }
+            100% { bottom: 110%; opacity: 0; transform: scaleY(1.5); } /* Hit the line and pass through */
+        }
+
+        /* 3. BUTTON SEPARATION & REFINEMENT */
+        .btn-container {
+            position: absolute;
+            bottom: 10vh;
+            z-index: 30;
+        }
+
+        .btn-start {
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: 900;
+            font-size: 1.5rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--neon-cyan);
+            background: transparent;
+            border: 2px solid var(--neon-cyan);
+            padding: 1rem 3rem;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.1s steps(1);
+            box-shadow: 
+                0 0 10px rgba(0, 255, 255, 0.3),
+                inset 0 0 10px rgba(0, 255, 255, 0.1);
+        }
+
+        .btn-start:hover {
+            background: rgba(0, 255, 255, 0.1);
+            color: #fff;
+            text-shadow: 0 0 8px var(--neon-cyan);
+            box-shadow: 
+                0 0 20px var(--neon-cyan),
+                inset 0 0 20px var(--neon-cyan);
+            transform: translateY(-2px);
+        }
+
+        .btn-start:active {
+            transform: translateY(2px);
+            background: var(--neon-cyan);
+            color: #000;
+            box-shadow: 0 0 40px var(--neon-cyan);
+        }
+
+        /* --- CRT OVERLAYS --- */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 2px,
+                rgba(0,0,0,0.2) 2px,
+                rgba(0,0,0,0.2) 4px
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0.7;
+        }
+        
+        .vignette {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: radial-gradient(circle, rgba(0,0,0,0) 50%, rgba(0,0,0,0.9) 100%);
+            pointer-events: none;
+            z-index: 99;
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            h1 { font-size: 3rem; }
+            .highway-stage { width: 80vw; }
+            .btn-start { font-size: 1.2rem; padding: 0.8rem 2rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Visual Overlays -->
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- Background Scene (Drawn via JS for coherence) -->
+    <canvas id="world-canvas"></canvas>
+
+    <!-- Foreground Content -->
+    <div class="ui-layer">
+        
+        <!-- Title (Top) -->
+        <div class="title-container">
+            <h1>PIXEL<br>DANCE</h1>
+        </div>
+        
+        <!-- Gameplay Preview (Center) -->
+        <div class="highway-container">
+            <div class="highway-stage">
+                <!-- 4 Distinct Lanes -->
+                <div class="lane"><div class="note"></div></div>
+                <div class="lane"><div class="note"></div></div>
+                <div class="lane"><div class="note"></div></div>
+                <div class="lane"><div class="note"></div></div>
+                
+                <!-- Single Hit Line -->
+                <div class="hit-line"></div>
+            </div>
+        </div>
+
+        <!-- Button (Bottom) -->
+        <div class="btn-container">
+            <button class="btn-start" id="startBtn">START GAME</button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Visual Engine
+         * Draws the synthwave sun, grid floor, and stars all on one canvas
+         * to ensure the vanishing points align perfectly.
+         */
+        const canvas = document.getElementById('world-canvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); 
+
+        let width, height;
+        let stars = [];
+        const starCount = 100;
+        let gridOffset = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        class Star {
+            constructor() {
+                this.reset();
+                // Initial random Y to fill sky
+                this.y = Math.random() * (height * 0.5); 
+            }
+
+            reset() {
+                this.x = Math.random() * width;
+                this.y = -10;
+                this.z = Math.random() * 2 + 0.5; 
+                this.size = Math.floor(Math.random() * 2) + 1;
+                // Retro colors
+                const colors = ['#ff00ff', '#00ffff', '#ffffff', '#ffe600'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                this.y += this.z * 0.5; // Slow fall
+                if (this.y > height * 0.45) { // Horizon limit
+                    this.reset();
+                }
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(Math.floor(this.x), Math.floor(this.y), this.size, this.size);
+            }
+        }
+
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < starCount; i++) {
+                stars.push(new Star());
+            }
+        }
+
+        function drawBackground() {
+            // 1. Sky Gradient
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, height * 0.5);
+            skyGrad.addColorStop(0, '#05000a');
+            skyGrad.addColorStop(1, '#2a004d');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, width, height * 0.5);
+
+            // 2. Retro Sun
+            const horizonY = height * 0.45;
+            const sunSize = Math.min(width, height) * 0.25;
+            const sunY = horizonY - (sunSize / 2) + 20; // Slightly below horizon
+
+            // Sun Glow
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = '#ff00ff';
+            
+            // Draw Sun Circle
+            ctx.fillStyle = '#ffe600';
+            ctx.beginPath();
+            ctx.arc(width / 2, sunY, sunSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0; // Reset glow for stripes
+
+            // Sun Stripes (Cutouts)
+            ctx.fillStyle = '#2a004d'; // Match horizon color
+            const stripeCount = 10;
+            const stripeHeight = 4;
+            for(let i=0; i<stripeCount; i++) {
+                let yStart = sunY + (i * 12) + 10;
+                if(yStart > sunY + sunSize/2) break;
+                let h = stripeHeight + i; // Tapering stripes
+                ctx.fillRect(width/2 - sunSize/2, yStart, sunSize, h);
+            }
+
+            // 3. Floor Background
+            ctx.fillStyle = '#05000a';
+            ctx.fillRect(0, horizonY, width, height - horizonY);
+        }
+
+        function drawGrid() {
+            const horizonY = height * 0.45;
+            const vanishX = width / 2;
+            const floorHeight = height - horizonY;
+
+            // Moving Grid Logic
+            gridOffset = (gridOffset + 1) % 40;
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#bc13fe'; // Neon Purple Grid
+
+            // Fade Gradient for depth
+            // We draw lines individually to apply opacity based on distance from bottom
+            
+            // Vertical Lines (Perspective)
+            const numVLines = 11;
+            for (let i = 0; i <= numVLines; i++) {
+                // Spread lines out
+                let xBottom = (width / numVLines) * i;
+                // Calculate spread at horizon (compressed)
+                // Simple linear interpolation to vanishing point
+                ctx.beginPath();
+                ctx.moveTo(vanishX, horizonY);
+                ctx.lineTo(xBottom, height);
+                
+                // Gradient for this line
+                let grad = ctx.createLinearGradient(vanishX, horizonY, xBottom, height);
+                grad.addColorStop(0, 'rgba(188, 19, 254, 0)'); // Fade at horizon
+                grad.addColorStop(0.4, 'rgba(188, 19, 254, 0.1)');
+                grad.addColorStop(1, 'rgba(188, 19, 254, 0.8)'); // Bright at bottom
+                
+                ctx.strokeStyle = grad;
+                ctx.stroke();
+            }
+
+            // Horizontal Lines (Moving)
+            // We use a logarithmic scale for Z-depth simulation
+            // Simple trick: Draw lines closer at top, further at bottom
+            
+            const numHLines = 15;
+            for (let i = 0; i < numHLines; i++) {
+                // Calculate Y based on exponential spacing
+                // t goes from 0 (horizon) to 1 (bottom)
+                let t = i / numHLines;
+                
+                // Add movement offset
+                // We shift the index based on gridOffset
+                let adjustedT = (t + (gridOffset / (numHLines * 40))) % 1; 
+                
+                // Exponential spacing (closer together near horizon)
+                let y = horizonY + Math.pow(adjustedT, 2.5) * floorHeight;
+
+                // Opacity increases as we get closer (bottom)
+                let alpha = adjustedT * 0.8; 
+
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.strokeStyle = `rgba(188, 19, 254, ${alpha})`;
+                ctx.stroke();
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            
+            drawBackground();
+            
+            // Stars
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+
+            drawGrid();
+
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+
+        // Button Interaction
+        const btn = document.getElementById('startBtn');
+        btn.addEventListener('click', () => {
+            // Simple visual feedback
+            btn.innerText = "LOADING...";
+            setTimeout(() => {
+                alert("GAME START (Demo End)");
+                btn.innerText = "START GAME";
+            }, 500);
+        });
+    </script>
+</body>
+</html>

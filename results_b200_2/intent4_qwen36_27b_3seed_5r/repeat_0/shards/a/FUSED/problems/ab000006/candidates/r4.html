@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree - Retro Edition</title>
+<style>
+  :root {
+    --bg-color: #111;
+    --crt-flicker: 0.02;
+    --color-red: #D32F2F;
+    --color-red-dark: #880000;
+    --color-snow: #F0F8FF;
+    --color-text: #111;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    user-select: none;
+    font-family: 'Courier New', Courier, monospace; /* Fallback */
+  }
+
+  /* The Arcade Cabinet / Screen Frame */
+  #game-container {
+    position: relative;
+    width: 640px;
+    height: 480px;
+    background: #000;
+    box-shadow: 
+      0 0 0 4px #222,
+      0 0 0 8px #444,
+      0 0 0 12px #111,
+      0 0 40px rgba(0,0,0,0.8);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+  }
+
+  /* UI Overlay Layer */
+  #ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  /* Typography Overhaul: Pixel Title */
+  .title-container {
+    margin-top: 30px;
+    text-align: center;
+    z-index: 2;
+    /* Slight transparency to let the "sky" show through text if desired, but solid is better for readability */
+    background: rgba(92, 148, 252, 0.8); 
+    padding: 10px 20px;
+    border-bottom: 4px solid #000;
+    border-top: 4px solid #000;
+    box-shadow: 0 4px 0 #000;
+  }
+
+  .pixel-title {
+    font-family: 'Courier New', monospace;
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 0.9;
+    margin: 0;
+    letter-spacing: -2px;
+    text-transform: uppercase;
+    /* Hard Pixelated Shadow */
+    text-shadow: 
+      4px 4px 0px #000,
+      -2px -2px 0px #fff;
+    position: relative;
+    top: -2px;
+  }
+
+  .title-ski {
+    color: #FFFFFF;
+  }
+
+  .title-free {
+    color: var(--color-red);
+  }
+
+  /* Start Area - Simplified & Diegetic */
+  .start-area {
+    margin-bottom: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: auto;
+    z-index: 2;
+  }
+
+  /* Blinking Text instead of Big Button */
+  .blink-text {
+    font-family: 'Courier New', monospace;
+    font-weight: 900;
+    font-size: 24px;
+    color: #000;
+    background: var(--color-snow);
+    padding: 4px 8px;
+    border: 2px solid #000;
+    box-shadow: 4px 4px 0px #000;
+    animation: blinker 1s linear infinite;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  
+  .blink-text:hover {
+    background: #FFCC00; /* Retro yellow highlight */
+  }
+
+  @keyframes blinker {
+    50% { opacity: 0; }
+  }
+
+  /* Instructions - Minimal */
+  .controls-hint {
+    margin-top: 15px;
+    color: #000;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    text-shadow: 1px 1px 0 #fff;
+    background: rgba(0,0,0,0.5);
+    padding: 4px 8px;
+    border-radius: 2px;
+  }
+
+  /* CRT Effects */
+  #scanlines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0),
+      rgba(255,255,255,0) 2px,
+      rgba(0,0,0,0.1) 2px,
+      rgba(0,0,0,0.1) 4px
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  
+  #vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.4) 100%);
+    pointer-events: none;
+    z-index: 11;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <!-- Internal Resolution 320x240 for authentic pixel look -->
+  <canvas id="gameCanvas" width="320" height="240"></canvas>
+  
+  <div id="ui-layer">
+    <div class="title-container">
+      <h1 class="pixel-title">
+        <span class="title-ski">SKI</span><span class="title-free">FREE</span>
+      </h1>
+    </div>
+    
+    <div class="start-area">
+      <div class="blink-text" onclick="startGame()">PRESS START</div>
+      <div class="controls-hint">
+        &larr; ARROWS &rarr;
+      </div>
+    </div>
+  </div>
+
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+</div>
+
+<script>
+/**
+ * SKIFREE RETRO ENGINE - REDESIGNED
+ * Focus: Visual Depth, Asset Polish, Layout
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Disable smoothing for crisp pixels
+ctx.imageSmoothingEnabled = false;
+
+const WIDTH = 320;
+const HEIGHT = 240;
+
+// PALETTE
+const C_SKY_TOP = '#3060D0';
+const C_SKY_BOT = '#70A0FF';
+const C_SNOW = '#FFFFFF';
+const C_SNOW_SHADE = '#E0E8F0'; 
+const C_TREE_TRUNK = '#5D4037';
+const C_TREE_LEAF_DARK = '#1B5E20';
+const C_TREE_LEAF_LIGHT = '#2E7D32';
+const C_TREE_SNOW = '#FFFFFF';
+const C_SKIER_JACKET = '#D32F2F';
+const C_SKIER_PANTS = '#0D47A1';
+const C_SKIER_SKIN = '#FFCCBC';
+const C_SKIER_SKIS = '#212121';
+const C_SKIER_HAT = '#D32F2F';
+
+// State
+let frameCount = 0;
+let skierX = WIDTH / 2;
+let skierY = 140; // Moved lower (visually higher in perspective)
+let isMoving = false;
+let moveDir = 0; // -1 left, 0 straight, 1 right
+let animTimer = 0;
+let gameSpeed = 0;
+
+// --- ASSET GENERATORS (Pixel Maps) ---
+
+// 16x16 Skier
+const SPRITE_SKIER = [
+  [0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0],
+  [0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0],
+  [0,0,0,0,3,3,3,3,3,3,3,3,0,0,0,0],
+  [0,0,0,3,3,3,3,3,3,3,3,3,3,0,0,0],
+  [0,0,0,3,6,6,6,6,6,6,6,6,3,0,0,0],
+  [0,0,0,0,3,6,6,6,6,6,6,3,0,0,0,0],
+  [0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],
+  [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+  [0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],
+  [0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],
+  [0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],
+  [0,0,0,0,0,2,2,2,2,2,2,0,0,0,0,0],
+  [0,0,0,0,0,2,0,0,0,0,2,0,0,0,0,0],
+  [0,0,0,0,0,2,0,0,0,0,2,0,0,0,0,0],
+  [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+  [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0]
+];
+
+// 12x16 Tree with Snow on top (Polished)
+const SPRITE_TREE = [
+  [0,0,0,0,0,0,1,1,0,0,0,0],
+  [0,0,0,0,0,1,1,1,1,0,0,0],
+  [0,0,0,0,1,1,1,1,1,1,0,0], // Snow starts here
+  [0,0,0,1,1,2,2,2,1,1,0,0],
+  [0,0,1,1,1,2,2,2,1,1,1,0],
+  [0,0,1,1,1,1,1,1,1,1,1,0],
+  [0,1,1,1,1,1,1,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1],
+  [0,0,0,0,0,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,0,0,0,0,0],
+  [0,0,0,0,0,3,3,0,0,0,0,0]
+];
+
+// --- DRAWING FUNCTIONS ---
+
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+}
+
+function drawSprite(spriteMap, x, y, scale, colorMap) {
+  const h = spriteMap.length;
+  const w = spriteMap[0].length;
+  
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      const code = spriteMap[r][c];
+      if (code === 0) continue;
+      
+      let color = colorMap[code];
+      if (color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.floor(x + c * scale), Math.floor(y + r * scale), scale, scale);
+      }
+    }
+  }
+}
+
+// --- SNOW PARTICLES (Wind effect) ---
+let snowParticles = [];
+const MAX_PARTICLES = 50;
+
+function initSnow() {
+  for(let i=0; i<MAX_PARTICLES; i++) {
+    snowParticles.push({
+      x: Math.random() * WIDTH,
+      y: Math.random() * HEIGHT,
+      speed: 1 + Math.random() * 2,
+      size: Math.random() > 0.8 ? 2 : 1
+    });
+  }
+}
+
+function updateAndDrawSnow() {
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  snowParticles.forEach(p => {
+    p.y += p.speed;
+    // Wind effect when moving
+    if(isMoving) {
+       p.x -= (moveDir * 2) + 1; 
+    }
+    
+    if (p.y > HEIGHT) {
+      p.y = -5;
+      p.x = Math.random() * WIDTH;
+    }
+    if (p.x < -5) p.x = WIDTH + 5;
+    if (p.x > WIDTH + 5) p.x = -5;
+
+    ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+  });
+}
+
+function drawBackground() {
+  // Sky Gradient
+  let grad = ctx.createLinearGradient(0, 0, 0, 100);
+  grad.addColorStop(0, C_SKY_TOP);
+  grad.addColorStop(1, C_SKY_BOT);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, WIDTH, 100);
+  
+  // Sun
+  ctx.fillStyle = '#FFFF00';
+  ctx.fillRect(270, 40, 24, 24); // Simple square sun
+  ctx.fillStyle = '#FFFACD';
+  ctx.fillRect(274, 44, 16, 16); // Highlight
+
+  // Snow Ground
+  ctx.fillStyle = C_SNOW;
+  ctx.fillRect(0, 100, WIDTH, HEIGHT - 100);
+  
+  // Horizon Line (Subtle)
+  ctx.fillStyle = C_SNOW_SHADE;
+  ctx.fillRect(0, 100, WIDTH, 2);
+  
+  // Texture Noise on Snow (Static)
+  // We draw this once to an offscreen canvas in a real engine, but here we just draw a few dots
+  ctx.fillStyle = '#E0E8F0';
+  for(let i=0; i<40; i++) {
+    let px = (i * 37) % WIDTH;
+    let py = 110 + (i * 13) % (HEIGHT - 110);
+    ctx.fillRect(px, py, 2, 2);
+  }
+}
+
+function drawSkier(x, y) {
+  let animFrame = 0;
+  if (isMoving) {
+    animTimer++;
+    // Bobbing
+    if (animTimer % 8 < 4) animFrame = 1;
+  }
+
+  const scale = 2; 
+  const bobY = animFrame * 2; 
+  
+  let tiltX = 0;
+  if (moveDir === -1) tiltX = -2;
+  if (moveDir === 1) tiltX = 2;
+
+  const colorMap = {
+    1: C_SKIER_JACKET,
+    2: C_SKIER_PANTS,
+    3: C_SKIER_SKIN,
+    4: C_SKIER_SKIS,
+    5: C_SKIER_HAT,
+    6: '#000000' // Goggles
+  };
+
+  // Dynamic Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  // Shadow stretches opposite to movement
+  let shadowW = 24 + Math.abs(tiltX);
+  ctx.fillRect(x - 12 + tiltX, y + 32, shadowW, 4);
+
+  drawSprite(SPRITE_SKIER, x - 16 + tiltX, y + bobY, scale, colorMap);
+}
+
+// --- GAME OBJECTS (Trees with Depth) ---
+
+let trees = [];
+const TREE_COUNT = 20;
+
+function initTrees() {
+  trees = [];
+  for (let i = 0; i < TREE_COUNT; i++) {
+    // z: 0 = background, 1 = foreground
+    trees.push({
+      x: Math.random() * (WIDTH - 20),
+      y: Math.random() * HEIGHT,
+      z: Math.random() > 0.5 ? 1 : 0, 
+      speedOffset: Math.random() * 0.5
+    });
+  }
+}
+
+function update() {
+  frameCount++;
+  
+  if (isMoving) {
+    gameSpeed = 3; // Constant downhill speed
+    skierX += moveDir * 2;
+    
+    // Boundaries
+    if (skierX < 20) skierX = 20;
+    if (skierX > WIDTH - 20) skierX = WIDTH - 20;
+
+    // Move Trees (Parallax)
+    trees.forEach(tree => {
+      let speed = (tree.z === 0) ? 2 : 4; // Foreground faster
+      tree.y += speed; 
+      
+      // Wrap around
+      if (tree.y > HEIGHT + 20) {
+        tree.y = -20;
+        tree.x = Math.random() * (WIDTH - 20);
+      }
+    });
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  
+  drawBackground();
+  
+  // Sort trees by Y position to handle overlap correctly (Painter's Algorithm)
+  // We also need to draw the skier at the correct Y index relative to trees
+  // But since skier is fixed Y, we just draw trees behind, then skier, then trees in front?
+  // Actually, simpler: Draw trees, then draw skier.
+  // To make it look 3D, trees "below" skier (higher Y) should obscure skier.
+  
+  // 1. Draw Background Trees (z=0)
+  trees.filter(t => t.z === 0).forEach(tree => {
+    drawTree(tree);
+  });
+
+  // 2. Draw Skier
+  drawSkier(skierX, skierY);
+
+  // 3. Draw Foreground Trees (z=1)
+  // Only if they are "below" the skier visually, or just always on top for depth effect?
+  // Let's draw them on top to create depth scale.
+  trees.filter(t => t.z === 1).forEach(tree => {
+    drawTree(tree);
+  });
+
+  updateAndDrawSnow();
+  
+  requestAnimationFrame(loop);
+}
+
+function drawTree(tree) {
+  const treeColorMap = {
+    1: C_TREE_SNOW,
+    2: C_TREE_LEAF_DARK,
+    3: C_TREE_TRUNK
+  };
+  
+  let scale = (tree.z === 0) ? 1.5 : 2.5; // Depth scale
+  let yOffset = (tree.z === 0) ? 0 : 0;
+  
+  // Draw Tree Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  let shadowSize = 12 * scale;
+  ctx.fillRect(tree.x, tree.y + 32 * scale, shadowSize, 2);
+  
+  drawSprite(SPRITE_TREE, tree.x, tree.y, scale, treeColorMap);
+}
+
+function loop() {
+  update();
+  render();
+}
+
+// --- INTERACTION ---
+
+function startGame() {
+  if (isMoving) return;
+  
+  // UI Changes
+  const uiLayer = document.getElementById('ui-layer');
+  uiLayer.style.opacity = '0.3'; // Dim UI
+  uiLayer.style.pointerEvents = 'none'; // Disable clicks
+  uiLayer.style.transition = 'opacity 0.5s';
+  
+  isMoving = true;
+}
+
+// Input
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') moveDir = -1;
+  if (e.key === 'ArrowRight') moveDir = 1;
+  if (e.key === 'Enter' && !isMoving) startGame();
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft' && moveDir === -1) moveDir = 0;
+  if (e.key === 'ArrowRight' && moveDir === 1) moveDir = 0;
+});
+
+// Initialize
+initTrees();
+initSnow();
+loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Planet Defense</title>
+    <style>
+        :root {
+            --c-bg: #020204;
+            --c-grid: rgba(20, 40, 60, 0.4);
+            --c-primary: #00f0ff; /* Cyan */
+            --c-primary-dim: rgba(0, 240, 255, 0.15);
+            --c-secondary: #ff2a6d; /* Pink/Red */
+            --c-accent: #ffcc00; /* Yellow */
+            --c-text: #ffffff;
+            --c-text-dim: #8b9bb4;
+            
+            --font-display: 'Arial Black', 'Impact', sans-serif; /* Industrial fallback */
+            --font-mono: 'Courier New', Courier, monospace;
+            --font-ui: system-ui, -apple-system, sans-serif;
+            
+            --border-glow: 0 0 10px var(--c-primary-dim);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+        body {
+            background-color: var(--c-bg);
+            color: var(--c-text);
+            font-family: var(--font-ui);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- ATMOSPHERE & FX --- */
+        #canvas-bg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+        }
+
+        /* CRT Scanlines */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            z-index: 50;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* Vignette & Haze */
+        .vignette {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 0%, #000000 120%);
+            z-index: 49;
+            pointer-events: none;
+        }
+
+        /* --- LAYOUT CONTAINER --- */
+        .interface-container {
+            position: relative;
+            z-index: 10;
+            width: 95%;
+            max-width: 1400px;
+            height: 95vh;
+            display: grid;
+            grid-template-rows: 80px 1fr auto;
+            gap: 20px;
+        }
+
+        /* --- HUD HEADER --- */
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 20px 15px 20px;
+            border-bottom: 1px solid var(--c-primary);
+            background: linear-gradient(to bottom, rgba(0, 240, 255, 0.05), transparent);
+            position: relative;
+        }
+
+        /* Decorative HUD corner */
+        .hud-header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: 0;
+            width: 100px; height: 10px;
+            background: var(--c-bg);
+            border-left: 1px solid var(--c-primary);
+        }
+
+        .hud-group { display: flex; gap: 40px; }
+        
+        .hud-item { display: flex; flex-direction: column; }
+        
+        .hud-label {
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            color: var(--c-primary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+            opacity: 0.8;
+        }
+
+        .hud-value {
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            color: #fff;
+            letter-spacing: 1px;
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+        }
+
+        .hud-value.hp { color: var(--c-secondary); text-shadow: 0 0 8px rgba(255, 42, 109, 0.4); }
+        .hud-value.credits { color: var(--c-accent); text-shadow: 0 0 8px rgba(255, 204, 0, 0.4); }
+
+        /* --- MAIN VIEW --- */
+        .main-view {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 40px;
+            align-items: center;
+            padding: 0 20px;
+            position: relative;
+        }
+
+        /* --- TITLE LOCKUP --- */
+        .title-block {
+            position: relative;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .title-prefix {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            color: var(--c-primary);
+            letter-spacing: 8px;
+            margin-bottom: 5px;
+            opacity: 0.9;
+        }
+
+        h1 {
+            font-family: var(--font-display);
+            font-size: 5.5rem;
+            line-height: 0.85;
+            text-transform: uppercase;
+            color: #fff;
+            margin: 0;
+            /* Critique: Remove heavy drop shadow, add stroke/glow */
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            -webkit-text-stroke: 1px rgba(255,255,255,0.2);
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            color: var(--c-primary);
+            letter-spacing: 4px;
+            margin-top: 15px;
+            font-size: 0.8rem;
+            background: rgba(0, 240, 255, 0.1);
+            padding: 4px 10px;
+            width: fit-content;
+            border-left: 2px solid var(--c-primary);
+        }
+
+        /* --- PLANET GRAPHIC --- */
+        #planet-canvas {
+            position: absolute;
+            right: -150px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1;
+            opacity: 0.9;
+            pointer-events: none;
+            filter: drop-shadow(0 0 30px rgba(0,0,0,0.8));
+        }
+
+        /* --- BRIEFING PANEL --- */
+        .briefing-panel {
+            background: rgba(5, 10, 15, 0.6);
+            border: 1px solid var(--c-primary-dim);
+            padding: 30px;
+            position: relative;
+            height: 100%;
+            max-height: 450px;
+            /* Chromatic/Holographic feel */
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+            backdrop-filter: blur(2px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Corner accents */
+        .briefing-panel::before, .briefing-panel::after {
+            content: ''; position: absolute; width: 20px; height: 20px;
+            border: 2px solid var(--c-primary); transition: all 0.3s ease;
+        }
+        .briefing-panel::before { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .briefing-panel::after { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+        .panel-header {
+            font-family: var(--font-mono);
+            color: var(--c-primary);
+            border-bottom: 1px solid var(--c-primary-dim);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .briefing-text {
+            color: #d0d8e0;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            flex-grow: 1;
+        }
+
+        .briefing-text p { margin-bottom: 15px; }
+        .briefing-text strong { color: #fff; font-weight: 600; }
+
+        .warning-box {
+            margin-top: auto;
+            border: 1px solid var(--c-secondary);
+            background: rgba(255, 42, 109, 0.1);
+            padding: 15px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--c-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .warning-box::before {
+            content: ''; display: block; width: 8px; height: 8px;
+            background: var(--c-secondary);
+            box-shadow: 0 0 5px var(--c-secondary);
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink { 50% { opacity: 0.3; } }
+
+        /* --- COMMAND DECK (BOTTOM) --- */
+        .command-deck {
+            background: linear-gradient(to top, rgba(5,10,15,0.95), rgba(5,10,15,0.8));
+            border-top: 1px solid var(--c-primary);
+            padding: 30px 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            position: relative;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+        }
+
+        /* Decorative top border detail */
+        .command-deck::before {
+            content: ''; position: absolute; top: 0; left: 40px; right: 40px;
+            height: 2px; background: rgba(0, 240, 255, 0.3);
+        }
+
+        /* --- UPGRADE ROW (Secondary) --- */
+        .upgrades-row {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        /* Critique: Uniform, low-contrast buttons */
+        .upgrade-btn {
+            flex: 1;
+            max-width: 300px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--c-text-dim);
+            border-left: 3px solid var(--c-text-dim);
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upgrade-btn:hover {
+            border-color: var(--c-primary);
+            border-left-color: var(--c-primary);
+            background: rgba(0, 240, 255, 0.05);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 240, 255, 0.1);
+        }
+
+        .ub-info { display: flex; flex-direction: column; }
+        
+        .ub-label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--c-text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .upgrade-btn:hover .ub-label { color: var(--c-primary); }
+
+        .ub-cost {
+            font-family: var(--font-display);
+            color: var(--c-text);
+            font-size: 1.1rem;
+            margin-top: 4px;
+        }
+
+        .ub-icon {
+            font-size: 1.2rem;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+        .upgrade-btn:hover .ub-icon { opacity: 1; color: var(--c-primary); }
+
+        /* --- PRIMARY ACTION (Start Button) --- */
+        /* Critique: Isolated, High Contrast, Distinct Shape */
+        .btn-start-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .btn-start {
+            width: 100%;
+            max-width: 600px;
+            height: 70px;
+            background: #fff;
+            color: #000;
+            border: none;
+            font-family: var(--font-display);
+            font-size: 2rem;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            /* Distinct Shape: Angled edges */
+            clip-path: polygon(
+                10px 0, 100% 0, 
+                100% calc(100% - 10px), calc(100% - 10px) 100%, 
+                0 100%, 0 10px
+            );
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-start:hover {
+            background: var(--c-primary);
+            color: #000;
+            box-shadow: 0 0 40px rgba(0, 240, 255, 0.6);
+            transform: scale(1.01);
+        }
+
+        .btn-start:active {
+            transform: scale(0.98);
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 900px) {
+            .interface-container { height: auto; min-height: 100vh; padding: 20px 0; }
+            .main-view { grid-template-columns: 1fr; gap: 20px; text-align: center; padding: 0 20px; }
+            .title-block { align-items: center; margin-bottom: 20px; }
+            #planet-canvas { display: none; } /* Hide complex art on mobile to save space */
+            h1 { font-size: 3.5rem; }
+            .briefing-panel { max-height: 300px; }
+            
+            .command-deck { padding: 20px; }
+            .upgrades-row { flex-direction: column; gap: 10px; }
+            .upgrade-btn { max-width: 100%; justify-content: center; gap: 20px; }
+            .btn-start { height: 60px; font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL FX -->
+    <canvas id="canvas-bg"></canvas>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- MAIN INTERFACE -->
+    <div class="interface-container">
+        
+        <!-- HEADER HUD -->
+        <div class="hud-header">
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Sector</span>
+                    <span class="hud-value">ALPHA-9</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Wave</span>
+                    <span class="hud-value">001</span>
+                </div>
+            </div>
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Shield HP</span>
+                    <span class="hud-value hp">100%</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Credits</span>
+                    <span class="hud-value credits">500</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER CONTENT -->
+        <div class="main-view">
+            
+            <!-- Left: Title & Art -->
+            <div class="title-block">
+                <div class="title-prefix">JS</div>
+                <h1>PLANET<br>DEFENSE</h1>
+                <div class="subtitle">PLANETARY DEFENSE INITIATIVE</div>
+                
+                <!-- Canvas for the Planet Graphic -->
+                <canvas id="planet-canvas" width="500" height="500"></canvas>
+            </div>
+
+            <!-- Right: Briefing -->
+            <div class="briefing-panel">
+                <div class="panel-header">
+                    <span>// MISSION BRIEFING</span>
+                    <span>SECURE</span>
+                </div>
+                <div class="briefing-text">
+                    <p><strong>Commander,</strong></p>
+                    <p>
+                        The <strong>Xenon Swarm</strong> has entered the sector. Primary orbital shields are holding at 100%.
+                    </p>
+                    <p>
+                        Configure automated turret network to repel the initial vanguard. 
+                        <br><br>
+                        <em>Select upgrades below to optimize your defense grid before launch.</em>
+                    </p>
+                    
+                    <div class="warning-box">
+                        <span>WARNING: PROXIMITY ALERT DETECTED.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UNIFIED COMMAND DECK -->
+        <div class="command-deck">
+            
+            <!-- Secondary: Upgrade Row -->
+            <div class="upgrades-row">
+                <button class="upgrade-btn">
+                    <div class="ub-info">
+                        <span class="ub-label">Damage</span>
+                        <span class="ub-cost">100 CR</span>
+                    </div>
+                    <span class="ub-icon">⚡</span>
+                </button>
+
+                <button class="upgrade-btn">
+                    <div class="ub-info">
+                        <span class="ub-label">Fire Rate</span>
+                        <span class="ub-cost">150 CR</span>
+                    </div>
+                    <span class="ub-icon">⏱</span>
+                </button>
+
+                <button class="upgrade-btn">
+                    <div class="ub-info">
+                        <span class="ub-label">Speed</span>
+                        <span class="ub-cost">120 CR</span>
+                    </div>
+                    <span class="ub-icon">🚀</span>
+                </button>
+            </div>
+
+            <!-- Primary: Start Action -->
+            <div class="btn-start-container">
+                <button class="btn-start">START MISSION</button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        /**
+         * BACKGROUND STARFIELD & GRID
+         */
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let stars = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((width * height) / 6000);
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 1.5,
+                    speed: Math.random() * 0.1 + 0.02,
+                    opacity: Math.random()
+                });
+            }
+        }
+
+        function animateBg() {
+            // Deep space background with slight gradient
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, '#020204');
+            grad.addColorStop(1, '#050a14');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+
+            // Subtle Grid
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.03)';
+            ctx.lineWidth = 1;
+            const gridSize = 100;
+            const offset = (Date.now() / 50) % gridSize;
+
+            ctx.beginPath();
+            for(let x = 0; x < width; x += gridSize) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+            }
+            for(let y = offset; y < height; y += gridSize) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+
+            // Stars
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                star.y += star.speed;
+                if (star.y > height) star.y = 0;
+            });
+            ctx.globalAlpha = 1;
+
+            requestAnimationFrame(animateBg);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animateBg();
+
+
+        /**
+         * PLANET CANVAS (Substantial Graphic)
+         */
+        const pCanvas = document.getElementById('planet-canvas');
+        const pCtx = pCanvas.getContext('2d');
+        const pW = pCanvas.width;
+        const pH = pCanvas.height;
+        const centerX = pW / 2;
+        const centerY = pH / 2;
+        const radius = 180;
+
+        function drawPlanet() {
+            pCtx.clearRect(0, 0, pW, pH);
+
+            // 1. Atmosphere Glow (Outer)
+            const grad = pCtx.createRadialGradient(centerX, centerY, radius, centerX, centerY, radius + 60);
+            grad.addColorStop(0, 'rgba(0, 240, 255, 0.15)');
+            grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, pW, pH);
+
+            // 2. Planet Body (Dark with texture)
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            // Solid dark fill to block background
+            pCtx.fillStyle = '#030508'; 
+            pCtx.fill();
+            
+            // 3. Wireframe Grid (The "Tech" look)
+            pCtx.save();
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.clip(); 
+
+            pCtx.strokeStyle = 'rgba(0, 240, 255, 0.15)';
+            pCtx.lineWidth = 1;
+
+            // Vertical lines (Longitude)
+            for (let i = -radius; i <= radius; i += 30) {
+                pCtx.beginPath();
+                // Simple ellipse approximation for 3D effect
+                pCtx.ellipse(centerX + i, centerY, 20, radius, 0, 0, Math.PI * 2);
+                pCtx.stroke();
+            }
+
+            // Horizontal lines (Latitude)
+            const time = Date.now() * 0.0005;
+            for (let i = -radius; i <= radius; i += 30) {
+                pCtx.beginPath();
+                let y = i + Math.sin(time + i * 0.05) * 5; // Subtle breathing animation
+                pCtx.moveTo(centerX - radius, y);
+                pCtx.lineTo(centerX + radius, y);
+                pCtx.stroke();
+            }
+            pCtx.restore();
+
+            // 4. Rim Light / Stroke
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.lineWidth = 3;
+            pCtx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
+            pCtx.stroke();
+
+            // 5. Orbit Ring (Dynamic)
+            pCtx.save();
+            pCtx.translate(centerX, centerY);
+            pCtx.rotate(Date.now() * 0.0002);
+            pCtx.scale(1, 0.2); // Flatten to create perspective
+            
+            pCtx.beginPath();
+            pCtx.arc(0, 0, radius + 80, 0, Math.PI * 2);
+            pCtx.strokeStyle = 'rgba(255, 42, 109, 0.3)';
+            pCtx.lineWidth = 4;
+            pCtx.setLineDash([40, 20]);
+            pCtx.stroke();
+            pCtx.setLineDash([]);
+            pCtx.restore();
+
+            requestAnimationFrame(drawPlanet);
+        }
+
+        drawPlanet();
+
+        /**
+         * INTERACTIVITY
+         */
+        const startBtn = document.querySelector('.btn-start');
+        startBtn.addEventListener('click', () => {
+            startBtn.innerText = "LAUNCHING...";
+            startBtn.style.background = "#fff";
+            startBtn.style.color = "#000";
+            startBtn.style.boxShadow = "0 0 50px #fff";
+            
+            setTimeout(() => {
+                alert("SIMULATION STARTED: WAVE 1 INCOMING");
+                startBtn.innerText = "START MISSION";
+                startBtn.style.background = ""; 
+                startBtn.style.color = "";
+                startBtn.style.boxShadow = "";
+            }, 800);
+        });
+
+    </script>
+</body>
+</html>

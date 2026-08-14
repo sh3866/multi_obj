@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON & ORE</title>
+<style>
+    :root {
+        --bg-deep: #050608;
+        --bg-panel: #14171e;
+        
+        /* Floor Palette - Lighter, textural concrete */
+        --floor-base: #2f333c;
+        --floor-dim: #252830;
+        
+        /* Wall Palette - Dark, heavy, rusted metal */
+        --wall-top: #3a3f4b;
+        --wall-front: #161920;
+        --wall-shadow: #0a0c10;
+        --rust-dark: #451a03;
+        
+        /* Game Semantics */
+        --ore-primary: #10b981;
+        --ore-glow: #34d399;
+        --door-metal: #1e293b;
+        --door-dark: #0f172a;
+        --alert-red: #ef4444;
+        
+        /* UI */
+        --hud-text: #94a3b8;
+        --hud-accent: #fbbf24;
+        
+        --font-stack: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        --font-mono: 'Courier New', Courier, monospace;
+    }
+
+    * { box-sizing: border-box; user-select: none; }
+
+    body {
+        margin: 0;
+        height: 100vh;
+        background-color: var(--bg-deep);
+        /* Heavy vignette for focus */
+        background-image: radial-gradient(circle at center, transparent 30%, #000000 100%);
+        color: var(--hud-text);
+        font-family: var(--font-stack);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    /* --- Layout --- */
+    .app-container {
+        position: relative;
+        width: 100%;
+        max-width: 600px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 32px; /* Increased gap for breathing room */
+    }
+
+    /* --- Header & HUD (Integrated) --- */
+    header {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 16px;
+    }
+
+    h1 {
+        font-family: var(--font-stack);
+        font-weight: 900;
+        font-size: 2.4rem;
+        margin: 0;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: #e2e8f0;
+        text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        position: relative;
+    }
+    
+    /* Industrial accent line under title */
+    h1::after {
+        content: '';
+        position: absolute;
+        bottom: -16px; left: 0;
+        width: 60px; height: 6px;
+        background: var(--hud-accent);
+        box-shadow: 0 0 15px var(--hud-accent);
+        border-radius: 2px;
+    }
+
+    .hud-stats {
+        display: flex;
+        gap: 16px;
+    }
+
+    .stat-box {
+        background: var(--bg-panel);
+        border: 1px solid #2d3748;
+        padding: 8px 16px;
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        min-width: 80px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+        position: relative;
+    }
+    
+    /* Screw heads */
+    .stat-box::before, .stat-box::after {
+        content: '+';
+        position: absolute;
+        font-family: monospace;
+        color: #4a5568;
+        font-size: 10px;
+        line-height: 1;
+    }
+    .stat-box::before { top: 4px; left: 4px; }
+    .stat-box::after { bottom: 4px; right: 4px; }
+
+    .stat-label {
+        font-size: 0.65rem;
+        color: #64748b;
+        letter-spacing: 1.5px;
+        margin-bottom: 2px;
+        font-weight: 700;
+    }
+
+    .stat-value {
+        font-family: var(--font-mono);
+        font-size: 1.4rem;
+        color: var(--hud-accent);
+        text-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+        font-weight: bold;
+    }
+
+    /* --- Board Container --- */
+    .board-frame {
+        position: relative;
+        padding: 12px;
+        background: #11141a;
+        border-radius: 4px;
+        box-shadow: 
+            0 20px 60px rgba(0,0,0,0.6),
+            inset 0 0 0 2px #2d3748;
+        border: 1px solid #000;
+    }
+
+    /* --- The Grid --- */
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(7, 64px);
+        grid-template-rows: repeat(7, 64px);
+        background-color: #000;
+        border: 2px solid #1a202c;
+        position: relative;
+    }
+
+    .cell {
+        width: 64px;
+        height: 64px;
+        position: relative;
+        /* Concrete texture */
+        background-color: var(--floor-base);
+        background-image: 
+            radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05) 0%, transparent 80%),
+            repeating-linear-gradient(45deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 4px);
+        /* Visible Grid Lines */
+        border: 1px solid rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* --- Entities --- */
+
+    /* 1. WALL: 3D Bevel + Rust Texture */
+    .wall {
+        width: 100%; height: 100%;
+        position: relative;
+        z-index: 2;
+        /* Dark base */
+        background-color: var(--wall-front);
+        box-shadow: 
+            /* Top highlight */
+            inset 0 4px 0 var(--wall-top),
+            /* Right shadow */
+            inset 2px 0 0 rgba(0,0,0,0.3),
+            /* Bottom shadow */
+            inset 0 -2px 0 var(--wall-shadow),
+            /* Drop shadow on floor */
+            4px 4px 10px rgba(0,0,0,0.6);
+    }
+    /* Rust Texture Overlay */
+    .wall::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        opacity: 0.3;
+        background-image: url("data:image/svg+xml,%3Csvg width='64' height='64' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+        mix-blend-mode: overlay;
+    }
+
+    /* 2. TARGET: Recessed Floor Marker */
+    .target-zone {
+        width: 100%; height: 100%;
+        position: absolute;
+        z-index: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .target-marker {
+        width: 40px; height: 40px;
+        /* Recessed look */
+        background: rgba(0,0,0,0.2);
+        border-radius: 8px;
+        box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);
+        position: relative;
+    }
+    
+    /* The Glowing Outline */
+    .target-marker::before {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border: 2px solid var(--ore-primary);
+        border-radius: 4px;
+        box-shadow: 0 0 8px var(--ore-primary), inset 0 0 8px rgba(16, 185, 129, 0.3);
+        animation: pulse-marker 3s infinite ease-in-out;
+    }
+    
+    /* Corner accents */
+    .target-marker::after {
+        content: '';
+        position: absolute;
+        top: 2px; right: 2px; bottom: 2px; left: 2px;
+        background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%);
+    }
+    
+    @keyframes pulse-marker {
+        0%, 100% { opacity: 0.6; box-shadow: 0 0 5px var(--ore-primary); }
+        50% { opacity: 1; box-shadow: 0 0 15px var(--ore-primary), inset 0 0 10px rgba(16, 185, 129, 0.2); }
+    }
+
+    /* 3. LEVER: Handle + Base */
+    .lever-container {
+        width: 100%; height: 100%;
+        position: relative;
+        z-index: 3;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        perspective: 200px;
+    }
+    .lever-plate {
+        position: absolute;
+        width: 44px; height: 44px;
+        background: radial-gradient(circle, #334155, #1e293b);
+        border-radius: 50%;
+        border: 2px solid #0f172a;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.6);
+    }
+    /* The Stick */
+    .lever-handle {
+        position: absolute;
+        width: 10px; height: 32px;
+        background: linear-gradient(90deg, #cbd5e1, #64748b);
+        top: 10px;
+        transform-origin: bottom center;
+        transform: rotate(-30deg);
+        border-radius: 2px;
+        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        box-shadow: 2px 4px 6px rgba(0,0,0,0.5);
+        z-index: 4;
+    }
+    /* The Pull Handle */
+    .lever-knob {
+        position: absolute;
+        top: -12px; left: -9px;
+        width: 28px; height: 24px;
+        background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b);
+        border-radius: 6px;
+        border: 1px solid rgba(0,0,0,0.3);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+    }
+    
+    .lever-active .lever-handle {
+        transform: rotate(30deg);
+    }
+    .lever-active .lever-knob {
+        background: radial-gradient(circle at 30% 30%, #34d399, #064e3b);
+        box-shadow: 0 0 12px var(--ore-primary);
+    }
+
+    /* 4. DOOR: Exit Archway */
+    .door-container {
+        width: 100%; height: 100%;
+        position: absolute;
+        z-index: 4;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #000;
+        box-shadow: inset 0 0 10px #000;
+    }
+    /* Archway shape */
+    .door-frame {
+        position: absolute;
+        inset: 4px;
+        border: 3px solid #475569;
+        border-bottom: none;
+        border-radius: 12px 12px 0 0;
+    }
+    
+    /* The actual door panel */
+    .door-panel {
+        width: 100%; height: 100%;
+        background: repeating-linear-gradient(135deg, #374151, #374151 4px, #1f2937 4px, #1f2937 8px);
+        position: absolute;
+        top: 0; left: 0;
+        transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+    }
+    .door-open .door-panel {
+        transform: translateY(-100%);
+    }
+    
+    /* Locked Indicator */
+    .door-indicator {
+        position: absolute;
+        top: 12px; right: 12px;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        background: #ef4444;
+        box-shadow: 0 0 8px #ef4444;
+        z-index: 5;
+        transition: all 0.3s;
+    }
+    .door-open .door-indicator { background: #34d399; box-shadow: 0 0 8px #34d399; }
+
+    /* 5. CRATE: Tactile & Heavy */
+    .crate {
+        width: 52px; height: 52px;
+        position: relative;
+        z-index: 5;
+        /* Heavy drop shadow to ground it */
+        box-shadow: 0 8px 12px rgba(0,0,0,0.6);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* The Box */
+    .crate-body {
+        width: 100%; height: 100%;
+        background: linear-gradient(135deg, #5c2b06, #3b1804);
+        border: 2px solid #271002;
+        border-radius: 4px;
+        position: relative;
+        box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
+    }
+    
+    /* Metallic Texture/Grain */
+    .crate-body::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg width='64' height='64' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.4'/%3E%3C/svg%3E");
+        mix-blend-mode: overlay;
+        border-radius: 2px;
+    }
+    
+    /* Rivets */
+    .crate-body::after {
+        content: '';
+        position: absolute;
+        top: 4px; left: 4px;
+        width: 4px; height: 4px;
+        background: #9ca3af;
+        border-radius: 50%;
+        box-shadow: 
+            40px 0 0 #9ca3af, 
+            20px 20px 0 #9ca3af, 
+            40px 40px 0 #9ca3af, 
+            0 40px 0 #9ca3af;
+    }
+
+    /* 6. PLAYER: Geometric Unit */
+    .player {
+        width: 48px;
+        height: 48px;
+        position: relative;
+        z-index: 10;
+        transition: transform 0.15s ease-out;
+        /* Ground shadow */
+        filter: drop-shadow(0 6px 4px rgba(0,0,0,0.5));
+        animation: hover-bot 2.5s infinite ease-in-out;
+    }
+    @keyframes hover-bot {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-3px); }
+    }
+    
+    .player-body {
+        position: absolute;
+        inset: 8px;
+        background: linear-gradient(135deg, #f8fafc, #cbd5e1);
+        border-radius: 12px;
+        box-shadow: 
+            inset 0 2px 4px rgba(255,255,255,0.8),
+            inset 0 -2px 4px rgba(0,0,0,0.1);
+        border: 2px solid #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .player-visor {
+        width: 26px; height: 10px;
+        background: #0f172a;
+        border-radius: 6px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .player-eye {
+        position: absolute;
+        top: 2px; left: 2px;
+        width: 12px; height: 6px;
+        background: var(--hud-accent);
+        border-radius: 2px;
+        box-shadow: 0 0 8px var(--hud-accent);
+        animation: blink 4s infinite;
+    }
+    @keyframes blink {
+        0%, 96%, 100% { opacity: 1; height: 6px; top: 2px; }
+        98% { opacity: 0.3; height: 1px; top: 4px; }
+    }
+
+    /* --- Controls Legend (Enlarged & Readable) --- */
+    .controls {
+        display: flex;
+        gap: 32px;
+        font-size: 0.9rem;
+        color: #94a3b8;
+        padding: 12px 32px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(8px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    }
+    
+    .key-group { 
+        display: flex; 
+        align-items: center; 
+        gap: 10px; 
+    }
+    
+    .key {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px; height: 28px;
+        background: linear-gradient(to bottom, #475569, #334155);
+        color: #fff;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-weight: bold;
+        font-size: 0.9rem;
+        border-top: 1px solid rgba(255,255,255,0.3);
+        border-bottom: 3px solid #1e293b;
+        box-shadow: 0 4px 0 #0f172a;
+    }
+    
+    .control-label {
+        font-weight: 600;
+        letter-spacing: 1px;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+    }
+
+    /* --- Status Message --- */
+    .status-bar {
+        height: 42px;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        color: var(--ore-glow);
+        text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+        opacity: 0;
+        transition: opacity 0.3s;
+        background: rgba(0,0,0,0.5);
+        border-radius: 4px;
+        border: 1px solid rgba(52, 211, 153, 0.1);
+        pointer-events: none;
+    }
+    .status-bar.visible { opacity: 1; }
+    .status-bar.error { color: var(--alert-red); text-shadow: 0 0 8px rgba(239, 68, 68, 0.4); border-color: rgba(239, 68, 68, 0.2); }
+
+</style>
+</head>
+<body>
+
+<div class="app-container">
+    <header>
+        <h1>IRON & ORE</h1>
+        <div class="hud-stats">
+            <div class="stat-box">
+                <span class="stat-label">LEVEL</span>
+                <span class="stat-value">04</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">MOVES</span>
+                <span class="stat-value" id="move-counter">00</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="board-frame">
+        <div class="grid" id="game-board">
+            <!-- Grid generated by JS -->
+        </div>
+    </div>
+
+    <div class="status-bar" id="status-message">SYSTEM INITIALIZED</div>
+
+    <div class="controls">
+        <div class="key-group">
+            <span class="key">W</span>
+            <span class="key">A</span>
+            <span class="key">S</span>
+            <span class="key">D</span>
+            <span class="control-label">Move</span>
+        </div>
+        <div class="key-group">
+            <span class="key">R</span>
+            <span class="control-label">Reset</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Game Configuration ---
+    const BOARD_SIZE = 7;
+    
+    // Entities
+    const TILE_FLOOR = 0;
+    const TILE_WALL = 1;
+    const TILE_TARGET = 2; // Goal
+    const TILE_LEVER = 3;
+    const TILE_DOOR = 4;
+    const TILE_CRATE = 5;
+    const TILE_PLAYER = 6;
+
+    // Level Layout (7x7)
+    const INITIAL_LEVEL = [
+        [1, 1, 1, 1, 1, 1, 1],
+        [1, 6, 0, 1, 0, 0, 1],
+        [1, 1, 0, 1, 0, 5, 1],
+        [1, 0, 0, 3, 0, 1, 1],
+        [1, 0, 1, 1, 0, 0, 1],
+        [1, 5, 0, 2, 4, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1]
+    ];
+
+    // State
+    let grid = [];
+    let playerPos = { x: 1, y: 1 };
+    let moves = 0;
+    let leverActivated = false;
+    let doorOpen = false;
+    let crates = []; 
+
+    // --- Initialization ---
+    const boardEl = document.getElementById('game-board');
+    const moveEl = document.getElementById('move-counter');
+    const statusEl = document.getElementById('status-message');
+
+    function initGame() {
+        grid = JSON.parse(JSON.stringify(INITIAL_LEVEL));
+        moves = 0;
+        leverActivated = false;
+        doorOpen = false;
+        updateMoveDisplay();
+        statusEl.classList.remove('visible');
+        statusEl.classList.remove('error');
+        
+        crates = [];
+        for(let y=0; y<BOARD_SIZE; y++) {
+            for(let x=0; x<BOARD_SIZE; x++) {
+                if (grid[y][x] === TILE_PLAYER) {
+                    playerPos = {x, y};
+                    grid[y][x] = TILE_FLOOR; 
+                } else if (grid[y][x] === TILE_CRATE) {
+                    crates.push({x, y});
+                    grid[y][x] = TILE_FLOOR; 
+                }
+            }
+        }
+        renderBoard();
+    }
+
+    // --- Rendering ---
+    function renderBoard() {
+        boardEl.innerHTML = '';
+        
+        for(let y=0; y<BOARD_SIZE; y++) {
+            for(let x=0; x<BOARD_SIZE; x++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.x = x;
+                cell.dataset.y = y;
+
+                const tileType = grid[y][x];
+
+                // 1. Background Layer (Static Map Elements)
+                if (tileType === TILE_WALL) {
+                    cell.innerHTML = '<div class="wall"></div>';
+                } else if (tileType === TILE_TARGET) {
+                    // Recessed marker design
+                    cell.innerHTML = `
+                        <div class="target-zone">
+                            <div class="target-marker"></div>
+                        </div>`;
+                }
+
+                // 2. Interactive Layer (Switches & Doors)
+                if (tileType === TILE_LEVER) {
+                    const activeClass = leverActivated ? 'lever-active' : '';
+                    cell.innerHTML += `
+                        <div class="lever-container ${activeClass}">
+                            <div class="lever-plate"></div>
+                            <div class="lever-handle">
+                                <div class="lever-knob"></div>
+                            </div>
+                        </div>`;
+                } else if (tileType === TILE_DOOR) {
+                    const openClass = doorOpen ? 'door-open' : '';
+                    cell.innerHTML += `
+                        <div class="door-container ${openClass}">
+                            <div class="door-frame"></div>
+                            <div class="door-panel"></div>
+                            <div class="door-indicator"></div>
+                        </div>`;
+                }
+
+                // 3. Dynamic Layer (Crates)
+                const crateIndex = crates.findIndex(c => c.x === x && c.y === y);
+                if (crateIndex !== -1) {
+                    cell.innerHTML += '<div class="crate"><div class="crate-body"></div></div>';
+                }
+
+                // 4. Player Layer
+                if (playerPos.x === x && playerPos.y === y) {
+                    cell.innerHTML += `
+                        <div class="player">
+                            <div class="player-body">
+                                <div class="player-visor">
+                                    <div class="player-eye"></div>
+                                </div>
+                            </div>
+                        </div>`;
+                }
+
+                boardEl.appendChild(cell);
+            }
+        }
+    }
+
+    function updateMoveDisplay() {
+        moveEl.textContent = moves.toString().padStart(2, '0');
+    }
+
+    function showStatus(msg, isError = false) {
+        statusEl.textContent = msg;
+        statusEl.className = 'status-bar visible';
+        if(isError) statusEl.classList.add('error');
+        
+        if(window.statusTimeout) clearTimeout(window.statusTimeout);
+        
+        if(!isError) {
+            window.statusTimeout = setTimeout(() => {
+                statusEl.classList.remove('visible');
+            }, 3000);
+        }
+    }
+
+    // --- Logic ---
+    function movePlayer(dx, dy) {
+        const newX = playerPos.x + dx;
+        const newY = playerPos.y + dy;
+
+        // 1. Check Walls
+        if (grid[newY][newX] === TILE_WALL) return;
+
+        // 2. Check Door (if closed)
+        if (grid[newY][newX] === TILE_DOOR && !doorOpen) {
+            showStatus("ACCESS DENIED - DOOR LOCKED", true);
+            return;
+        }
+
+        // 3. Check Crates
+        const crateIdx = crates.findIndex(c => c.x === newX && c.y === newY);
+        
+        if (crateIdx !== -1) {
+            // Trying to push a crate
+            const nextX = newX + dx;
+            const nextY = newY + dy;
+
+            // Bounds check
+            if (nextX < 0 || nextX >= BOARD_SIZE || nextY < 0 || nextY >= BOARD_SIZE) return;
+
+            // Check Wall
+            if (grid[nextY][nextX] === TILE_WALL) return;
+
+            // Check Door (closed)
+            if (grid[nextY][nextX] === TILE_DOOR && !doorOpen) return;
+
+            // Check another crate
+            if (crates.some(c => c.x === nextX && c.y === nextY)) return;
+
+            // Valid Push
+            crates[crateIdx] = { x: nextX, y: nextY };
+            
+            // Move Player
+            playerPos = { x: newX, y: newY };
+            moves++;
+            updateMoveDisplay();
+            renderBoard();
+            checkWinCondition();
+        } else {
+            // Normal Move
+            playerPos = { x: newX, y: newY };
+            moves++;
+            updateMoveDisplay();
+            
+            // Interactions
+            if (grid[newY][newX] === TILE_LEVER) {
+                leverActivated = true;
+                doorOpen = true;
+                showStatus("HYDRAULICS ENGAGED - DOOR OPEN");
+            }
+
+            renderBoard();
+        }
+    }
+
+    function checkWinCondition() {
+        const onTarget = crates.some(c => grid[c.y][c.x] === TILE_TARGET);
+        if (onTarget) {
+            statusEl.textContent = "SECTOR SECURED - SEQUENCE COMPLETE";
+            statusEl.style.color = "var(--hud-accent)";
+            statusEl.classList.add('visible');
+        }
+    }
+
+    // --- Input Handling ---
+    window.addEventListener('keydown', (e) => {
+        if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
+            e.preventDefault();
+        }
+
+        switch(e.key.toLowerCase()) {
+            case 'w': case 'arrowup': movePlayer(0, -1); break;
+            case 's': case 'arrowdown': movePlayer(0, 1); break;
+            case 'a': case 'arrowleft': movePlayer(-1, 0); break;
+            case 'd': case 'arrowright': movePlayer(1, 0); break;
+            case 'r': initGame(); break;
+        }
+    });
+
+    // Start
+    initGame();
+
+</script>
+</body>
+</html>

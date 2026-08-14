@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Planet Defense</title>
+    <style>
+        :root {
+            /* Palette - Deep Space & Tactical */
+            --c-bg-deep: #000510;
+            --c-bg-radial: radial-gradient(circle at 50% 40%, #0a1526 0%, #000510 80%);
+            
+            --c-primary: #00f0ff; /* Cyan */
+            --c-primary-dim: rgba(0, 240, 255, 0.15);
+            --c-primary-glow: rgba(0, 240, 255, 0.6);
+            --c-primary-solid: #00f0ff;
+            
+            --c-alert: #ff3333; /* Alert Red */
+            --c-alert-glow: rgba(255, 51, 51, 0.4);
+            
+            --c-accent: #ffcc00; /* Gold */
+            
+            --c-text: #e2e8f0;
+            --c-text-dim: #8892b0;
+            
+            /* Typography */
+            --font-ui: 'Courier New', Courier, monospace; /* Strict Monospace for HUD */
+            --font-display: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            
+            /* UI Dimensions */
+            --hud-height: 60px;
+            --panel-width: 320px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--c-bg-deep);
+            background-image: var(--c-bg-radial);
+            color: var(--c-text);
+            font-family: var(--font-ui);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- BACKGROUND FX --- */
+        #starfield {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.6;
+        }
+
+        /* Grid Overlay */
+        .grid-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(var(--c-primary-dim) 1px, transparent 1px),
+                linear-gradient(90deg, var(--c-primary-dim) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.6;
+        }
+
+        /* --- LAYOUT --- */
+        .ui-container {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-rows: var(--hud-height) 1fr auto;
+        }
+
+        /* --- 1. HUD HEADER --- */
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 40px;
+            background: rgba(0, 10, 20, 0.85);
+            border-bottom: 1px solid var(--c-primary-dim);
+            backdrop-filter: blur(5px);
+            font-family: var(--font-ui); /* Strict Monospace */
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            /* Chamfered Header */
+            clip-path: polygon(
+                0 0, 
+                100% 0, 
+                100% calc(100% - 15px), 
+                calc(100% - 20px) 100%, 
+                0 100%
+            );
+        }
+
+        .hud-group {
+            display: flex;
+            gap: 40px;
+            height: 100%;
+            align-items: center;
+        }
+
+        .hud-item {
+            display: flex;
+            flex-direction: row;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .hud-label {
+            font-size: 0.8rem;
+            color: var(--c-primary);
+            font-weight: bold;
+            opacity: 0.7;
+        }
+
+        .hud-value {
+            font-size: 1.1rem;
+            color: #fff;
+            font-weight: bold;
+            text-shadow: 0 0 5px var(--c-primary-glow);
+        }
+
+        .hud-value.hp { color: var(--c-primary); }
+        .hud-value.credits { color: var(--c-accent); }
+
+        /* --- 2. MAIN STAGE --- */
+        .main-stage {
+            position: relative;
+            display: flex;
+            justify-content: center; /* Center the planet */
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* Title Block - Top Center */
+        .title-block {
+            position: absolute;
+            top: 40px;
+            text-align: center;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .title-js {
+            display: block;
+            font-family: var(--font-ui);
+            font-size: 1.2rem;
+            color: var(--c-primary);
+            letter-spacing: 8px;
+            margin-bottom: 0px;
+            opacity: 0.9;
+            border-bottom: 1px solid var(--c-primary);
+            padding-bottom: 5px;
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .title-planet {
+            font-family: var(--font-display);
+            font-weight: 900;
+            font-size: 3.5rem;
+            line-height: 1;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-top: 10px;
+            /* Reduced Glow - acts as header, not light source */
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8), 0 0 2px var(--c-primary); 
+        }
+
+        /* The Planet Visual - Wireframe Tactical Grid */
+        .planet-container {
+            position: relative;
+            width: 450px;
+            height: 450px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+        }
+
+        /* The Wireframe Globe */
+        .planet-wireframe {
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            position: relative;
+            background: radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.05) 0%, rgba(0,0,0,0.8) 70%);
+            box-shadow: 
+                0 0 40px rgba(0, 240, 255, 0.1),
+                inset 0 0 30px rgba(0, 240, 255, 0.2);
+            border: 1px dashed rgba(0, 240, 255, 0.6);
+            animation: breathe 8s ease-in-out infinite alternate;
+            overflow: hidden;
+        }
+
+        /* Inner Grid Lines */
+        .planet-wireframe::before {
+            content: '';
+            position: absolute;
+            top: 10%; left: 10%; right: 10%; bottom: 10%;
+            border-radius: 50%;
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            background: 
+                radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 20%), 
+                repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(0, 240, 255, 0.1) 20px),
+                repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(0, 240, 255, 0.1) 20px);
+        }
+
+        @keyframes breathe {
+            from { transform: scale(1); }
+            to { transform: scale(1.02); }
+        }
+
+        /* Rotating Shield Grids */
+        .shield-outer {
+            position: absolute;
+            top: -30px; left: -30px; right: -30px; bottom: -30px;
+            border-radius: 50%;
+            border: 2px dashed var(--c-primary);
+            opacity: 0.4;
+            animation: rotateShield 60s linear infinite;
+            box-shadow: 0 0 15px var(--c-primary-dim);
+        }
+        
+        .shield-inner {
+            position: absolute;
+            top: -10px; left: -10px; right: -10px; bottom: -10px;
+            border-radius: 50%;
+            border: 1px solid var(--c-primary);
+            border-top-color: transparent;
+            border-bottom-color: transparent;
+            opacity: 0.5;
+            animation: rotateShield 15s linear infinite reverse;
+        }
+
+        @keyframes rotateShield { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Briefing Panel - Left Side (Z-Pattern) */
+        .briefing-panel {
+            position: absolute;
+            left: 5%;
+            top: 50%;
+            transform: translateY(-50%);
+            width: var(--panel-width);
+            background: rgba(5, 15, 30, 0.6);
+            border: 1px solid var(--c-primary-dim);
+            border-left: 1px solid var(--c-primary); /* Subtle accent line */
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            /* Chamfered Panel */
+            clip-path: polygon(
+                0 0, 
+                100% 0, 
+                100% calc(100% - 15px), 
+                calc(100% - 15px) 100%, 
+                0 100%
+            );
+        }
+
+        .panel-header {
+            border-bottom: 1px solid var(--c-primary-dim);
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--c-primary);
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .briefing-content {
+            font-size: 0.9rem;
+            line-height: 1.2; /* Tighter, technical look */
+            color: var(--c-text);
+        }
+
+        .briefing-content strong { color: #fff; }
+        .briefing-content p { margin-bottom: 12px; }
+
+        .warning-box {
+            margin-top: 15px;
+            background: rgba(255, 51, 51, 0.1); /* Red tint */
+            border: 1px solid var(--c-alert); /* High contrast Red */
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.75rem;
+            color: var(--c-alert);
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px var(--c-alert-glow);
+        }
+
+        /* --- 3. CONTROL DECK (Footer) --- */
+        .control-deck {
+            width: 100%;
+            background: linear-gradient(to top, rgba(0, 10, 20, 0.95), rgba(0, 10, 20, 0.6));
+            border-top: 1px solid var(--c-primary-dim);
+            padding: 30px 5%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            z-index: 20;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+        }
+
+        /* Upgrade Menu - Glassmorphism/Tech Panel */
+        .toolbar-container {
+            display: flex;
+            gap: 15px;
+            background: rgba(255, 255, 255, 0.03); /* Glass effect */
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            backdrop-filter: blur(5px);
+        }
+
+        .toolbar-slot {
+            width: 90px;
+            height: 90px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .toolbar-slot:hover {
+            background: rgba(0, 240, 255, 0.1);
+            border-color: var(--c-primary);
+            box-shadow: 0 0 15px var(--c-primary-dim);
+            transform: translateY(-2px);
+        }
+
+        .slot-icon {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Distinct Icons */
+        .icon-damage { 
+            color: var(--c-alert); 
+            filter: drop-shadow(0 0 3px var(--c-alert)); 
+        }
+        .icon-rate { 
+            color: var(--c-primary); 
+            filter: drop-shadow(0 0 3px var(--c-primary)); 
+        }
+        .icon-speed { 
+            color: var(--c-accent); 
+            filter: drop-shadow(0 0 3px var(--c-accent)); 
+        }
+
+        .slot-label {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: var(--c-text);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .slot-cost {
+            font-size: 0.6rem;
+            color: var(--c-accent);
+            opacity: 0.8;
+        }
+
+        /* Prominent Start Button */
+        .start-btn {
+            background: var(--c-primary-solid); /* Solid bright cyan */
+            color: #000;
+            border: none;
+            width: 260px;
+            height: 100px;
+            font-family: var(--font-display);
+            font-size: 2rem;
+            font-weight: 900;
+            letter-spacing: 4px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            
+            /* Chamfered Button */
+            clip-path: polygon(
+                0 0, 
+                calc(100% - 25px) 0, 
+                100% 25px, 
+                100% 100%, 
+                0 100%
+            );
+            
+            box-shadow: 0 0 20px var(--c-primary-glow);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .start-btn span {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            letter-spacing: 6px;
+            margin-top: 5px;
+            display: block;
+            font-weight: 700;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.05) translateX(5px);
+            box-shadow: 0 0 40px var(--c-primary);
+            background: #fff;
+        }
+
+        .start-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 1024px) {
+            .briefing-panel {
+                display: none; 
+            }
+            .planet-container {
+                transform: scale(0.8);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-stage { padding-top: 10px; }
+            .title-planet { font-size: 2.2rem; letter-spacing: 2px; }
+            .planet-container { width: 250px; height: 250px; margin-top: 20px; }
+            .planet-wireframe { width: 180px; height: 180px; }
+            
+            .control-deck {
+                flex-direction: column;
+                padding: 20px;
+                gap: 20px;
+                justify-content: center;
+            }
+            
+            .toolbar-container {
+                width: 100%;
+                justify-content: space-between;
+                border: none;
+                background: transparent;
+                backdrop-filter: none;
+            }
+            
+            .toolbar-slot {
+                flex: 1;
+                height: 70px;
+                width: auto;
+                border: 1px solid rgba(0, 240, 255, 0.3);
+            }
+            
+            .start-btn {
+                width: 100%;
+                height: 80px;
+                font-size: 1.5rem;
+                clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); /* Rect on mobile */
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- BACKGROUND -->
+    <canvas id="starfield"></canvas>
+    <div class="grid-overlay"></div>
+    <div class="scanlines"></div>
+
+    <!-- MAIN INTERFACE -->
+    <div class="ui-container">
+
+        <!-- 1. HUD HEADER -->
+        <header class="hud-bar">
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">SECTOR</span>
+                    <span class="hud-value">ALPHA-9</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">WAVE</span>
+                    <span class="hud-value">001</span>
+                </div>
+            </div>
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">HP</span> <!-- Updated Label -->
+                    <span class="hud-value hp">100%</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">CREDITS</span>
+                    <span class="hud-value credits">500</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 2. MAIN STAGE (TACTICAL BRIDGE) -->
+        <section class="main-stage">
+            
+            <!-- Title -->
+            <div class="title-block">
+                <span class="title-js">JS</span>
+                <h1 class="title-planet">PLANET<br>DEFENSE</h1>
+            </div>
+
+            <!-- The Planet Visual (Wireframe) -->
+            <div class="planet-container">
+                <div class="shield-outer"></div>
+                <div class="planet-wireframe">
+                    <div class="shield-inner"></div>
+                </div>
+            </div>
+
+            <!-- Briefing Panel (Left Side) -->
+            <div class="briefing-panel">
+                <div class="panel-header">
+                    <span>// MISSION BRIEFING</span>
+                    <span>SECURE</span>
+                </div>
+                <div class="briefing-content">
+                    <p><strong>Commander,</strong></p>
+                    <p>The <strong>Xenon Swarm</strong> has entered the sector. Primary orbital shields are holding.</p>
+                    <p style="color: var(--c-text-dim); font-size: 0.8rem; margin-top: 8px;">
+                        > Configure automated turret network.<br>
+                        > Repel initial vanguard.<br>
+                        > Protect core integrity.
+                    </p>
+                    
+                    <div class="warning-box">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                        <span>PROXIMITY ALERT</span>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 3. CONTROL DECK (Unified Footer) -->
+        <footer class="control-deck">
+            
+            <!-- Upgrade Toolbar -->
+            <div class="toolbar-container">
+                
+                <!-- Slot 1: Damage (Jagged Icon) -->
+                <div class="toolbar-slot">
+                    <div class="slot-icon">
+                        <svg class="icon-damage" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <div class="slot-label">DMG</div>
+                    <div class="slot-cost">100 CR</div>
+                </div>
+
+                <!-- Slot 2: Fire Rate (Pulse Icon) -->
+                <div class="toolbar-slot">
+                    <div class="slot-icon">
+                        <svg class="icon-rate" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    </div>
+                    <div class="slot-label">RATE</div>
+                    <div class="slot-cost">150 CR</div>
+                </div>
+
+                <!-- Slot 3: Speed (Bolt Icon) -->
+                <div class="toolbar-slot">
+                    <div class="slot-icon">
+                        <svg class="icon-speed" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    </div>
+                    <div class="slot-label">SPD</div>
+                    <div class="slot-cost">120 CR</div>
+                </div>
+
+            </div>
+
+            <!-- Start Button -->
+            <button class="start-btn" id="startBtn">
+                ENGAGE
+                <span>INITIALIZE SYSTEM</span>
+            </button>
+
+        </footer>
+    </div>
+
+    <script>
+        /**
+         * STARFIELD ANIMATION
+         */
+        const canvas = document.getElementById('starfield');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let stars = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((width * height) / 4000); 
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 1.5,
+                    speed: Math.random() * 0.15 + 0.02,
+                    opacity: Math.random() * 0.8 + 0.2
+                });
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                star.y += star.speed;
+                if (star.y > height) {
+                    star.y = 0;
+                    star.x = Math.random() * width;
+                }
+            });
+            ctx.globalAlpha = 1;
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+
+        /**
+         * INTERACTIVITY
+         */
+        const startBtn = document.getElementById('startBtn');
+        
+        startBtn.addEventListener('click', () => {
+            const originalContent = startBtn.innerHTML;
+            startBtn.innerHTML = "LAUNCHING...";
+            startBtn.style.transform = "scale(0.95)";
+            
+            setTimeout(() => {
+                startBtn.style.transform = "scale(1.05)";
+                startBtn.innerHTML = "SYSTEM ACTIVE";
+                startBtn.style.background = "#fff";
+                startBtn.style.color = "#000";
+                
+                setTimeout(() => {
+                    alert("SIMULATION STARTED: WAVE 1 INCOMING");
+                    startBtn.innerHTML = originalContent;
+                    startBtn.style.background = ""; 
+                    startBtn.style.color = "";
+                }, 500);
+            }, 800);
+        });
+    </script>
+</body>
+</html>

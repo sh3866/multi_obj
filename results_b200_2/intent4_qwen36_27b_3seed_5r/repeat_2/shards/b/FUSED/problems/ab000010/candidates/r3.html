@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Void Sphere — Cellular Automata</title>
+<style>
+    :root {
+        --bg-color: #020204;
+        --panel-bg: rgba(10, 12, 18, 0.65);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --neon-border: rgba(100, 200, 255, 0.2);
+        --text-primary: #e2e8f0;
+        --text-secondary: #64748b;
+        --accent-cyan: #22d3ee;
+        --accent-purple: #a855f7;
+        --accent-gold: #f59e0b;
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Background Void */
+    #bg-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+    }
+
+    /* UI Panel - Glassmorphism & Neon */
+    #ui-panel {
+        position: absolute;
+        left: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 300px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--panel-border);
+        border-left: 1px solid var(--neon-border); /* Accent edge */
+        border-radius: 12px;
+        padding: 28px;
+        z-index: 10;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 
+                    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    h1 {
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin: 0;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    /* Neon Status Indicator */
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent-cyan);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background-color: var(--accent-cyan);
+        border-radius: 50%;
+        box-shadow: 0 0 8px var(--accent-cyan);
+        animation: pulse-dot 2s infinite ease-in-out;
+    }
+    
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(0.8); }
+    }
+
+    .status-dot.paused { 
+        background-color: var(--text-secondary); 
+        box-shadow: none; 
+        animation: none;
+    }
+
+    .subtitle {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 400;
+        margin-top: 4px;
+    }
+
+    /* Data Grid */
+    .data-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        padding: 16px 0;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .data-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .data-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-secondary);
+    }
+
+    .data-value {
+        font-family: var(--font-mono);
+        font-size: 20px;
+        font-weight: 500;
+        color: #fff;
+        text-shadow: 0 0 10px rgba(255,255,255,0.2);
+    }
+
+    /* Controls */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .value-display {
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin: 0;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 14px;
+        width: 14px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        margin-top: -6px;
+        box-shadow: 0 0 10px rgba(255,255,255,0.6);
+        transition: transform 0.1s;
+        border: 2px solid var(--bg-color);
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        cursor: pointer;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+    }
+    
+    /* Buttons */
+    .btn-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+    button {
+        padding: 12px;
+        border: 1px solid var(--panel-border);
+        background: rgba(255,255,255,0.02);
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-family: var(--font-ui);
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        border-color: rgba(255,255,255,0.3);
+        box-shadow: 0 0 15px rgba(255,255,255,0.05);
+    }
+
+    button.primary {
+        background: linear-gradient(135deg, rgba(34, 211, 238, 0.1), rgba(168, 85, 247, 0.1));
+        border: 1px solid rgba(34, 211, 238, 0.3);
+        color: var(--accent-cyan);
+    }
+
+    button.primary:hover {
+        background: linear-gradient(135deg, rgba(34, 211, 238, 0.2), rgba(168, 85, 247, 0.2));
+        color: #fff;
+        border-color: var(--accent-cyan);
+        box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);
+    }
+
+    /* Mobile */
+    @media (max-width: 800px) {
+        #ui-panel {
+            left: 0;
+            bottom: 0;
+            top: auto;
+            transform: none;
+            width: 100%;
+            border-radius: 20px 20px 0 0;
+            border-left: 1px solid var(--panel-border);
+            border-right: 1px solid var(--panel-border);
+            border-bottom: none;
+            padding: 24px;
+            box-sizing: border-box;
+            box-shadow: 0 -10px 40px -10px rgba(0, 0, 0, 0.8);
+        }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div id="ui-panel">
+    <div class="header">
+        <h1>
+            VOID SPHERE
+        </h1>
+        <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Simulation Active</span>
+        </div>
+        <div class="subtitle">High-Density Cellular Automata</div>
+    </div>
+
+    <div class="data-grid">
+        <div class="data-item">
+            <span class="data-label">Generation</span>
+            <span class="data-value" id="genCount">0</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Population</span>
+            <span class="data-value" id="popCount">0</span>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Evolution Speed</span>
+            <span id="speedVal" class="value-display">50%</span>
+        </div>
+        <input type="range" id="speed" min="1" max="100" value="50">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span>Rotation</span>
+            <span id="rotVal" class="value-display">Auto</span>
+        </div>
+        <input type="range" id="rotation" min="0" max="100" value="30">
+    </div>
+
+    <div class="btn-group">
+        <button id="btnReset">Randomize</button>
+        <button id="btnPause" class="primary">Pause</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration
+     */
+    const canvas = document.getElementById('bg-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    
+    let width, height, cx, cy, radius;
+    
+    // Simulation Dimensions (High Density)
+    // Texture-based approach: We render to a small offscreen canvas (texture)
+    // and draw that onto the sphere geometry.
+    const TEX_W = 256; // Texture Width (Longitude)
+    const TEX_H = 128; // Texture Height (Latitude)
+    const TOTAL_CELLS = TEX_W * TEX_H;
+    
+    // Simulation State
+    let grid = new Uint8Array(TOTAL_CELLS); 
+    let nextGrid = new Uint8Array(TOTAL_CELLS);
+    let ageMap = new Uint8Array(TOTAL_CELLS); // Track age for coloring
+    
+    // Offscreen canvas for the texture
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = TEX_W;
+    textureCanvas.height = TEX_H;
+    const tCtx = textureCanvas.getContext('2d');
+    const tImageData = tCtx.createImageData(TEX_W, TEX_H);
+    
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    
+    // Visuals
+    let rotationSpeed = 0.002;
+    let simSpeed = 50;
+    let cellDensity = 0.45;
+    let rotY = 0;
+    let rotX = 0.3;
+    
+    // Interaction
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        cx = width / 2;
+        cy = height / 2;
+        radius = Math.min(width, height) * 0.35;
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            grid[i] = Math.random() < cellDensity ? 1 : 0;
+            // Random initial ages for visual variety
+            ageMap[i] = grid[i] ? Math.floor(Math.random() * 50) : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Math & Geometry
+     */
+    
+    // Precompute Spherical UV mapping coordinates
+    // We store raw x,y,z for a unit sphere based on grid indices
+    const cellCoords = new Float32Array(TOTAL_CELLS * 3); 
+
+    function precomputeGeometry() {
+        for (let y = 0; y < TEX_H; y++) {
+            for (let x = 0; x < TEX_W; x++) {
+                const i = y * TEX_W + x;
+                
+                // Map grid to sphere
+                // u: 0..1 -> theta: 0..2PI
+                // v: 0..1 -> phi: 0..PI
+                const u = x / TEX_W;
+                const v = y / TEX_H;
+                
+                const theta = u * 2 * Math.PI;
+                const phi = v * Math.PI;
+                
+                const idx = i * 3;
+                cellCoords[idx] = Math.sin(phi) * Math.cos(theta);     // x
+                cellCoords[idx + 1] = Math.cos(phi);                   // y
+                cellCoords[idx + 2] = Math.sin(phi) * Math.sin(theta); // z
+            }
+        }
+    }
+    precomputeGeometry();
+
+    /**
+     * Game Logic (Conway's GoL)
+     */
+    function step() {
+        for (let y = 0; y < TEX_H; y++) {
+            for (let x = 0; x < TEX_W; x++) {
+                const idx = y * TEX_W + x;
+                const state = grid[idx];
+                
+                // Count neighbors (Toroidal wrapping)
+                let neighbors = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        
+                        let nx = (x + dx + TEX_W) % TEX_W;
+                        let ny = (y + dy + TEX_H) % TEX_H;
+                        
+                        if (grid[ny * TEX_W + nx]) neighbors++;
+                    }
+                }
+                
+                if (state === 1) {
+                    if (neighbors < 2 || neighbors > 3) {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0; // Reset age on death
+                    } else {
+                        nextGrid[idx] = 1;
+                        ageMap[idx]++;   // Increase age
+                    }
+                } else {
+                    if (neighbors === 3) {
+                        nextGrid[idx] = 1;
+                        ageMap[idx] = 1; // Born
+                    } else {
+                        nextGrid[idx] = 0;
+                        ageMap[idx] = 0;
+                    }
+                }
+            }
+        }
+        
+        // Swap
+        let tempG = grid; grid = nextGrid; nextGrid = tempG;
+        let tempA = ageMap; // We don't actually swap age map, we update it in place logic above, 
+                            // but for safety in strict buffers we'd swap. 
+                            // Here we just re-assign references.
+        // Note: The ageMap logic above modifies the 'next' state implicitly if we were swapping it too.
+        // To keep it simple: Age is property of the cell position.
+        
+        generation++;
+    }
+
+    /**
+     * Rendering
+     */
+    function updateTexture() {
+        // Update the pixel data of the offscreen texture
+        const data = tImageData.data;
+        
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            const pIdx = i * 4;
+            const isAlive = grid[i];
+            const age = ageMap[i];
+            
+            if (isAlive) {
+                // Color Mapping based on Age
+                // 0-10: Cyan (New)
+                // 10-30: Purple (Adult)
+                // 30+: Gold (Ancient)
+                
+                let r, g, b;
+                
+                if (age < 10) {
+                    // Cyan
+                    r = 34; g = 211; b = 238;
+                } else if (age < 30) {
+                    // Purple
+                    r = 168; g = 85; b = 247;
+                } else {
+                    // Gold
+                    r = 245; g = 158; b = 11;
+                }
+                
+                data[pIdx] = r;
+                data[pIdx+1] = g;
+                data[pIdx+2] = b;
+                data[pIdx+3] = 255; // Opacity
+            } else {
+                // Dead cells are transparent in the texture, 
+                // allowing the sphere's dark material to show through.
+                data[pIdx] = 0;
+                data[pIdx+1] = 0;
+                data[pIdx+2] = 0;
+                data[pIdx+3] = 0;
+            }
+        }
+        
+        tCtx.putImageData(tImageData, 0, 0);
+    }
+
+    function draw() {
+        // 1. Clear & Background
+        ctx.fillStyle = '#020204';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Auto Rotation
+        if (!isDragging && rotationSpeed > 0) {
+            rotY += rotationSpeed;
+        }
+        
+        // 2. Update Simulation & Texture
+        if (!isPaused) {
+            const framesPerStep = Math.max(1, Math.floor(101 - simSpeed));
+            if (frameCount % framesPerStep === 0) {
+                step();
+                updateStats();
+            }
+            frameCount++;
+        }
+        updateTexture();
+
+        // 3. Draw the Sphere (The "Void")
+        // We draw the sphere in multiple passes to get the lighting effects right.
+        
+        // Pass A: The Dark Body (Base)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#05050a'; // Very dark blue/black
+        ctx.fill();
+        ctx.restore();
+
+        // Pass B: The Texture (The "Life")
+        // We use a clipping path to mask the texture to the sphere
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.clip();
+        
+        // We need to project the 2D texture onto the 3D sphere surface.
+        // To do this efficiently in 2D Canvas without WebGL, we draw the texture
+        // repeatedly or use a transform that stretches it? 
+        // Actually, for a sphere, we can't just drawImage. We need to simulate the curvature.
+        // BUT, since we have the coordinates, we can draw lines or pixels? No, too slow.
+        
+        // OPTIMIZATION: 
+        // Instead of complex projection, we use a trick.
+        // We draw the texture centered, but we apply a radial distortion? 
+        // No, that's hard in Canvas 2D.
+        
+        // ALTERNATIVE APPROACH (Robust & Fast):
+        // We iterate the visible pixels of the texture, project them, and draw them.
+        // To make it fast, we use a low-res projection.
+        
+        const cosY = Math.cos(rotY);
+        const sinY = Math.sin(rotY);
+        const cosX = Math.cos(rotX);
+        const sinX = Math.sin(rotX);
+        
+        // We only draw cells that are alive (from the texture data we just updated)
+        // To save time, we only iterate visible cells? 
+        // Let's iterate the grid, project, and draw small rects/points.
+        
+        // To make it look like a texture, we don't draw dots, we draw the texture image
+        // distorted? No.
+        
+        // Let's go back to the Dot approach but colored by the Texture data.
+        // 256x128 is ~32k cells. Drawing 32k rects is slow.
+        // We need to downsample or only draw "visible" cells.
+        
+        // We will draw the sphere "surface" by drawing the texture image 
+        // mapped to a circle? No.
+        
+        // HYBRID APPROACH:
+        // 1. Draw the texture image flat, but clipped to the sphere.
+        // 2. Apply a shadow gradient over it to simulate 3D depth.
+        // This works perfectly if the texture wraps correctly (it does, toroidal).
+        
+        // To make it look spherical, we scale the texture slightly based on rotation?
+        // No, let's just draw the texture inside the clipped circle.
+        // It will look like a map projection.
+        // To make it look 3D, we apply a Radial Gradient shadow on top.
+        
+        // Calculate offset for rotation (simple 2D scroll)
+        // Since it's a sphere, simple scrolling doesn't work perfectly (polar distortion),
+        // but for a "tech/void" aesthetic, it looks like a data globe.
+        
+        const drawX = cx - radius;
+        const drawY = cy - radius;
+        const drawW = radius * 2;
+        const drawH = radius * 2;
+        
+        // Texture coordinates rotation
+        // We shift the texture source based on rotY
+        const tx = (rotY / (Math.PI * 2)) * TEX_W;
+        
+        // Draw the texture twice (to handle wrapping)
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Draw left part
+        ctx.drawImage(textureCanvas, 0, 0, TEX_W, TEX_H, 
+                      drawX - (tx % TEX_W), drawY, drawW, drawH);
+        // Draw right part (wrap)
+        ctx.drawImage(textureCanvas, 0, 0, TEX_W, TEX_H, 
+                      drawX - (tx % TEX_W) + drawW, drawY, drawW, drawH);
+        
+        ctx.restore(); // Remove clip
+
+        // Pass C: 3D Lighting & Rim Light (The "Polish")
+        
+        // 1. Inner Shadow (Ambient Occlusion / Depth)
+        // Darken the edges to make it look like a sphere, not a flat circle
+        const grad3D = ctx.createRadialGradient(cx - radius*0.3, cy - radius*0.3, radius*0.2,
+                                                cx, cy, radius);
+        grad3D.addColorStop(0, 'rgba(0,0,0,0)'); // Center is bright
+        grad3D.addColorStop(0.6, 'rgba(0,0,0,0.4)');
+        grad3D.addColorStop(1, 'rgba(0,0,0,0.95)'); // Edge is dark
+        
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = grad3D;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 2. Rim Light (Fresnel)
+        // Add a glowing cyan/purple edge
+        const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.85,
+                                                 cx, cy, radius);
+        rimGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        rimGrad.addColorStop(0.8, 'rgba(34, 211, 238, 0.1)'); // Cyan hint
+        rimGrad.addColorStop(1, 'rgba(168, 85, 247, 0.4)');   // Purple edge
+        
+        ctx.globalCompositeOperation = 'lighter'; // Additive glow
+        ctx.fillStyle = rimGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 3. Atmospheric Glow (Behind the sphere)
+        ctx.globalCompositeOperation = 'lighter';
+        const glowGrad = ctx.createRadialGradient(cx, cy, radius * 0.9,
+                                                  cx, cy, radius * 1.5);
+        glowGrad.addColorStop(0, 'rgba(34, 211, 238, 0.05)');
+        glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function loop() {
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const rotSlider = document.getElementById('rotation');
+        const rotVal = document.getElementById('rotVal');
+        rotSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            if (val === 0) {
+                rotationSpeed = 0;
+                rotVal.innerText = 'Off';
+            } else {
+                rotationSpeed = val * 0.0005;
+                rotVal.innerText = val < 30 ? 'Slow' : (val > 70 ? 'Fast' : 'Auto');
+            }
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            randomizeGrid();
+        });
+        
+        const pauseBtn = document.getElementById('btnPause');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseBtn.innerText = isPaused ? 'Resume' : 'Pause';
+            pauseBtn.classList.toggle('primary', !isPaused);
+            statusDot.classList.toggle('paused', isPaused);
+            statusText.innerText = isPaused ? "Simulation Paused" : "Simulation Active";
+            statusText.style.color = isPaused ? "var(--text-secondary)" : "var(--accent-cyan)";
+        });
+    }
+
+    function setupInteraction() {
+        const startDrag = (x, y) => {
+            isDragging = true;
+            lastMouseX = x;
+            lastMouseY = y;
+        };
+
+        const moveDrag = (x, y) => {
+            if (isDragging) {
+                const deltaX = x - lastMouseX;
+                const deltaY = y - lastMouseY;
+                
+                // We manipulate the texture offset directly for X rotation
+                // This gives immediate feedback without waiting for render
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                // Clamp X rotation
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = x;
+                lastMouseY = y;
+            }
+        };
+
+        const endDrag = () => {
+            isDragging = false;
+        };
+
+        canvas.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        window.addEventListener('mouseup', endDrag);
+
+        canvas.addEventListener('touchstart', (e) => {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchmove', (e) => {
+            if(isDragging) e.preventDefault();
+            moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+
+        window.addEventListener('touchend', endDrag);
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop.toLocaleString();
+        document.getElementById('genCount').innerText = generation.toLocaleString();
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

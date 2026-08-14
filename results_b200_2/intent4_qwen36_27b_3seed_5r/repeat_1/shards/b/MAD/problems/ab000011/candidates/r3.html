@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault Breaker: Protocol 7</title>
+    <style>
+        :root {
+            /* Palette - Deep Industrial / Tactile Sci-Fi */
+            --bg-deep: #05070a;
+            --bg-panel: #0f1216;
+            --bg-floor: #161a20;
+            
+            --grid-line: rgba(255, 255, 255, 0.03);
+            
+            --wall-dark: #1e242c;
+            --wall-mid: #2a313c;
+            --wall-light: #384250;
+            --wall-rim: rgba(255, 255, 255, 0.08);
+
+            --accent-cyan: #00f2ff;
+            --accent-cyan-dim: rgba(0, 242, 255, 0.15);
+            
+            --accent-crate-top: #c45d26;
+            --accent-crate-side: #8a3e14;
+            --accent-crate-dark: #4a2008;
+            
+            --accent-lever: #ff3b3b;
+            --accent-lever-glow: rgba(255, 59, 59, 0.4);
+            
+            --accent-target: #00ff88;
+            --accent-target-dim: rgba(0, 255, 136, 0.1);
+
+            --text-primary: #e2e8f0;
+            --text-muted: #5c6b7f;
+
+            /* Dimensions */
+            --tile-size: 64px;
+            --board-pad: 12px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: 'SF Mono', 'Roboto Mono', 'Courier New', monospace;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background-image: 
+                radial-gradient(circle at 50% 40%, #161b22 0%, var(--bg-deep) 70%);
+        }
+
+        /* --- Main Layout: Vertical Flow --- */
+        .game-interface {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 700px;
+            gap: 1.5rem;
+            padding: 1rem;
+        }
+
+        /* --- HUD: Unified Terminal --- */
+        .hud-bar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+
+        .brand {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+            text-shadow: 0 0 10px rgba(255,255,255,0.1);
+        }
+        .brand span {
+            color: var(--accent-cyan);
+            display: block;
+            font-size: 0.7rem;
+            font-weight: 400;
+            opacity: 0.8;
+            margin-top: 2px;
+        }
+
+        .hud-stats {
+            display: flex;
+            gap: 2rem;
+            text-align: right;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .stat-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* --- The Board: Brushed Metal Surface --- */
+        .board-container {
+            position: relative;
+            background: var(--bg-floor);
+            padding: var(--board-pad);
+            border-radius: 4px;
+            box-shadow: 
+                inset 0 1px 1px rgba(255,255,255,0.05),
+                inset 0 0 40px rgba(0,0,0,0.8),
+                0 20px 50px rgba(0,0,0,0.6);
+            border: 1px solid #232830;
+        }
+
+        /* The Grid Background */
+        .grid-surface {
+            display: grid;
+            grid-template-columns: repeat(8, var(--tile-size));
+            grid-template-rows: repeat(8, var(--tile-size));
+            gap: 1px;
+            background: #000;
+            border: 1px solid #000;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* --- Tiles --- */
+        .tile {
+            width: var(--tile-size);
+            height: var(--tile-size);
+            position: relative;
+            background: linear-gradient(145deg, #1b2028, #15191f);
+            /* Subtle brushed metal noise texture */
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 4px 4px;
+        }
+
+        /* Walls: Chamfered Blocks */
+        .tile.wall {
+            background: var(--wall-dark);
+            box-shadow: 
+                inset 2px 2px 0 var(--wall-light),
+                inset -2px -2px 0 #11151b,
+                0 0 0 1px var(--wall-rim);
+            z-index: 2;
+        }
+
+        /* Target: Beacon */
+        .tile.target {
+            background: var(--accent-target-dim);
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
+        }
+        .tile.target::after {
+            content: 'EXIT';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--accent-target);
+            text-shadow: 0 0 8px var(--accent-target);
+            opacity: 0.8;
+        }
+        /* The glowing ring */
+        .tile.target::before {
+            content: '';
+            position: absolute;
+            inset: 8px;
+            border: 2px solid var(--accent-target);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-target), inset 0 0 5px var(--accent-target);
+            opacity: 0.6;
+        }
+
+        /* Door: Heavy Grate */
+        .tile.door {
+            background: repeating-linear-gradient(
+                45deg,
+                #111,
+                #111 4px,
+                #222 4px,
+                #222 8px
+            );
+            box-shadow: inset 0 0 10px #000;
+            z-index: 2;
+        }
+
+        /* Lever: Mechanical Switch */
+        .tile.lever {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .lever-mech {
+            width: 32px; height: 32px;
+            position: relative;
+            transform: perspective(200px) rotateX(20deg);
+        }
+        .lever-base {
+            position: absolute;
+            bottom: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 24px; height: 10px;
+            background: #333;
+            border-radius: 2px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        .lever-shaft {
+            position: absolute;
+            bottom: 6px; left: 50%;
+            width: 4px; height: 18px;
+            background: #888;
+            transform: translateX(-50%) rotate(30deg);
+            transform-origin: bottom center;
+        }
+        .lever-head {
+            position: absolute;
+            top: -6px; left: 50%;
+            transform: translateX(-50%);
+            width: 16px; height: 16px;
+            background: radial-gradient(circle at 30% 30%, #ff6666, var(--accent-lever));
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-lever-glow), 0 2px 4px rgba(0,0,0,0.5);
+            border: 1px solid #500;
+        }
+
+        /* --- Entities (Volumetric) --- */
+        .entity {
+            position: absolute;
+            width: var(--tile-size);
+            height: var(--tile-size);
+            pointer-events: none;
+            z-index: 10;
+            transition: top 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Player: Geometric Bloom */
+        .player-unit {
+            width: 32px;
+            height: 32px;
+            position: relative;
+            transform: rotate(45deg);
+            /* Crisp Glow */
+            box-shadow: 
+                0 0 0 2px var(--accent-cyan),
+                0 0 15px 2px var(--accent-cyan-dim);
+            background: rgba(0, 242, 255, 0.1);
+        }
+        .player-unit::after {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            background: var(--accent-cyan);
+            box-shadow: 0 0 5px #fff;
+        }
+
+        /* Crate: Heavy Box */
+        .crate-obj {
+            width: 48px;
+            height: 48px;
+            position: relative;
+            /* The thick side (depth) */
+            box-shadow: 
+                0 8px 0 var(--accent-crate-dark),
+                0 12px 15px rgba(0,0,0,0.6);
+            /* Chamfered corners on the top */
+            clip-path: polygon(10% 0, 90% 0, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0 90%, 0 10%);
+        }
+        
+        /* The Top Face */
+        .crate-top {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--accent-crate-top), var(--accent-crate-side));
+            border: 1px solid rgba(0,0,0,0.4);
+            /* Rivets */
+            background-image: radial-gradient(rgba(0,0,0,0.4) 15%, transparent 16%);
+            background-size: 14px 14px;
+            background-position: 3px 3px;
+        }
+        /* Structural Beam */
+        .crate-top::after {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border: 2px solid rgba(0,0,0,0.3);
+            box-shadow: inset 1px 1px 2px rgba(255,255,255,0.1);
+        }
+
+        /* --- Controls: Bottom Center --- */
+        .control-panel {
+            background: #0b0d10;
+            padding: 1rem 2rem;
+            border-radius: 6px;
+            border: 1px solid #232830;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.8rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .control-legend {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .control-legend::before, .control-legend::after {
+            content: '';
+            height: 1px;
+            width: 20px;
+            background: #232830;
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 44px);
+            grid-template-rows: repeat(2, 44px);
+            gap: 6px;
+        }
+
+        .key-cap {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(180deg, #2a3038 0%, #1a1e24 100%);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #8b9bb4;
+            position: relative;
+            /* Physical Bevel */
+            border-top: 1px solid #3e4754;
+            border-bottom: 4px solid #0a0c0e;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+            transition: all 0.1s ease;
+        }
+
+        .key-cap.active {
+            transform: translateY(3px);
+            border-bottom-width: 1px;
+            background: #1a1e24;
+            color: var(--accent-cyan);
+            text-shadow: 0 0 8px var(--accent-cyan);
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.6);
+        }
+
+        /* Position keys */
+        .key-w { grid-column: 2; grid-row: 1; }
+        .key-a { grid-column: 1; grid-row: 2; }
+        .key-s { grid-column: 2; grid-row: 2; }
+        .key-d { grid-column: 3; grid-row: 2; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            :root { --tile-size: 44px; }
+            .game-interface { padding: 0.5rem; }
+            .hud-bar { flex-direction: column; align-items: center; gap: 10px; border: none; }
+            .brand { margin-bottom: 0; }
+            .hud-stats { width: 100%; justify-content: space-around; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-interface">
+        
+        <!-- Header / HUD -->
+        <header class="hud-bar">
+            <div class="brand">
+                Vault Breaker
+                <span>Level 04: Core Access</span>
+            </div>
+            <div class="hud-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Moves</span>
+                    <span class="stat-value" id="move-count">04</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Time</span>
+                    <span class="stat-value" id="timer">00:12</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Board -->
+        <div class="board-container">
+            <div class="grid-surface" id="board">
+                <!-- Grid generated by JS -->
+            </div>
+            <!-- Entities injected by JS -->
+        </div>
+
+        <!-- Controls -->
+        <div class="control-panel">
+            <div class="control-legend">Manual Override</div>
+            <div class="d-pad">
+                <div class="key-cap key-w">W</div>
+                <div class="key-cap key-a">A</div>
+                <div class="key-cap key-s">S</div>
+                <div class="key-cap key-d">D</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const TILE_SIZE = 64;
+        const GAP_SIZE = 1; 
+        const STEP = TILE_SIZE + GAP_SIZE;
+        const GRID_SIZE = 8;
+        
+        // Map Codes: 0: Floor, 1: Wall, 2: Lever, 3: Door, 4: Target, 9: Start
+        const levelMap = [
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 1, 0, 3, 1], 
+            [1, 0, 1, 1, 1, 0, 1, 1],
+            [1, 0, 1, 4, 0, 0, 0, 1], 
+            [1, 0, 0, 0, 1, 0, 0, 1],
+            [1, 1, 1, 0, 1, 2, 1, 1], 
+            [1, 9, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        // State
+        const player = { x: 1, y: 6 };
+        const crates = [
+            { x: 4, y: 2 }, 
+            { x: 3, y: 4 }  
+        ]; 
+        let moves = 4;
+
+        const boardEl = document.getElementById('board');
+        const containerEl = document.querySelector('.board-container');
+        const moveDisplay = document.getElementById('move-count');
+
+        // --- Render Logic ---
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const tileVal = levelMap[y][x];
+                    const tile = document.createElement('div');
+                    tile.classList.add('tile');
+                    
+                    if (tileVal === 1) {
+                        tile.classList.add('wall');
+                    } else {
+                        // Decals on floor
+                        if (tileVal === 2) { // Lever
+                            tile.classList.add('lever');
+                            tile.innerHTML = `
+                                <div class="lever-mech">
+                                    <div class="lever-base"></div>
+                                    <div class="lever-shaft">
+                                        <div class="lever-head"></div>
+                                    </div>
+                                </div>`;
+                        } else if (tileVal === 3) { // Door
+                            tile.classList.add('door');
+                        } else if (tileVal === 4) { // Target
+                            tile.classList.add('target');
+                        }
+                    }
+                    
+                    boardEl.appendChild(tile);
+                }
+            }
+        }
+
+        function renderEntities() {
+            // Remove existing
+            document.querySelectorAll('.entity').forEach(e => e.remove());
+
+            // Render Player
+            const playerEl = document.createElement('div');
+            playerEl.className = 'entity';
+            playerEl.innerHTML = '<div class="player-unit"></div>';
+            updateEntityPosition(playerEl, player.x, player.y);
+            containerEl.appendChild(playerEl);
+
+            // Render Crates
+            crates.forEach(crate => {
+                const crateEl = document.createElement('div');
+                crateEl.className = 'entity';
+                crateEl.innerHTML = '<div class="crate-obj"><div class="crate-top"></div></div>';
+                updateEntityPosition(crateEl, crate.x, crate.y);
+                containerEl.appendChild(crateEl);
+            });
+        }
+
+        function updateEntityPosition(el, x, y) {
+            // Get the grid surface relative to the container
+            const surface = document.getElementById('board');
+            const surfaceRect = surface.getBoundingClientRect();
+            const containerRect = containerEl.getBoundingClientRect();
+            
+            // Offset is the padding of the container
+            const offsetX = surfaceRect.left - containerRect.left;
+            const offsetY = surfaceRect.top - containerRect.top;
+
+            // Position based on grid coordinates
+            const top = offsetY + (y * STEP);
+            const left = offsetX + (x * STEP);
+
+            el.style.top = `${top}px`;
+            el.style.left = `${left}px`;
+        }
+
+        // --- Game Logic ---
+
+        function movePlayer(dx, dy) {
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+
+            // Bounds Check
+            if (newX < 0 || newX >= GRID_SIZE || newY < 0 || newY >= GRID_SIZE) return;
+
+            // Wall Check
+            if (levelMap[newY][newX] === 1) return;
+
+            // Crate Check
+            const crateIndex = crates.findIndex(c => c.x === newX && c.y === newY);
+            
+            if (crateIndex !== -1) {
+                // Attempt Push
+                const nextCrateX = newX + dx;
+                const nextCrateY = newY + dy;
+
+                // Check if push is valid
+                const isWall = levelMap[nextCrateY][nextCrateX] === 1;
+                const isCrate = crates.some(c => c.x === nextCrateX && c.y === nextCrateY);
+
+                if (!isWall && !isCrate && nextCrateX >= 0 && nextCrateX < GRID_SIZE && nextCrateY >= 0 && nextCrateY < GRID_SIZE) {
+                    crates[crateIndex] = { x: nextCrateX, y: nextCrateY };
+                    player.x = newX;
+                    player.y = newY;
+                    incrementMoves();
+                    renderEntities();
+                }
+            } else {
+                // Empty Move
+                player.x = newX;
+                player.y = newY;
+                incrementMoves();
+                renderEntities();
+            }
+        }
+
+        function incrementMoves() {
+            moves++;
+            moveDisplay.textContent = moves.toString().padStart(2, '0');
+        }
+
+        // --- Init & Events ---
+
+        function init() {
+            renderBoard();
+            // Wait for layout
+            requestAnimationFrame(() => {
+                renderEntities();
+                window.addEventListener('resize', renderEntities);
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            let keyClass = null;
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': 
+                    movePlayer(0, -1); 
+                    keyClass = 'key-w';
+                    break;
+                case 'ArrowDown': case 's': case 'S': 
+                    movePlayer(0, 1); 
+                    keyClass = 'key-s';
+                    break;
+                case 'ArrowLeft': case 'a': case 'A': 
+                    movePlayer(-1, 0); 
+                    keyClass = 'key-a';
+                    break;
+                case 'ArrowRight': case 'd': case 'D': 
+                    movePlayer(1, 0); 
+                    keyClass = 'key-d';
+                    break;
+            }
+
+            // Visual feedback on keys
+            if (keyClass) {
+                const keyEl = document.querySelector(`.${keyClass}`);
+                if (keyEl) {
+                    keyEl.classList.add('active');
+                    setTimeout(() => keyEl.classList.remove('active'), 150);
+                }
+            }
+        });
+
+        init();
+
+    </script>
+</body>
+</html>

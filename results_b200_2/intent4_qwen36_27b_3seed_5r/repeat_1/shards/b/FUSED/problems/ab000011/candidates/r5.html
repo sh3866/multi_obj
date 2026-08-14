@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRID: Protocol</title>
+    <style>
+        :root {
+            /* Palette - Refined High Contrast / Industrial */
+            --bg-app: #08090b;
+            --bg-panel: #111216;
+            
+            /* Floor & Grid */
+            --bg-floor: #1c1e24;
+            --bg-floor-highlight: #252830;
+            --grid-line: rgba(255, 255, 255, 0.03);
+            
+            /* Walls */
+            --wall-top: #3a3f4a;
+            --wall-side: #1a1c23;
+            --wall-shadow: #000000;
+            
+            /* Elements */
+            --color-player: #ffb703; /* High-vis Amber */
+            --color-player-glow: rgba(255, 183, 3, 0.5);
+            
+            --color-crate: #d00000; /* Alert Red */
+            --color-crate-dark: #7a0000;
+            --color-crate-light: #ff4d4d;
+            
+            --color-lever: #00f5d4; /* Cyan Neon */
+            --color-lever-glow: rgba(0, 245, 212, 0.6);
+            
+            --color-door: #9d4edd; /* Purple Energy */
+            --color-door-glow: rgba(157, 78, 221, 0.5);
+            
+            --color-target: rgba(255, 255, 255, 0.1);
+            --color-target-border: rgba(255, 255, 255, 0.4);
+            
+            /* UI Text */
+            --text-main: #ffffff;
+            --text-muted: #6b7280;
+            --font-ui: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: "Courier New", Courier, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+        body {
+            background-color: var(--bg-app);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* --- Main Layout --- */
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            max-width: 1200px;
+            padding: 2rem;
+            gap: 1.5rem;
+        }
+
+        /* --- HUD (Top Bar) --- */
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 600px;
+            background: var(--bg-panel);
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 24px;
+            height: 24px;
+            background: var(--color-player);
+            border-radius: 4px;
+            box-shadow: 0 0 10px var(--color-player-glow);
+        }
+
+        .brand-title {
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .stats-group {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .stat-box {
+            text-align: right;
+        }
+
+        .stat-label {
+            display: block;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-main);
+        }
+
+        .stat-value.status-locked { color: var(--color-crate-light); }
+        .stat-value.status-active { color: var(--color-lever); text-shadow: 0 0 10px var(--color-lever-glow); }
+
+        /* --- Game Board Area --- */
+        .board-wrapper {
+            position: relative;
+            /* Dynamic sizing via JS or CSS Grid */
+            padding: 40px;
+            background: radial-gradient(circle at center, #1a1c23 0%, #08090b 100%);
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: inset 0 0 60px rgba(0,0,0,0.8), 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        .puzzle-board {
+            display: grid;
+            grid-template-columns: repeat(8, 64px); /* 64px tiles */
+            grid-template-rows: repeat(8, 64px);
+            gap: 2px;
+            background: #000;
+            padding: 4px;
+            border-radius: 4px;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* --- Tiles --- */
+        .tile {
+            width: 64px;
+            height: 64px;
+            position: relative;
+            background-color: var(--bg-floor);
+            /* Subtle Grid Texture */
+            background-image: radial-gradient(var(--bg-floor-highlight) 1px, transparent 1px);
+            background-size: 8px 8px;
+        }
+
+        /* 1. Walls: 3D Block */
+        .tile.wall {
+            background: var(--wall-side);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            z-index: 2;
+        }
+        /* Top Surface */
+        .tile.wall::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 6px;
+            background: var(--wall-top);
+            border-bottom: 2px solid rgba(0,0,0,0.3);
+            /* Texture */
+            background-image: linear-gradient(45deg, rgba(255,255,255,0.05) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.05) 75%, transparent 75%, transparent);
+            background-size: 10px 10px;
+        }
+        /* Side Surface (Depth) */
+        .tile.wall::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0; height: 6px;
+            background: var(--wall-shadow);
+            transform: skewX(-45deg);
+            transform-origin: bottom left;
+        }
+
+        /* Floor Targets */
+        .tile.target {
+            background: var(--color-target);
+        }
+        .tile.target::before {
+            content: '';
+            position: absolute;
+            top: 12px; left: 12px; right: 12px; bottom: 12px;
+            border: 2px dashed var(--color-target-border);
+            border-radius: 50%;
+            animation: spin-slow 10s linear infinite;
+        }
+        .tile.target::after {
+            content: '+';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--color-target-border);
+            font-size: 20px;
+            font-weight: 100;
+        }
+
+        /* Door (Hatch) */
+        .tile.door {
+            background: rgba(157, 78, 221, 0.05);
+            box-shadow: inset 0 0 15px var(--color-door-glow);
+        }
+        .tile.door::before {
+            content: '';
+            position: absolute;
+            top: 8px; left: 8px; right: 8px; bottom: 8px;
+            border: 2px solid var(--color-door);
+            border-radius: 2px;
+            box-shadow: 0 0 10px var(--color-door);
+        }
+
+        /* --- Entities (Dynamic Layer) --- */
+        .entity {
+            position: absolute;
+            width: 64px;
+            height: 64px;
+            pointer-events: none;
+            z-index: 20;
+            transition: top 0.15s cubic-bezier(0.4, 0, 0.2, 1), 
+                        left 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            display: grid;
+            place-items: center;
+        }
+
+        /* Player */
+        .player-sphere {
+            width: 42px;
+            height: 42px;
+            background: radial-gradient(circle at 30% 30%, #fff, var(--color-player));
+            border-radius: 50%;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5), 0 0 15px var(--color-player-glow);
+            position: relative;
+            z-index: 30;
+        }
+        /* Visor */
+        .player-sphere::after {
+            content: '';
+            position: absolute;
+            top: 14px; left: 6px;
+            width: 30px; height: 10px;
+            background: #111;
+            border-radius: 6px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        /* Crate */
+        .crate {
+            width: 52px;
+            height: 52px;
+            background: var(--color-crate);
+            border-radius: 4px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.6), 0 0 15px rgba(208, 0, 0, 0.3);
+            position: relative;
+            z-index: 25;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        /* Crate Highlight (Top Face) */
+        .crate::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 4px;
+            background: linear-gradient(135deg, var(--color-crate-light) 0%, var(--color-crate) 100%);
+            border-radius: 3px;
+            z-index: 1;
+        }
+        /* Crate Shadow (Bottom Face) */
+        .crate::after {
+            content: '';
+            position: absolute;
+            bottom: -2px; left: 2px; right: 2px; height: 4px;
+            background: var(--color-crate-dark);
+            border-radius: 0 0 2px 2px;
+        }
+        /* Cross */
+        .crate-inner {
+            width: 100%; height: 100%;
+            position: relative;
+            z-index: 2;
+        }
+        .crate-inner::before, .crate-inner::after {
+            content: ''; position: absolute; background: rgba(0,0,0,0.3);
+        }
+        .crate-inner::before { top: 0; left: 50%; width: 2px; height: 100%; transform: translateX(-50%); }
+        .crate-inner::after { left: 0; top: 50%; height: 2px; width: 100%; transform: translateY(-50%); }
+
+        /* Lever */
+        .lever-entity {
+            width: 64px;
+            height: 64px;
+            z-index: 15;
+        }
+        /* Base */
+        .lever-base {
+            width: 24px; height: 24px;
+            background: #222;
+            border: 2px solid #444;
+            border-radius: 50%;
+            position: absolute;
+            bottom: 12px; left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        /* Stick */
+        .lever-stick {
+            width: 6px; height: 28px;
+            background: #888;
+            position: absolute;
+            bottom: 22px; left: 50%;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-25deg);
+            border-radius: 3px;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        /* Knob */
+        .lever-knob {
+            width: 18px; height: 18px;
+            background: #666;
+            border-radius: 50%;
+            position: absolute;
+            top: -8px; left: 50%;
+            transform: translateX(-50%);
+            box-shadow: inset -2px -2px 5px rgba(0,0,0,0.5);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        /* Active Lever State */
+        .lever-entity.active .lever-base {
+            border-color: var(--color-lever);
+            box-shadow: 0 0 15px var(--color-lever-glow);
+        }
+        .lever-entity.active .lever-knob {
+            background: var(--color-lever);
+            box-shadow: 0 0 15px var(--color-lever);
+        }
+        .lever-entity.active .lever-stick {
+            transform: translateX(-50%) rotate(25deg);
+        }
+
+        /* --- Footer / Legend --- */
+        .footer-controls {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+            padding: 1rem 2rem;
+            background: var(--bg-panel);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        
+        .legend-icon {
+            width: 24px; height: 24px;
+            display: grid;
+            place-items: center;
+        }
+        /* Simplified CSS Icons for Legend to match board exactly */
+        .icon-player { width: 12px; height: 12px; background: var(--color-player); border-radius: 50%; box-shadow: 0 0 5px var(--color-player-glow); }
+        .icon-crate { width: 12px; height: 12px; background: var(--color-crate); border-radius: 2px; }
+        .icon-lever { width: 4px; height: 12px; background: #666; position: relative; }
+        .icon-lever::after { content:''; position: absolute; top:-3px; left:-3px; width:10px; height:10px; border-radius:50%; background: var(--color-lever); box-shadow: 0 0 5px var(--color-lever); }
+        .icon-target { width: 12px; height: 12px; border: 1px dashed var(--color-target-border); border-radius: 50%; }
+        .icon-door { width: 12px; height: 12px; border: 1px solid var(--color-door); box-shadow: 0 0 5px var(--color-door-glow); }
+
+        .key-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .kbd {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            color: var(--text-main);
+            border-bottom: 2px solid rgba(0,0,0,0.3);
+        }
+
+        /* Animations */
+        @keyframes spin-slow { 100% { transform: rotate(360deg); } }
+
+        /* Responsive */
+        @media (max-width: 800px) {
+            .game-container { padding: 1rem; }
+            .puzzle-board { transform: scale(0.85); }
+            .footer-controls { flex-wrap: wrap; justify-content: center; gap: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        
+        <!-- Top HUD -->
+        <header class="hud-bar">
+            <div class="brand">
+                <div class="brand-icon"></div>
+                <div class="brand-title">Grid Protocol</div>
+            </div>
+            <div class="stats-group">
+                <div class="stat-box">
+                    <span class="stat-label">Level</span>
+                    <span class="stat-value">04-B</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Moves</span>
+                    <span class="stat-value" id="move-count">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">System</span>
+                    <span class="stat-value status-locked" id="status-indicator">LOCKED</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Game Board -->
+        <div class="board-wrapper">
+            <div class="puzzle-board" id="board">
+                <!-- Grid generated by JS -->
+            </div>
+            <!-- Entities injected by JS -->
+        </div>
+
+        <!-- Footer Legend -->
+        <footer class="footer-controls">
+            <div class="legend-item">
+                <div class="legend-icon icon-player"></div>
+                <span>Operator</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon icon-crate"></div>
+                <span>Crate</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon icon-lever"></div>
+                <span>Lever</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon icon-target"></div>
+                <span>Target</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon icon-door"></div>
+                <span>Exit</span>
+            </div>
+            <div class="key-hint">
+                Move: <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span>
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const TILE_SIZE = 64; 
+        const GRID_SIZE = 8;
+        
+        // Map Key: 0: Floor, 1: Wall, 2: Lever, 3: Door, 4: Target, 9: Start
+        // Layout: Player (9) bottom left, Walls, Crates, Lever (2), Door (3)
+        const levelMap = [
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 1, 0, 3, 1], // Door top right
+            [1, 0, 1, 0, 1, 0, 1, 1],
+            [1, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 1],
+            [1, 0, 0, 0, 2, 0, 0, 1], // Lever
+            [1, 9, 0, 0, 1, 4, 0, 1], // Start, Target
+            [1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        // Initial State
+        const player = { x: 1, y: 6 }; // Bottom left
+        
+        const crates = [
+            { x: 3, y: 5 }, 
+            { x: 5, y: 4 }  
+        ];
+        
+        let leverActivated = false;
+        let moves = 0;
+
+        const boardEl = document.getElementById('board');
+        const boardWrapperEl = document.querySelector('.board-wrapper');
+        const moveCountEl = document.getElementById('move-count');
+        const statusEl = document.getElementById('status-indicator');
+
+        // --- Render Functions ---
+
+        function renderBoard() {
+            boardEl.innerHTML = ''; 
+            
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const tileVal = levelMap[y][x];
+                    const tile = document.createElement('div');
+                    tile.classList.add('tile');
+                    
+                    if (tileVal === 1) {
+                        tile.classList.add('wall');
+                    } else {
+                        tile.classList.add('floor');
+                    }
+
+                    if (tileVal === 2) tile.classList.add('lever-base-tile');
+                    if (tileVal === 3) tile.classList.add('door');
+                    if (tileVal === 4) tile.classList.add('target');
+                    
+                    boardEl.appendChild(tile);
+                }
+            }
+        }
+
+        function renderEntities() {
+            // Remove existing entities
+            document.querySelectorAll('.entity').forEach(e => e.remove());
+
+            // Render Player
+            const playerEl = document.createElement('div');
+            playerEl.className = 'entity player-sphere';
+            updateEntityPosition(playerEl, player.x, player.y);
+            boardWrapperEl.appendChild(playerEl);
+
+            // Render Crates
+            crates.forEach(crate => {
+                const crateEl = document.createElement('div');
+                crateEl.className = 'entity crate';
+                crateEl.innerHTML = '<div class="crate-inner"></div>';
+                updateEntityPosition(crateEl, crate.x, crate.y);
+                boardWrapperEl.appendChild(crateEl);
+            });
+
+            // Render Lever
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    if (levelMap[y][x] === 2) {
+                        const leverEl = document.createElement('div');
+                        leverEl.className = 'entity lever-entity';
+                        if (leverActivated) leverEl.classList.add('active');
+                        updateEntityPosition(leverEl, x, y);
+                        
+                        leverEl.innerHTML = `
+                            <div class="lever-base"></div>
+                            <div class="lever-stick">
+                                <div class="lever-knob"></div>
+                            </div>
+                        `;
+                        
+                        boardWrapperEl.appendChild(leverEl);
+                    }
+                }
+            }
+        }
+
+        function updateEntityPosition(el, x, y) {
+            // Calculate position relative to the board-wrapper container
+            // We need the offset of the board inside the wrapper
+            const boardRect = boardEl.getBoundingClientRect();
+            const wrapperRect = boardWrapperEl.getBoundingClientRect();
+            
+            // Distance from wrapper edge to board edge
+            const offsetX = boardRect.left - wrapperRect.left;
+            const offsetY = boardRect.top - wrapperRect.top;
+
+            const top = offsetY + (y * TILE_SIZE); 
+            const left = offsetX + (x * TILE_SIZE);
+
+            el.style.top = `${top}px`;
+            el.style.left = `${left}px`;
+        }
+
+        // --- Interactivity ---
+        
+        function movePlayer(dx, dy) {
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+
+            // Check Bounds
+            if (newX < 0 || newX >= GRID_SIZE || newY < 0 || newY >= GRID_SIZE) return;
+
+            // Check Wall
+            if (levelMap[newY][newX] === 1) return;
+
+            // Check Crate Collision
+            const crateIndex = crates.findIndex(c => c.x === newX && c.y === newY);
+            
+            if (crateIndex !== -1) {
+                // Pushing a crate
+                const nextCrateX = newX + dx;
+                const nextCrateY = newY + dy;
+
+                // Can we push?
+                if (
+                    nextCrateX >= 0 && nextCrateX < GRID_SIZE &&
+                    nextCrateY >= 0 && nextCrateY < GRID_SIZE &&
+                    levelMap[nextCrateY][nextCrateX] !== 1 &&
+                    !crates.some(c => c.x === nextCrateX && c.y === nextCrateY)
+                ) {
+                    // Move crate
+                    crates[crateIndex] = { x: nextCrateX, y: nextCrateY };
+                    // Move player
+                    player.x = newX;
+                    player.y = newY;
+                    
+                    // Check if crate landed on Lever (Activates it)
+                    if (levelMap[newY][newX] === 2) {
+                        leverActivated = true;
+                        updateStatus("ACTIVE", "status-active");
+                    }
+                    
+                    incrementMoves();
+                    renderEntities();
+                }
+            } else {
+                // Empty space
+                player.x = newX;
+                player.y = newY;
+                
+                // Check if player landed on Lever (Toggle manually)
+                if (levelMap[newY][newX] === 2) {
+                    leverActivated = !leverActivated;
+                    updateStatus(leverActivated ? "ACTIVE" : "LOCKED", leverActivated ? "status-active" : "status-locked");
+                }
+
+                incrementMoves();
+                renderEntities();
+            }
+        }
+
+        function incrementMoves() {
+            moves++;
+            moveCountEl.innerText = moves;
+        }
+
+        function updateStatus(text, className) {
+            statusEl.innerText = text;
+            statusEl.className = 'stat-value ' + className;
+        }
+
+        // --- Initialization ---
+
+        function init() {
+            renderBoard();
+            // Delay slightly to ensure layout is calculated
+            requestAnimationFrame(() => {
+                renderEntities();
+                window.addEventListener('resize', renderEntities);
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': movePlayer(0, -1); break;
+                case 'ArrowDown': case 's': case 'S': movePlayer(0, 1); break;
+                case 'ArrowLeft': case 'a': case 'A': movePlayer(-1, 0); break;
+                case 'ArrowRight': case 'd': case 'D': movePlayer(1, 0); break;
+            }
+        });
+
+        init();
+
+    </script>
+</body>
+</html>

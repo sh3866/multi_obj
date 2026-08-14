@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree - The Descent</title>
+<style>
+  :root {
+    --crt-flicker: 0.02;
+    --scanline-opacity: 0.4;
+    --screen-glow: 0px 0px 40px rgba(100, 200, 255, 0.1);
+  }
+
+  @font-face {
+    font-family: 'PixelFont';
+    src: local('Courier New'), local('Courier'), local('monospace');
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #050505;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'PixelFont', monospace;
+    color: white;
+  }
+
+  /* --- CRT Monitor Hardware --- */
+  #monitor {
+    position: relative;
+    width: 900px;
+    height: 700px;
+    max-width: 100%;
+    max-height: 100%;
+    background: #1a1a1a;
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 
+      inset 0 0 20px #000,
+      0 0 0 2px #333,
+      0 30px 60px rgba(0,0,0,0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Plastic texture for monitor */
+  #monitor::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.05), transparent 70%);
+    border-radius: 20px;
+    pointer-events: none;
+  }
+
+  #screen-container {
+    position: relative;
+    width: 800px;
+    height: 560px; /* 4:3 Aspect Ratio */
+    background: #000;
+    border-radius: 60px; /* CRT Curvature */
+    overflow: hidden;
+    box-shadow: 
+      inset 0 0 80px rgba(0,0,0,0.9),
+      0 0 0 10px #111;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* Crucial for retro look */
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    opacity: 0.9;
+  }
+
+  /* --- CRT Effects Overlays --- */
+  .crt-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  /* Scanlines */
+  #scanlines {
+    background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0),
+      rgba(255,255,255,0) 2px,
+      rgba(0,0,0,0.25) 2px,
+      rgba(0,0,0,0.25) 4px
+    );
+    background-size: 100% 4px;
+    animation: scrollLines 4s linear infinite;
+  }
+
+  /* Vignette & Curvature Shadow */
+  #vignette {
+    background: radial-gradient(circle, rgba(0,0,0,0) 50%, rgba(0,0,0,0.6) 90%, rgba(0,0,0,0.9) 100%);
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.7);
+  }
+
+  /* RGB Glow/Bloom */
+  #glow {
+    background: rgba(100, 200, 255, 0.03);
+    mix-blend-mode: overlay;
+  }
+
+  /* Screen Flicker */
+  #flicker {
+    background: rgba(255,255,255,0.02);
+    opacity: 0;
+    animation: flicker 0.15s infinite;
+  }
+
+  /* --- UI Layer (HTML Overlay) --- */
+  #ui-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    text-shadow: 0 0 5px rgba(0, 150, 255, 0.5);
+  }
+
+  /* Typography */
+  h1 {
+    font-size: 72px;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 15px;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 12;
+    /* Retro Chromatic Aberration */
+    text-shadow: 
+      -2px 0 rgba(255,0,0,0.5), 
+      2px 0 rgba(0,255,255,0.5),
+      0 4px 0 #0044aa;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: #88ccff;
+    letter-spacing: 8px;
+    margin-bottom: 50px;
+    opacity: 0.8;
+    text-shadow: 0 0 10px #0044aa;
+  }
+
+  /* HUD */
+  .hud {
+    position: absolute;
+    top: 40px;
+    right: 60px;
+    text-align: right;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #aaccff;
+    text-shadow: 2px 2px 0 #000;
+    font-weight: bold;
+  }
+
+  /* Start Button */
+  .btn-start {
+    pointer-events: auto;
+    font-family: 'PixelFont', monospace;
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+    background: #cc0000;
+    border: 4px solid #fff;
+    padding: 15px 50px;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.1s;
+    box-shadow: 
+      0 6px 0 #660000,
+      0 10px 10px rgba(0,0,0,0.4);
+    z-index: 12;
+  }
+
+  .btn-start:hover {
+    background: #ff2222;
+    transform: translateY(-2px);
+    box-shadow: 
+      0 8px 0 #660000,
+      0 15px 20px rgba(0,0,0,0.4),
+      0 0 20px rgba(255,0,0,0.4);
+  }
+
+  .btn-start:active {
+    transform: translateY(4px);
+    box-shadow: 
+      0 2px 0 #660000,
+      0 4px 5px rgba(0,0,0,0.4);
+  }
+
+  /* Instructions */
+  .instructions {
+    margin-top: 40px;
+    display: flex;
+    gap: 30px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 15px 30px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    backdrop-filter: blur(2px);
+    z-index: 12;
+    pointer-events: auto;
+  }
+
+  .key-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #ddd;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 6px 10px;
+    background: #333;
+    border: 2px solid #555;
+    border-bottom: 4px solid #111;
+    border-radius: 4px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 12px;
+    min-width: 20px;
+    text-align: center;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+  }
+
+  .footer {
+    position: absolute;
+    bottom: 30px;
+    font-size: 10px;
+    color: #666;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  @keyframes scrollLines {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 100%; }
+  }
+
+  @keyframes flicker {
+    0% { opacity: 0.02; }
+    5% { opacity: 0.05; }
+    10% { opacity: 0.02; }
+    15% { opacity: 0.06; }
+    20% { opacity: 0.02; }
+    50% { opacity: 0.02; }
+    55% { opacity: 0.05; }
+    60% { opacity: 0.02; }
+    100% { opacity: 0.02; }
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .blink { animation: blink 1s step-end infinite; }
+
+</style>
+</head>
+<body>
+
+<div id="monitor">
+  <div id="screen-container">
+    <canvas id="gameCanvas" width="320" height="240"></canvas>
+    
+    <!-- CRT Effects -->
+    <div class="crt-layer" id="scanlines"></div>
+    <div class="crt-layer" id="vignette"></div>
+    <div class="crt-layer" id="glow"></div>
+    <div class="crt-layer" id="flicker"></div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+      <div class="hud">
+        SCORE: <span style="color:#fff; font-size:1.2em">000000</span><br>
+        SPEED: <span style="color:#fff">00</span> MPH
+      </div>
+
+      <div class="title-group">
+        <h1>SkiFree</h1>
+        <div class="subtitle">THE ENDLESS DESCENT</div>
+      </div>
+
+      <button class="btn-start" id="startBtn">Start Game</button>
+
+      <div class="instructions">
+        <div class="key-group"><kbd>←</kbd><kbd>→</kbd> Steer</div>
+        <div class="key-group"><kbd>↑</kbd> Fast</div>
+        <div class="key-group"><kbd>↓</kbd> Brake</div>
+      </div>
+    </div>
+
+    <div class="footer">© 1991 SKIFREE INC. - <span class="blink">PRESS START</span></div>
+  </div>
+</div>
+
+<script>
+/**
+ * SKIFREE REIMAGINED - VISUAL ENGINE
+ * Optimized for retro aesthetic and performance
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 320;
+const H = 240;
+
+// Disable smoothing for crisp pixels
+ctx.imageSmoothingEnabled = false;
+
+// --- PALETTE & ASSETS ---
+const COLORS = {
+  skyTop: '#050510',
+  skyBot: '#1a2a4a',
+  snow: '#dce8f0',
+  snowDark: '#b0c0d0',
+  snowShadow: '#8090a0',
+  treeDark: '#0a1a0a',
+  treeLight: '#1a3a1a',
+  treeSnow: '#e0e8f0',
+  trunk: '#2a1a10',
+  skierRed: '#d02020',
+  skierDarkRed: '#801010',
+  skierSkin: '#e0b090',
+  skierHair: '#3a2010',
+  skierPants: '#102040',
+  skierGoggles: '#111',
+  skierGoggleHi: '#445',
+  skierScarf: '#106010',
+  skierScarfDark: '#0a400a',
+  skierSkis: '#e0e0e0',
+  skierPoles: '#555',
+};
+
+// --- STATE ---
+let frame = 0;
+let mouseX = W / 2;
+let mouseY = H / 2;
+let skierX = W / 2;
+
+// --- PARTICLES ---
+const snowflakes = [];
+for(let i=0; i<150; i++) {
+  snowflakes.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    s: Math.random() * 2 + 1,
+    speed: Math.random() * 2 + 1,
+    drift: Math.random() * 0.5 - 0.25,
+    op: Math.random() * 0.5 + 0.2
+  });
+}
+
+// --- SCENERY GENERATION ---
+const mountains = [];
+for(let i=0; i<8; i++) {
+  mountains.push({
+    x: Math.random() * 400 - 50,
+    y: 50 + Math.random() * 30,
+    w: 60 + Math.random() * 80,
+    h: 40 + Math.random() * 40,
+    layer: Math.random() > 0.5 ? 1 : 0 // 0=far, 1=near
+  });
+}
+mountains.sort((a,b) => a.layer - b.layer);
+
+const trees = [];
+for(let i=0; i<30; i++) {
+  trees.push({
+    x: Math.random() * W,
+    y: 80 + Math.random() * (H - 100),
+    s: 0.6 + Math.random() * 0.8,
+    type: Math.floor(Math.random() * 3)
+  });
+}
+trees.sort((a,b) => a.y - b.y); // Depth sort
+
+// --- DRAWING FUNCTIONS ---
+
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+}
+
+function drawSky() {
+  const grad = ctx.createLinearGradient(0, 0, 0, 80);
+  grad.addColorStop(0, COLORS.skyTop);
+  grad.addColorStop(1, COLORS.skyBot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, 80);
+  
+  // Stars
+  ctx.fillStyle = '#fff';
+  for(let i=0; i<20; i++) {
+    const sx = (i * 37) % W;
+    const sy = (i * 13) % 60;
+    if(Math.random() > 0.1) ctx.fillRect(sx, sy, 1, 1);
+  }
+}
+
+function drawMountain(m) {
+  const baseY = 75;
+  const color = m.layer === 0 ? '#1a2a4a' : '#2a3a5a';
+  const snowColor = m.layer === 0 ? '#4a5a7a' : '#6a7a9a';
+  
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(m.x, baseY);
+  ctx.lineTo(m.x + m.w/2, m.y);
+  ctx.lineTo(m.x + m.w, baseY);
+  ctx.fill();
+  
+  // Snow cap
+  ctx.fillStyle = snowColor;
+  ctx.beginPath();
+  ctx.moveTo(m.x + m.w/2, m.y);
+  ctx.lineTo(m.x + m.w/2 - m.w*0.15, m.y + m.h*0.3);
+  ctx.lineTo(m.x + m.w/2 + m.w*0.15, m.y + m.h*0.3);
+  ctx.fill();
+}
+
+function drawSnowGround() {
+  // Base gradient
+  const grad = ctx.createLinearGradient(0, 70, 0, H);
+  grad.addColorStop(0, COLORS.snowDark);
+  grad.addColorStop(1, COLORS.snow);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 70, W, H - 70);
+  
+  // Horizon line
+  ctx.fillStyle = '#0a1a2a';
+  for(let x=0; x<W; x+=2) {
+    const h = Math.sin(x*0.1)*2 + 2;
+    ctx.fillRect(x, 72-h, 2, h);
+  }
+  
+  // Texture dots
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for(let i=0; i<100; i++) {
+    const tx = Math.random() * W;
+    const ty = 75 + Math.random() * (H-80);
+    ctx.fillRect(tx, ty, 1, 1);
+  }
+}
+
+function drawTree(t) {
+  const s = t.s;
+  const tx = t.x;
+  const ty = t.y;
+  
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(tx + 2, ty + 1, 6*s, 2*s, 0, 0, Math.PI*2);
+  ctx.fill();
+  
+  // Trunk
+  drawRect(tx - 1, ty - 2, 2, 4*s, COLORS.trunk);
+  
+  // Foliage (Pixel Art style)
+  const c1 = COLORS.treeDark;
+  const c2 = COLORS.treeLight;
+  
+  // Layer 1 (Top)
+  drawRect(tx - 2*s, ty - 12*s, 4*s, 3*s, c1);
+  drawRect(tx - 1*s, ty - 12*s, 1*s, 1*s, c2); // Highlight
+  
+  // Layer 2
+  drawRect(tx - 4*s, ty - 9*s, 8*s, 3*s, c1);
+  drawRect(tx - 2*s, ty - 9*s, 1*s, 1*s, c2);
+  
+  // Layer 3
+  drawRect(tx - 6*s, ty - 6*s, 12*s, 3*s, c1);
+  drawRect(tx - 4*s, ty - 6*s, 1*s, 1*s, c2);
+  
+  // Snow on top
+  drawRect(tx - 2*s, ty - 13*s, 4*s, 1*s, COLORS.treeSnow);
+  drawRect(tx - 4*s, ty - 10*s, 2*s, 1*s, COLORS.treeSnow);
+}
+
+function drawSkier(x, y, dir) {
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.scale(dir, 1); // Flip horizontally
+  
+  // Bobbing animation
+  const bob = Math.sin(frame * 0.2) * 1;
+  const legSpread = Math.sin(frame * 0.2) * 2;
+  
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(-8, 14, 16, 3);
+  
+  // Skis
+  drawRect(-10, 12, 8, 2, COLORS.skierSkis);
+  drawRect(2, 12, 8, 2, COLORS.skierSkis);
+  drawRect(-10, 13, 8, 1, '#999'); // Shadow on ski
+  drawRect(2, 13, 8, 1, '#999');
+
+  // Legs
+  drawRect(-4, 8, 2, 4, COLORS.skierPants);
+  drawRect(2, 8, 2, 4, COLORS.skierPants);
+  
+  // Boots
+  drawRect(-5, 10, 3, 2, COLORS.skierDarkRed);
+  drawRect(2, 10, 3, 2, COLORS.skierDarkRed);
+
+  // Body (Jacket)
+  drawRect(-4, 0, 8, 8, COLORS.skierRed);
+  drawRect(-4, 2, 8, 2, COLORS.skierDarkRed); // Belt/Shade
+  drawRect(-3, 0, 1, 8, 'rgba(255,255,255,0.1)'); // Highlight
+  
+  // Arms & Poles
+  // Left Arm
+  drawRect(-7, 1, 3, 2, COLORS.skierRed);
+  drawRect(-8, 1, 1, 12, COLORS.skierPoles);
+  drawRect(-9, 12, 2, 1, COLORS.skierPoles); // Basket
+  // Right Arm
+  drawRect(4, 1, 3, 2, COLORS.skierRed);
+  drawRect(7, 1, 1, 12, COLORS.skierPoles);
+  drawRect(7, 12, 2, 1, COLORS.skierPoles); // Basket
+
+  // Head
+  drawRect(-3, -6, 6, 5, COLORS.skierSkin);
+  
+  // Hair
+  drawRect(-3, -7, 6, 2, COLORS.skierHair);
+  drawRect(-4, -6, 1, 3, COLORS.skierHair);
+  
+  // Goggles
+  drawRect(0, -5, 3, 2, COLORS.skierGoggles);
+  drawRect(1, -5, 2, 1, COLORS.skierGoggleHi);
+  
+  // Scarf
+  drawRect(-4, -1, 6, 2, COLORS.skierScarf);
+  drawRect(-6, 0, 2, 6, COLORS.skierScarf); // Tail
+  drawRect(-6, 4, 2, 2, COLORS.skierScarfDark); // Tail tip
+
+  ctx.restore();
+}
+
+function drawSnowflakes() {
+  ctx.fillStyle = '#fff';
+  snowflakes.forEach(f => {
+    f.y += f.speed;
+    f.x += f.drift + Math.sin(f.y * 0.05) * 0.2;
+    if(f.y > H) f.y = -2;
+    if(f.x > W) f.x = 0;
+    if(f.x < 0) f.x = W;
+    
+    ctx.globalAlpha = f.op;
+    ctx.fillRect(Math.round(f.x), Math.round(f.y), f.s, f.s);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawTracks() {
+  ctx.strokeStyle = 'rgba(100,120,140,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for(let i=0; i<5; i++) {
+    const startX = 40 + i * 70;
+    ctx.moveTo(startX, 80);
+    for(let y=80; y<H; y+=5) {
+      ctx.lineTo(startX + Math.sin(y*0.05 + i)*20, y);
+    }
+  }
+  ctx.stroke();
+}
+
+// --- MAIN LOOP ---
+
+function render() {
+  frame++;
+  
+  // Clear
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Draw Scene
+  drawSky();
+  mountains.forEach(m => drawMountain(m));
+  drawSnowGround();
+  drawTracks();
+  
+  // Draw Trees (sorted by Y)
+  trees.forEach(t => drawTree(t));
+  
+  // Draw Skier (Interactive with Mouse)
+  // Map mouse X to skier X, but clamp
+  const targetX = Math.max(20, Math.min(W-20, mouseX));
+  // Smooth lerp
+  skierX = skierX + (targetX - skierX) * 0.1;
+  const skierDir = targetX > skierX ? 1 : -1;
+  
+  drawSkier(skierX, 180, skierDir);
+  
+  drawSnowflakes();
+  
+  requestAnimationFrame(render);
+}
+
+// --- INTERACTION ---
+
+// Track mouse for skier movement
+document.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  mouseX = (e.clientX - rect.left) * scaleX;
+  mouseY = (e.clientY - rect.top) * scaleY;
+});
+
+// Initial render call
+render();
+
+// Button Logic
+const btn = document.getElementById('startBtn');
+btn.addEventListener('click', () => {
+  // Visual feedback
+  btn.style.transform = 'translateY(4px)';
+  btn.style.boxShadow = '0 0 0 #660000';
+  
+  setTimeout(() => {
+    alert("SYSTEM INITIALIZED.\n\nLOADING SLOPE DATA...\n\n(This is a demo start screen)");
+    btn.style.transform = '';
+    btn.style.boxShadow = '';
+  }, 150);
+});
+
+</script>
+</body>
+</html>

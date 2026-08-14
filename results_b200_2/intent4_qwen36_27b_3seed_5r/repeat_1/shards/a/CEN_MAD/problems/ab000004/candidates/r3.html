@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense - Tactical Command</title>
+<style>
+  :root {
+    --bg-dark: #05070a;
+    --bg-panel: rgba(8, 18, 28, 0.85);
+    --color-primary: #00f0ff; /* Cyan */
+    --color-primary-dim: rgba(0, 240, 255, 0.15);
+    --color-primary-glow: rgba(0, 240, 255, 0.4);
+    --color-alert: #ff2a4d;   /* Red */
+    --color-warn: #ffaa00;    /* Amber */
+    --color-text: #e0f0ff;
+    --color-text-muted: #8aa6c0;
+    --font-mono: 'Courier New', Courier, monospace; 
+    --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-dark);
+    font-family: var(--font-ui);
+    color: var(--color-text);
+  }
+
+  /* --- ATMOSPHERE & BACKGROUND --- */
+  #scene-container {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+    background: radial-gradient(circle at 50% 30%, #0a1525 0%, #020305 100%);
+  }
+
+  canvas { display: block; width: 100%; height: 100%; opacity: 0.8; }
+
+  /* CRT Scanlines */
+  .scanlines {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0.5;
+  }
+
+  .vignette {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle, transparent 50%, #000 100%);
+    pointer-events: none;
+    z-index: 11;
+  }
+
+  /* --- MAIN UI LAYOUT --- */
+  .ui-layer {
+    position: relative;
+    z-index: 20;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+  }
+
+  /* --- HUD HEADER --- */
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    height: 70px;
+    padding: 0 20px;
+    margin-bottom: 10px;
+    /* Subtle Frame */
+    background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+    border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+
+  .hud-block { display: flex; flex-direction: column; justify-content: center; }
+  
+  .hud-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 2px;
+    opacity: 0.7;
+    text-shadow: 0 0 5px var(--color-primary-dim);
+  }
+
+  .hud-data {
+    font-family: var(--font-mono);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    opacity: 0.85; /* Reduced opacity per request */
+  }
+
+  .hud-data .sub { font-size: 0.7em; color: var(--color-text-muted); opacity: 0.8; }
+  .hud-data .val-alert { color: var(--color-alert); text-shadow: 0 0 8px var(--color-alert); }
+  .hud-data .val-warn { color: var(--color-warn); text-shadow: 0 0 8px rgba(255, 170, 0, 0.4); }
+
+  /* --- CENTRAL COMMAND --- */
+  .central-command {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px; /* Tighter rhythm */
+    width: 100%;
+    max-width: 750px;
+    margin: 0 auto;
+    padding-bottom: 40px; /* Visual balance */
+  }
+
+  /* Title */
+  .game-title {
+    font-family: var(--font-ui);
+    font-size: 3.8rem;
+    font-weight: 900;
+    letter-spacing: 12px;
+    margin: 0;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, #ffffff 0%, #a1c4d6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    /* Text Glow */
+    filter: drop-shadow(0 0 20px rgba(0, 240, 255, 0.3));
+    text-align: center;
+    line-height: 0.9;
+  }
+
+  /* Briefing Panel */
+  .briefing-panel {
+    /* Distinct Container */
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-left: 4px solid var(--color-primary);
+    padding: 16px 32px;
+    position: relative;
+    text-align: center;
+    width: 100%;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+  }
+
+  .briefing-text {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--color-text); /* Increased contrast */
+    letter-spacing: 0.5px;
+    margin: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .briefing-text strong { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.5); }
+  .briefing-text .warn { 
+    color: var(--color-alert); 
+    font-weight: bold;
+    text-shadow: 0 0 10px var(--color-alert);
+  }
+
+  /* --- UPGRADE MENU (Moved Above Button) --- */
+  .upgrade-menu {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    /* No margin-top to keep flow tight with briefing */
+  }
+
+  /* Redesigned Interactive Buttons */
+  .upgrade-btn {
+    flex: 1;
+    /* Dark Glass */
+    background: rgba(10, 20, 30, 0.6);
+    /* Distinct Border */
+    border: 1px solid var(--color-primary);
+    box-shadow: 0 0 10px var(--color-primary-dim), inset 0 0 20px rgba(0, 240, 255, 0.05);
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    /* Clip path for sci-fi corners */
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+
+  .upgrade-btn:hover {
+    background: rgba(0, 240, 255, 0.1);
+    transform: translateY(-3px);
+    box-shadow: 0 0 20px var(--color-primary-glow);
+    border-color: #fff;
+  }
+
+  .btn-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+    padding-bottom: 8px;
+  }
+
+  .btn-title {
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-shadow: 0 0 5px var(--color-primary);
+  }
+
+  .btn-stat {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-warn);
+    font-weight: bold;
+  }
+
+  .btn-desc {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  /* BUY Label */
+  .upgrade-buy-tag {
+    position: absolute;
+    bottom: 8px;
+    right: 10px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    padding: 2px 6px;
+    border-radius: 2px;
+    opacity: 0.7;
+  }
+  .upgrade-btn:hover .upgrade-buy-tag {
+    color: #fff;
+    border-color: #fff;
+    background: var(--color-primary);
+    opacity: 1;
+  }
+
+  /* --- START BUTTON (Premium Sci-Fi) --- */
+  .start-btn {
+    background: linear-gradient(180deg, #00f0ff 0%, #0088aa 100%);
+    color: #000;
+    border: 1px solid #fff;
+    padding: 18px 80px;
+    font-family: var(--font-ui);
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Tactile Glow & Inner Border */
+    box-shadow: 
+      0 0 25px var(--color-primary-glow), 
+      inset 0 1px 0 rgba(255,255,255,0.8), 
+      inset 0 -2px 5px rgba(0,0,0,0.3);
+    margin-top: 10px;
+    /* Angled corners */
+    clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
+  }
+
+  .start-btn:hover {
+    background: linear-gradient(180deg, #fff 0%, #ccffff 100%);
+    box-shadow: 0 0 40px var(--color-primary), inset 0 1px 0 #fff;
+    transform: scale(1.02);
+  }
+  
+  .start-btn:active {
+    transform: scale(0.98);
+  }
+
+  /* Icons */
+  svg {
+    width: 18px; height: 18px;
+    stroke: var(--color-primary);
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: square;
+    stroke-linejoin: miter;
+    filter: drop-shadow(0 0 2px var(--color-primary));
+  }
+
+  /* Mobile Adjustments */
+  @media (max-width: 768px) {
+    .game-title { font-size: 2.2rem; letter-spacing: 4px; }
+    .upgrade-menu { flex-direction: column; gap: 12px; }
+    .hud-header { flex-wrap: wrap; gap: 10px; height: auto; padding-bottom: 10px; }
+    .hud-block { min-width: 80px; }
+    .briefing-panel { padding: 12px 20px; font-size: 0.8rem; }
+    .start-btn { padding: 16px 40px; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 1. Background Scene -->
+<div id="scene-container">
+  <canvas id="bgCanvas"></canvas>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+</div>
+
+<!-- 2. UI Layer -->
+<div class="ui-layer">
+  
+  <!-- HUD Header -->
+  <header class="hud-header">
+    <!-- Left: Wave & HP -->
+    <div style="display:flex; gap: 40px;">
+      <div class="hud-block">
+        <span class="hud-label">Current Wave</span>
+        <span class="hud-data">
+          <span class="val-warn">WAVE 1</span>
+        </span>
+      </div>
+      
+      <div class="hud-block">
+        <span class="hud-label">Planet HP</span>
+        <span class="hud-data">
+          <svg viewBox="0 0 24 24" style="width:18px; height:18px; stroke:var(--color-alert); margin-right:4px; filter:drop-shadow(0 0 4px var(--color-alert));">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+          </svg>
+          100<span class="sub">%</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Center: Status -->
+    <div class="hud-block" style="align-items: center; opacity: 0.6;">
+      <span class="hud-label" style="letter-spacing: 6px; color: #fff;">SYS.RDY</span>
+    </div>
+
+    <!-- Right: Credits -->
+    <div class="hud-block" style="align-items: flex-end;">
+      <span class="hud-label">Credits</span>
+      <span class="hud-data" style="color: var(--color-warn);">100</span>
+    </div>
+  </header>
+
+  <!-- Central Command -->
+  <main class="central-command">
+    
+    <h1 class="game-title">Planet Defense</h1>
+    
+    <!-- Briefing Panel -->
+    <div class="briefing-panel">
+      <p class="briefing-text">
+        <strong>COMMANDER:</strong> Orbital shields critical. Hostiles detected in sector 7.<br>
+        Configure loadout below. <span class="warn">FAILURE IS NOT AN OPTION.</span>
+      </p>
+    </div>
+
+    <!-- Upgrade Menu (Now Above Button) -->
+    <section class="upgrade-menu">
+      
+      <!-- Upgrade 1: Damage -->
+      <div class="upgrade-btn">
+        <div class="btn-header">
+          <span class="btn-title">
+            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            DAMAGE
+          </span>
+          <span class="btn-stat">LVL 1</span>
+        </div>
+        <span class="btn-desc">Upgrade Impact</span>
+        <span class="upgrade-buy-tag">BUY</span>
+      </div>
+
+      <!-- Upgrade 2: Fire Rate -->
+      <div class="upgrade-btn">
+        <div class="btn-header">
+          <span class="btn-title">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            FIRE RATE
+          </span>
+          <span class="btn-stat">LVL 1</span>
+        </div>
+        <span class="btn-desc">Upgrade Fire Speed</span>
+        <span class="upgrade-buy-tag">BUY</span>
+      </div>
+
+      <!-- Upgrade 3: Speed (Corrected Name & Label) -->
+      <div class="upgrade-btn">
+        <div class="btn-header">
+          <span class="btn-title">
+            <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+            SPEED
+          </span>
+          <span class="btn-stat">LVL 1</span>
+        </div>
+        <span class="btn-desc">Upgrade Speed</span>
+        <span class="upgrade-buy-tag">BUY</span>
+      </div>
+
+    </section>
+
+    <!-- Primary CTA -->
+    <button class="start-btn">Initialize Defense</button>
+
+  </main>
+</div>
+
+<script>
+/**
+ * VISUAL ENGINE
+ * Renders a procedural holographic planet and starfield.
+ */
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+let width, height, cx, cy;
+let stars = [];
+let time = 0;
+
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  cx = width / 2;
+  cy = height / 2 + 60; // Planet center adjusted slightly
+  initStars();
+}
+
+function initStars() {
+  stars = [];
+  const numStars = 180;
+  for (let i = 0; i < numStars; i++) {
+    stars.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() * 1.8,
+      speed: Math.random() * 0.3 + 0.05,
+      alpha: Math.random()
+    });
+  }
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    ctx.globalAlpha = star.alpha * (0.5 + 0.5 * Math.sin(time * 0.03 + star.x));
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawPlanet() {
+  const radius = Math.min(width, height) * 0.38;
+  
+  // 1. Holographic Glow (Cyan)
+  const glow = ctx.createRadialGradient(cx, cy, radius * 0.8, cx, cy, radius * 1.5);
+  glow.addColorStop(0, 'rgba(0, 240, 255, 0.08)');
+  glow.addColorStop(0.6, 'rgba(0, 240, 255, 0.15)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. Planet Body (Wireframe style)
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+  
+  // Base Circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 3. Tech Grid (Longitudes/Latitudes)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.15)';
+  
+  // Longitudes
+  for(let i=1; i<=4; i++) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, radius * (i/5), radius, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Latitudes
+  for(let i=-4; i<=4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(cx - radius, cy + i * (radius * 0.25));
+    ctx.lineTo(cx + radius, cy + i * (radius * 0.25));
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // 4. Orbital Rings
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 10); 
+  
+  // Ring
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.6)';
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = 'rgba(0, 240, 255, 0.8)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 1.7, radius * 0.25, 0, 0, Math.PI * 2); 
+  ctx.stroke();
+  
+  // Satellite
+  const satAngle = time * 0.015;
+  const satX = Math.cos(satAngle) * (radius * 1.7);
+  const satY = Math.sin(satAngle) * (radius * 0.25);
+  
+  if (Math.sin(satAngle) > -0.2) {
+     ctx.fillStyle = '#fff';
+     ctx.shadowBlur = 8;
+     ctx.shadowColor = '#fff';
+     ctx.beginPath();
+     ctx.arc(satX, satY, 3, 0, Math.PI*2);
+     ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function animate() {
+  ctx.clearRect(0, 0, width, height);
+  time++;
+  drawStars();
+  drawPlanet();
+  requestAnimationFrame(animate);
+}
+
+window.addEventListener('resize', resize);
+resize();
+animate();
+</script>
+</body>
+</html>

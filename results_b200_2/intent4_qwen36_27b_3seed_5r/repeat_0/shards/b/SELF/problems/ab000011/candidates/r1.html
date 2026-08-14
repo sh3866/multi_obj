@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON & FLUX</title>
+<style>
+    :root {
+        --bg-dark: #090a0f;
+        --bg-panel: #13161f;
+        --accent-primary: #00f0ff;
+        --accent-secondary: #ff0055;
+        --accent-warn: #ffb700;
+        --text-main: #f0f6fc;
+        --text-muted: #6e7681;
+        --grid-line: #1c2128;
+        --tile-floor: #161b22;
+        --tile-wall: #0d1117;
+        --shadow-heavy: 0 20px 50px -12px rgba(0,0,0,0.9);
+        --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.3);
+        --glow-magenta: 0 0 20px rgba(255, 0, 85, 0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+    body {
+        background-color: var(--bg-dark);
+        background-image: 
+            radial-gradient(circle at 50% 0%, #1a202c 0%, transparent 50%),
+            linear-gradient(0deg, rgba(0,0,0,0.4) 0%, transparent 100%);
+        color: var(--text-main);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .game-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2.5rem;
+        width: 100%;
+        max-width: 900px;
+        padding: 20px;
+        position: relative;
+        z-index: 2;
+    }
+
+    /* Ambient background noise overlay */
+    .game-container::before {
+        content: '';
+        position: absolute;
+        top: -50%; left: -50%; width: 200%; height: 200%;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: -1;
+    }
+
+    /* --- LAYOUT & TYPOGRAPHY --- */
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        width: 100%;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding-bottom: 1.5rem;
+    }
+
+    h1 {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--text-main);
+        text-shadow: 0 0 10px rgba(255,255,255,0.1);
+    }
+    
+    h1 span { color: var(--text-muted); }
+
+    .hud {
+        display: flex;
+        gap: 3rem;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+
+    .hud-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1;
+    }
+
+    .hud-item span {
+        color: var(--accent-primary);
+        font-weight: bold;
+        font-size: 1.5rem;
+        margin-top: 4px;
+        text-shadow: var(--glow-cyan);
+    }
+
+    /* --- THE BOARD --- */
+    .board-wrapper {
+        position: relative;
+        padding: 12px;
+        background: rgba(13, 17, 23, 0.8);
+        border-radius: 6px;
+        box-shadow: var(--shadow-heavy), inset 0 0 0 1px rgba(255,255,255,0.05);
+        backdrop-filter: blur(10px);
+    }
+
+    /* Tech corner accents */
+    .board-wrapper::before, .board-wrapper::after {
+        content: ''; position: absolute; width: 12px; height: 12px;
+        border: 2px solid var(--accent-primary); transition: all 0.3s ease;
+        box-shadow: 0 0 10px var(--accent-primary);
+    }
+    .board-wrapper::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+    .board-wrapper::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+    #grid-canvas {
+        display: block;
+        cursor: crosshair;
+        border-radius: 2px;
+    }
+
+    /* --- CONTROLS LEGEND --- */
+    .controls {
+        display: flex;
+        gap: 3rem;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .control-group {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255,255,255,0.02);
+        padding: 10px 20px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.05);
+        transition: all 0.2s;
+    }
+
+    .control-group:hover {
+        background: rgba(255,255,255,0.04);
+        border-color: rgba(255,255,255,0.1);
+        transform: translateY(-2px);
+    }
+
+    .icon-box {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .key-badge {
+        background: rgba(255,255,255,0.1);
+        color: var(--text-main);
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-family: monospace;
+        border-bottom: 2px solid rgba(0,0,0,0.5);
+        box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+    }
+
+    .label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
+
+    /* --- FOOTER --- */
+    footer {
+        margin-top: 2rem;
+        font-size: 0.75rem;
+        color: #444;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+    }
+
+</style>
+</head>
+<body>
+
+<div class="game-container">
+    <header>
+        <h1>Iron <span>&</span> Flux</h1>
+        <div class="hud">
+            <div class="hud-item">LEVEL <span>04</span></div>
+            <div class="hud-item">MOVES <span>12</span></div>
+        </div>
+    </header>
+
+    <div class="board-wrapper">
+        <canvas id="grid-canvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <div class="icon-box">
+                <!-- Player Icon -->
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00f0ff" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="8" />
+                    <circle cx="12" cy="12" r="3" fill="#00f0ff" />
+                </svg>
+            </div>
+            <span class="label">MOVE <span class="key-badge">ARROWS</span></span>
+        </div>
+        <div class="control-group">
+            <div class="icon-box">
+                <!-- Crate Icon -->
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <line x1="4" y1="12" x2="20" y2="12" />
+                    <line x1="12" y1="4" x2="12" y2="20" />
+                </svg>
+            </div>
+            <span class="label">PUSH <span class="key-badge">WALK INTO</span></span>
+        </div>
+        <div class="control-group">
+            <div class="icon-box">
+                <!-- Lever Icon -->
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff0055" stroke-width="2.5">
+                    <path d="M12 22V12" />
+                    <path d="M12 12L18 6" />
+                    <circle cx="12" cy="22" r="2" fill="#ff0055"/>
+                </svg>
+            </div>
+            <span class="label">PULL <span class="key-badge">SPACE</span></span>
+        </div>
+    </div>
+
+    <footer>System Status: Online</footer>
+</div>
+
+<script>
+/**
+ * GAME ENGINE & RENDERER
+ */
+
+const canvas = document.getElementById('grid-canvas');
+const ctx = canvas.getContext('2d');
+
+// Configuration
+const TILE_SIZE = 80;
+const GRID_ROWS = 6;
+const GRID_COLS = 8;
+const GAP = 6; // Gap between tiles
+
+// Palette
+const COLORS = {
+    floor: '#161b22',
+    floorLight: '#1f2630',
+    wall: '#0d1117',
+    wallBevel: '#30363d',
+    gridLine: '#21262d',
+    player: '#00f0ff',
+    crate: '#ffb700',
+    crateDark: '#b8860b',
+    lever: '#ff0055',
+    door: '#0d1117',
+    doorFrame: '#30363d'
+};
+
+// Game State
+let gameState = {
+    player: { x: 1, y: 1 },
+    crates: [{ x: 3, y: 3 }, { x: 5, y: 2 }],
+    lever: { x: 4, y: 1, active: false },
+    door: { x: 6, y: 4, open: false },
+    target: { x: 2, y: 4 }, 
+    walls: [
+        {x:2, y:0}, {x:2, y:1}, {x:2, y:2}, 
+        {x:4, y:3}, {x:4, y:4}, {x:4, y:5},
+        {x:6, y:2}, {x:6, y:3}
+    ]
+};
+
+// Initialize Canvas
+function init() {
+    const width = GRID_COLS * TILE_SIZE;
+    const height = GRID_ROWS * TILE_SIZE;
+    
+    // Handle High DPI
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.scale(dpr, dpr);
+
+    draw();
+}
+
+// Drawing Helpers
+function drawRect(x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, TILE_SIZE - GAP, TILE_SIZE - GAP);
+}
+
+function drawGrid() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    for (let y = 0; y < GRID_ROWS; y++) {
+        for (let x = 0; x < GRID_COLS; x++) {
+            // Base floor
+            drawRect(x * TILE_SIZE, y * TILE_SIZE, COLORS.floor);
+            
+            // Subtle highlight on top/left for depth
+            ctx.fillStyle = 'rgba(255,255,255,0.02)';
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE - GAP, 2);
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, 2, TILE_SIZE - GAP);
+            
+            // Grid lines
+            ctx.strokeStyle = COLORS.gridLine;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x * TILE_SIZE, (y + 1) * TILE_SIZE - GAP);
+            ctx.lineTo((x + 1) * TILE_SIZE - GAP, (y + 1) * TILE_SIZE - GAP);
+            ctx.stroke();
+        }
+    }
+}
+
+function drawWalls() {
+    gameState.walls.forEach(w => {
+        const px = w.x * TILE_SIZE;
+        const py = w.y * TILE_SIZE;
+        
+        // Wall Base
+        drawRect(px, py, COLORS.wall);
+        
+        // 3D Bevel (Top/Left Light, Bottom/Right Dark)
+        ctx.fillStyle = COLORS.wallBevel;
+        // Top
+        ctx.fillRect(px, py, TILE_SIZE - GAP, 4);
+        // Left
+        ctx.fillRect(px, py, 4, TILE_SIZE - GAP);
+        
+        ctx.fillStyle = '#000';
+        // Bottom
+        ctx.fillRect(px, py + TILE_SIZE - GAP - 4, TILE_SIZE - GAP, 4);
+        // Right
+        ctx.fillRect(px + TILE_SIZE - GAP - 4, py, 4, TILE_SIZE - GAP);
+        
+        // Tech detail on wall
+        ctx.fillStyle = '#000';
+        ctx.fillRect(px + 10, py + 10, TILE_SIZE - GAP - 20, TILE_SIZE - GAP - 20);
+        ctx.strokeStyle = '#222';
+        ctx.strokeRect(px + 12, py + 12, TILE_SIZE - GAP - 24, TILE_SIZE - GAP - 24);
+    });
+}
+
+function drawTarget() {
+    const t = gameState.target;
+    const cx = t.x * TILE_SIZE + TILE_SIZE/2;
+    const cy = t.y * TILE_SIZE + TILE_SIZE/2;
+    
+    ctx.save();
+    ctx.strokeStyle = '#444';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Inner dot
+    ctx.fillStyle = '#444';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawDoor() {
+    const d = gameState.door;
+    const px = d.x * TILE_SIZE;
+    const py = d.y * TILE_SIZE;
+    
+    // Door Frame
+    ctx.strokeStyle = gameState.door.open ? COLORS.player : COLORS.doorFrame;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 8, py + 8, TILE_SIZE - GAP - 16, TILE_SIZE - GAP - 16);
+
+    if (!gameState.door.open) {
+        // Locked Door Visual
+        ctx.fillStyle = '#111';
+        ctx.fillRect(px + 12, py + 12, TILE_SIZE - GAP - 24, TILE_SIZE - GAP - 24);
+        
+        // Lock Icon
+        ctx.fillStyle = COLORS.lever;
+        ctx.beginPath();
+        ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2 - 2, 4, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillRect(px + TILE_SIZE/2 - 4, py + TILE_SIZE/2 + 2, 8, 10);
+    } else {
+        // Open Door Visual
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.1)';
+        ctx.fillRect(px + 12, py + 12, TILE_SIZE - GAP - 24, TILE_SIZE - GAP - 24);
+    }
+}
+
+function drawLever() {
+    const l = gameState.lever;
+    const cx = l.x * TILE_SIZE + TILE_SIZE/2;
+    const cy = l.y * TILE_SIZE + TILE_SIZE/2;
+    
+    // Base
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Ring
+    ctx.strokeStyle = l.active ? COLORS.player : COLORS.lever;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Lever Handle
+    ctx.strokeStyle = l.active ? COLORS.player : COLORS.lever;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    // If active, point up-left, else point down-right
+    ctx.lineTo(l.active ? cx - 8 : cx + 8, l.active ? cy - 8 : cy + 8);
+    ctx.stroke();
+    
+    // Knob
+    ctx.fillStyle = l.active ? COLORS.player : COLORS.lever;
+    ctx.beginPath();
+    ctx.arc(l.active ? cx - 8 : cx + 8, l.active ? cy - 8 : cy + 8, 3, 0, Math.PI*2);
+    ctx.fill();
+}
+
+function drawCrates() {
+    gameState.crates.forEach(c => {
+        const px = c.x * TILE_SIZE;
+        const py = c.y * TILE_SIZE;
+        
+        // Crate Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(px + 10, py + TILE_SIZE - GAP - 10, TILE_SIZE - GAP - 20, 8);
+        
+        // Crate Body Gradient
+        const grad = ctx.createLinearGradient(px, py, px + TILE_SIZE, py + TILE_SIZE);
+        grad.addColorStop(0, COLORS.crate);
+        grad.addColorStop(1, COLORS.crateDark);
+        
+        ctx.fillStyle = grad;
+        ctx.fillRect(px + 10, py + 10, TILE_SIZE - GAP - 20, TILE_SIZE - GAP - 20);
+        
+        // Crate Detail (Cross)
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(px + 10, py + 10);
+        ctx.lineTo(px + TILE_SIZE - GAP - 10, py + TILE_SIZE - GAP - 10);
+        ctx.moveTo(px + TILE_SIZE - GAP - 10, py + 10);
+        ctx.lineTo(px + 10, py + TILE_SIZE - GAP - 10);
+        ctx.stroke();
+        
+        // Inner highlight
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 12, py + 12, TILE_SIZE - GAP - 24, TILE_SIZE - GAP - 24);
+    });
+}
+
+function drawPlayer() {
+    const p = gameState.player;
+    const cx = p.x * TILE_SIZE + TILE_SIZE/2;
+    const cy = p.y * TILE_SIZE + TILE_SIZE/2;
+
+    // Outer Glow
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = COLORS.player;
+
+    // Body
+    ctx.fillStyle = COLORS.player;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 16, 0, Math.PI*2);
+    ctx.fill();
+    
+    ctx.shadowBlur = 0; // Reset
+
+    // Inner Core
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Ring
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10, 0, Math.PI*2);
+    ctx.stroke();
+}
+
+function draw() {
+    drawGrid();
+    drawTarget();
+    drawDoor();
+    drawWalls();
+    drawLever();
+    drawCrates();
+    drawPlayer();
+}
+
+// --- LOGIC ---
+
+function movePlayer(dx, dy) {
+    const newX = gameState.player.x + dx;
+    const newY = gameState.player.y + dy;
+
+    // Check Bounds
+    if (newX < 0 || newX >= GRID_COLS || newY < 0 || newY >= GRID_ROWS) return;
+
+    // Check Walls
+    if (gameState.walls.some(w => w.x === newX && w.y === newY)) return;
+
+    // Check Crates
+    const crateIdx = gameState.crates.findIndex(c => c.x === newX && c.y === newY);
+    if (crateIdx !== -1) {
+        // Try push crate
+        const newCrateX = newX + dx;
+        const newCrateY = newY + dy;
+        
+        // Check if crate hits wall/other crate/door/lever
+        const blocked = 
+            gameState.walls.some(w => w.x === newCrateX && w.y === newCrateY) ||
+            gameState.crates.some(c => c.x === newCrateX && c.y === newCrateY) ||
+            (gameState.door.x === newCrateX && gameState.door.y === newCrateY) ||
+            (gameState.lever.x === newCrateX && gameState.lever.y === newCrateY) ||
+            (newCrateX < 0 || newCrateX >= GRID_COLS || newCrateY < 0 || newCrateY >= GRID_ROWS);
+
+        if (!blocked) {
+            gameState.crates[crateIdx].x = newCrateX;
+            gameState.crates[crateIdx].y = newCrateY;
+            gameState.player.x = newX;
+            gameState.player.y = newY;
+            draw();
+        }
+    } else {
+        // Check Door
+        if (gameState.door.x === newX && gameState.door.y === newY && !gameState.door.open) {
+            return; // Blocked by closed door
+        }
+        gameState.player.x = newX;
+        gameState.player.y = newY;
+        draw();
+    }
+}
+
+function pullLever() {
+    const p = gameState.player;
+    const l = gameState.lever;
+    
+    // Check adjacency
+    const dist = Math.abs(p.x - l.x) + Math.abs(p.y - l.y);
+    if (dist === 1) {
+        l.active = !l.active;
+        gameState.door.open = l.active;
+        draw();
+    }
+}
+
+// Input Handling
+window.addEventListener('keydown', (e) => {
+    switch(e.key) {
+        case 'ArrowUp': movePlayer(0, -1); break;
+        case 'ArrowDown': movePlayer(0, 1); break;
+        case 'ArrowLeft': movePlayer(-1, 0); break;
+        case 'ArrowRight': movePlayer(1, 0); break;
+        case ' ': pullLever(); break;
+    }
+});
+
+// Run
+init();
+
+</script>
+</body>
+</html>

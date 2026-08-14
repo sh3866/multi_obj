@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere of Life: Cellular Automata</title>
+<style>
+    :root {
+        /* Palette - Cyberpunk / Deep Space */
+        --bg-color: #050508;
+        --panel-bg: rgba(10, 12, 16, 0.6);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --panel-highlight: rgba(255, 255, 255, 0.15);
+        
+        --text-primary: #eef0f5;
+        --text-secondary: #8b9bb4;
+        
+        /* Accents */
+        --accent-cyan: #00f3ff;
+        --accent-magenta: #ff00aa;
+        --accent-purple: #7000ff;
+        --accent-glow: rgba(0, 243, 255, 0.4);
+        
+        /* Typography */
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        user-select: none;
+        cursor: default;
+    }
+
+    canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        /* Subtle radial gradient in CSS to reinforce the void */
+        background: radial-gradient(circle at center, #0a0a12 0%, #020203 100%);
+    }
+
+    /* Control Panel - Top Left, Technical, Refined */
+    #controls {
+        position: absolute;
+        top: 30px;
+        left: 30px;
+        width: 280px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px; /* Sharper */
+        padding: 20px;
+        z-index: 10;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        opacity: 0;
+        animation: slideIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        transition: transform 0.2s ease;
+    }
+
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Header */
+    .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--panel-border);
+        padding-bottom: 10px;
+    }
+
+    h1 {
+        font-size: 14px;
+        font-weight: 500; /* Medium weight */
+        letter-spacing: 1.5px;
+        margin: 0;
+        color: #fff;
+        text-transform: uppercase;
+    }
+
+    .status-indicator {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: var(--accent-cyan);
+        box-shadow: 0 0 8px var(--accent-cyan);
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { opacity: 0.5; box-shadow: 0 0 2px var(--accent-cyan); }
+        50% { opacity: 1; box-shadow: 0 0 10px var(--accent-cyan); }
+        100% { opacity: 0.5; box-shadow: 0 0 2px var(--accent-cyan); }
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .stat-box {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-label {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        letter-spacing: 1px;
+        margin-bottom: 4px;
+    }
+
+    .stat-value {
+        font-family: var(--font-mono);
+        font-size: 16px;
+        font-weight: 400;
+        color: var(--text-primary);
+        letter-spacing: -0.5px;
+    }
+
+    /* Controls */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+    }
+
+    .control-label {
+        font-size: 10px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        letter-spacing: 0.5px;
+    }
+
+    .control-val {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--accent-cyan);
+    }
+
+    /* Custom Sliders */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin: 4px 0;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 10px;
+        width: 10px;
+        border-radius: 50%;
+        background: #fff;
+        cursor: pointer;
+        margin-top: -4px; /* Center on track */
+        box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        border: 1px solid rgba(0,0,0,0.5);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 3px; /* Thicker track */
+        cursor: pointer;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+    }
+    
+    input[type=range]:focus {
+        outline: none;
+    }
+
+    /* Action Buttons */
+    .btn-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    button {
+        padding: 8px 0;
+        border: 1px solid var(--panel-border);
+        background: rgba(255,255,255,0.03);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        border-color: var(--panel-highlight);
+    }
+
+    button.primary {
+        background: #fff;
+        color: #000;
+        border-color: #fff;
+    }
+
+    button.primary:hover {
+        background: #e0e0e0;
+        box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+    }
+
+    /* Floating Stats Overlay near Sphere */
+    #floating-stats {
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        text-align: right;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.7;
+    }
+    
+    .floating-stat {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--accent-cyan);
+        margin-bottom: 4px;
+        letter-spacing: 1px;
+        text-shadow: 0 0 5px var(--accent-glow);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        #controls {
+            top: auto;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            width: auto;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+        }
+        
+        .header { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+        .stats-grid { display: none; } /* Hide detailed stats on mobile to save space */
+        .control-group { flex: 1; margin: 0 10px; }
+        .btn-row { grid-template-columns: 1fr; height: auto; }
+        
+        #floating-stats {
+            top: 20px;
+            right: 20px;
+        }
+    }
+</style>
+</head>
+<body>
+
+<div id="app">
+    <canvas id="canvas"></canvas>
+
+    <!-- Floating Technical Readout -->
+    <div id="floating-stats">
+        <div class="floating-stat">SYS.ONLINE</div>
+        <div class="floating-stat" id="fpsCounter">60 FPS</div>
+    </div>
+
+    <div id="controls">
+        <div class="header">
+            <div>
+                <h1>Cellular Sphere</h1>
+            </div>
+            <div class="status-indicator" id="statusLight"></div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-box">
+                <span class="stat-label">Population</span>
+                <span class="stat-value" id="popCount">0000</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Generation</span>
+                <span class="stat-value" id="genCount">0000</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="label-row">
+                <span class="control-label">Simulation Speed</span>
+                <span class="control-val" id="speedVal">50%</span>
+            </div>
+            <input type="range" id="speed" min="1" max="100" value="50">
+        </div>
+
+        <div class="control-group">
+            <div class="label-row">
+                <span class="control-label">Spawn Density</span>
+                <span class="control-val" id="densityVal">45%</span>
+            </div>
+            <input type="range" id="density" min="10" max="90" value="45">
+        </div>
+
+        <div class="btn-row">
+            <button id="btnReset">Random</button>
+            <button id="btnStep">Step</button>
+            <button id="btnPause" class="primary">Pause</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration & State
+     */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    
+    // High Density Grid: 80x160 = 12,800 cells
+    // Denser grid for "lots of small cells"
+    const RINGS = 80; 
+    const SEGMENTS = 160; 
+    const TOTAL_CELLS = RINGS * SEGMENTS;
+    
+    // Game State
+    let width, height;
+    let cx, cy;
+    let radius;
+    
+    // Grids (Int8Array for performance)
+    let grid = new Int8Array(TOTAL_CELLS);
+    let nextGrid = new Int8Array(TOTAL_CELLS);
+    
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    let lastTime = 0;
+    
+    // Visual Parameters
+    let rotationSpeed = 0.002; // Slightly slower for majestic feel
+    let simSpeed = 50; 
+    let cellDensity = 0.45;
+    let rotY = 0;
+    let rotX = 0.2; // Slight tilt
+    
+    // Interaction State
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        cx = width / 2;
+        cy = height / 2;
+        // Responsive sphere size - larger
+        radius = Math.min(width, height) * 0.35;
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            grid[i] = Math.random() < cellDensity ? 1 : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Math & Geometry
+     */
+    
+    // Pre-calculate static sphere coordinates
+    const cellCoords = new Float32Array(TOTAL_CELLS * 3); // x, y, z per cell
+    
+    function precalculateCoords() {
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            const ring = i % RINGS;
+            const segment = Math.floor(i / RINGS);
+            
+            // Fibonacci Sphere distribution for more even spacing than Lat/Long
+            // But for Game of Life grid topology, Lat/Long is safer for neighbor logic.
+            // We stick to Lat/Long but use slightly higher density.
+            
+            const phi = (ring / RINGS) * Math.PI;
+            const theta = (segment / SEGMENTS) * 2 * Math.PI;
+            
+            const idx3 = i * 3;
+            cellCoords[idx3] = Math.sin(phi) * Math.cos(theta);     // x
+            cellCoords[idx3 + 1] = Math.cos(phi);                  // y
+            cellCoords[idx3 + 2] = Math.sin(phi) * Math.sin(theta); // z
+        }
+    }
+    precalculateCoords();
+
+    function project(x, y, z) {
+        // Perspective projection
+        const fov = 2.5; // Closer camera for more distortion/depth
+        const zOffset = fov + z; 
+        const scale = radius * (fov / zOffset);
+        
+        return {
+            x: cx + x * scale,
+            y: cy - y * scale, 
+            scale: scale,
+            depth: z
+        };
+    }
+
+    /**
+     * Game Logic
+     */
+    function step() {
+        for (let r = 0; r < RINGS; r++) {
+            for (let s = 0; s < SEGMENTS; s++) {
+                const idx = r * SEGMENTS + s;
+                const state = grid[idx];
+                
+                let neighbors = 0;
+                
+                // Offsets
+                const rPrev = (r - 1 + RINGS) % RINGS;
+                const rNext = (r + 1) % RINGS;
+                const sPrev = (s - 1 + SEGMENTS) % SEGMENTS;
+                const sNext = (s + 1) % SEGMENTS;
+
+                // Row Above
+                neighbors += grid[rPrev * SEGMENTS + sPrev];
+                neighbors += grid[rPrev * SEGMENTS + s];
+                neighbors += grid[rPrev * SEGMENTS + sNext];
+                
+                // Same Row
+                neighbors += grid[r * SEGMENTS + sPrev];
+                neighbors += grid[r * SEGMENTS + sNext];
+                
+                // Row Below
+                neighbors += grid[rNext * SEGMENTS + sPrev];
+                neighbors += grid[rNext * SEGMENTS + s];
+                neighbors += grid[rNext * SEGMENTS + sNext];
+
+                // Rules
+                if (state === 1) {
+                    nextGrid[idx] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                } else {
+                    nextGrid[idx] = (neighbors === 3) ? 1 : 0;
+                }
+            }
+        }
+        
+        // Swap
+        let temp = grid;
+        grid = nextGrid;
+        nextGrid = temp;
+        
+        generation++;
+        updateStats();
+    }
+
+    /**
+     * Rendering
+     */
+    function draw() {
+        // Clear with semi-transparent black for trails? No, clean clear for crispness.
+        ctx.fillStyle = '#050508'; // Match CSS BG
+        ctx.fillRect(0, 0, width, height);
+        
+        // Update Rotation
+        if (!isDragging) {
+            rotY += rotationSpeed;
+        }
+
+        const cosY = Math.cos(rotY);
+        const sinY = Math.sin(rotY);
+        const cosX = Math.cos(rotX);
+        const sinX = Math.sin(rotX);
+
+        // 1. Draw Sphere Base (Wireframe/Glow)
+        // Create a subtle volumetric base
+        const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius * 1.1);
+        grad.addColorStop(0, 'rgba(20, 20, 30, 0.1)');
+        grad.addColorStop(0.8, 'rgba(0, 243, 255, 0.02)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.1, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Draw Alive Cells
+        // Use additive blending for "Bioluminescence"
+        ctx.globalCompositeOperation = 'lighter';
+
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (!grid[i]) continue;
+
+            // Get base coords
+            const idx3 = i * 3;
+            let x = cellCoords[idx3];
+            let y = cellCoords[idx3 + 1];
+            let z = cellCoords[idx3 + 2];
+
+            // Rotate Y
+            let x1 = x * cosY - z * sinY;
+            let z1 = x * sinY + z * cosY;
+            
+            // Rotate X
+            let y2 = y * cosX - z1 * sinX;
+            let z2 = y * sinX + z1 * cosX;
+
+            // Cull back face
+            if (z2 < 0.05) continue;
+
+            const proj = project(x1, y2, z2);
+
+            // Size logic: 
+            // Smaller cells, but scale up slightly near front
+            const size = Math.max(0.5, 1.2 * (proj.scale / radius));
+
+            // COLOR SYSTEM: Rich Multicolor based on Position + Density
+            // Hue: 280 (Purple) -> 320 (Magenta) -> 190 (Cyan)
+            // We map x1/y2/z2 to create a gradient across the sphere
+            
+            const intensity = z2; // Depth (0 to 1)
+            
+            // Shift hue based on vertical position (y) and depth
+            // Top: Purple/Magenta, Bottom: Cyan/Blue
+            const hueBase = 280 - (intensity * 100); 
+            const hueShift = (y2 + 1) * 40; // Shift based on latitude
+            const hue = hueBase + hueShift;
+            
+            // Saturation: High
+            const sat = 90;
+            
+            // Lightness: Brighter in front
+            const light = 50 + (intensity * 40);
+            
+            // Alpha: Fade back
+            const alpha = 0.4 + (intensity * 0.6);
+
+            ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+            
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // "Hotspot" / Bloom for very close cells
+            if (intensity > 0.8) {
+                // Smaller, white core
+                ctx.fillStyle = `rgba(255, 255, 255, ${(intensity - 0.8) * 3})`;
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, size * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Reset blend mode
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // 3. Rim Light / Atmosphere
+        // Adds 3D volume
+        const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.05);
+        rimGrad.addColorStop(0, 'rgba(0, 243, 255, 0)');
+        rimGrad.addColorStop(0.8, 'rgba(0, 243, 255, 0.1)');
+        rimGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = rimGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.05, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Thin crisp silhouette
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    function loop(timestamp) {
+        // FPS Counter
+        if (timestamp) {
+            const delta = timestamp - lastTime;
+            if (delta > 0) {
+                const fps = Math.round(1000 / delta);
+                if (frameCount % 10 === 0) {
+                    document.getElementById('fpsCounter').innerText = `${fps} FPS`;
+                }
+            }
+            lastTime = timestamp;
+        }
+
+        if (!isPaused) {
+            // Throttle Logic
+            // Slider 1-100. 
+            // 100 = every frame (fast), 1 = every 20 frames (slow)
+            const divisor = Math.max(1, Math.floor(20 - (simSpeed / 5.5)));
+            
+            if (frameCount % divisor === 0) {
+                step();
+            }
+            frameCount++;
+        }
+        
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const densitySlider = document.getElementById('density');
+        const densityVal = document.getElementById('densityVal');
+        densitySlider.addEventListener('input', (e) => {
+            cellDensity = parseInt(e.target.value) / 100;
+            densityVal.innerText = e.target.value + '%';
+        });
+
+        const btnReset = document.getElementById('btnReset');
+        btnReset.addEventListener('click', () => {
+            randomizeGrid();
+        });
+        
+        const btnStep = document.getElementById('btnStep');
+        btnStep.addEventListener('click', () => {
+            isPaused = true;
+            updatePauseBtn();
+            step();
+        });
+
+        const btnPause = document.getElementById('btnPause');
+        btnPause.addEventListener('click', () => {
+            isPaused = !isPaused;
+            updatePauseBtn();
+        });
+    }
+    
+    function updatePauseBtn() {
+        const btn = document.getElementById('btnPause');
+        const light = document.getElementById('statusLight');
+        if (isPaused) {
+            btn.innerText = "Play";
+            btn.classList.remove('primary');
+            light.style.backgroundColor = "var(--accent-magenta)";
+            light.style.boxShadow = "0 0 8px var(--accent-magenta)";
+        } else {
+            btn.innerText = "Pause";
+            btn.classList.add('primary');
+            light.style.backgroundColor = "var(--accent-cyan)";
+            light.style.boxShadow = "0 0 8px var(--accent-cyan)";
+        }
+    }
+
+    function setupInteraction() {
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const deltaY = e.clientY - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            lastMouseX = e.touches[0].clientX;
+            lastMouseY = e.touches[0].clientY;
+        }, {passive: false});
+
+        window.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                const deltaX = e.touches[0].clientX - lastMouseX;
+                const deltaY = e.touches[0].clientY - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = e.touches[0].clientX;
+                lastMouseY = e.touches[0].clientY;
+            }
+        }, {passive: false});
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop.toString().padStart(4, '0');
+        document.getElementById('genCount').innerText = generation.toString().padStart(4, '0');
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree</title>
+<style>
+  :root {
+    --bg-color: #1a1a24;
+    --screen-bg: #87CEEB;
+    --pixel-size: 4px;
+    --font-main: 'Courier New', Courier, monospace;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    font-family: var(--font-main);
+    user-select: none;
+  }
+
+  /* The Physical Screen Container */
+  #game-container {
+    position: relative;
+    width: 640px;
+    height: 480px;
+    background: #000;
+    box-shadow: 
+      0 0 0 10px #333,
+      0 0 0 12px #111,
+      0 20px 50px rgba(0,0,0,0.5);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  /* The Game Canvas */
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated; /* Critical for retro look */
+  }
+
+  /* UI Overlay */
+  #ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through to canvas if needed */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 40px 20px;
+    box-sizing: border-box;
+  }
+
+  /* Title Typography */
+  .title-block {
+    text-align: center;
+    margin-top: 20px;
+    text-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+  }
+
+  h1 {
+    font-size: 64px;
+    margin: 0;
+    color: #fff;
+    letter-spacing: -2px;
+    text-transform: uppercase;
+    font-weight: 900;
+    font-style: italic;
+    line-height: 1;
+  }
+  
+  h1 span {
+    color: #ff4d4d;
+  }
+
+  p.subtitle {
+    font-size: 14px;
+    color: #333;
+    background: rgba(255,255,255,0.8);
+    padding: 4px 8px;
+    margin-top: 10px;
+    display: inline-block;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: bold;
+  }
+
+  /* Start Button */
+  .start-btn {
+    pointer-events: auto;
+    background: #ff4d4d;
+    color: white;
+    border: none;
+    padding: 15px 40px;
+    font-size: 24px;
+    font-family: var(--font-main);
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 
+      4px 4px 0px #8b0000,
+      inset 2px 2px 0px rgba(255,255,255,0.4);
+    transition: transform 0.1s, box-shadow 0.1s;
+    position: relative;
+    top: 0;
+    left: 0;
+    margin-bottom: 20px;
+  }
+
+  .start-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 
+      6px 6px 0px #8b0000,
+      inset 2px 2px 0px rgba(255,255,255,0.4);
+    background: #ff6666;
+  }
+
+  .start-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 
+      2px 2px 0px #8b0000,
+      inset 2px 2px 0px rgba(255,255,255,0.2);
+  }
+
+  .controls-hint {
+    color: #333;
+    font-size: 12px;
+    font-weight: bold;
+    background: rgba(255,255,255,0.7);
+    padding: 4px 8px;
+    margin-bottom: 10px;
+  }
+
+  /* CRT Scanline Effect Overlay */
+  #scanlines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0),
+      rgba(255,255,255,0) 50%,
+      rgba(0,0,0,0.1) 50%,
+      rgba(0,0,0,0.1)
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  
+  /* CRT Vignette */
+  #vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.4) 100%);
+    pointer-events: none;
+    z-index: 11;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="gameCanvas" width="320" height="240"></canvas>
+  
+  <div id="ui-layer">
+    <div class="title-block">
+      <h1>Ski<span>Free</span></h1>
+      <p class="subtitle">Avoid the trees. Avoid the Yeti.</p>
+    </div>
+    
+    <div style="display:flex; flex-direction:column; align-items:center;">
+      <button class="start-btn" onclick="startGame()">Insert Coin</button>
+      <div class="controls-hint">ARROWS to Move</div>
+    </div>
+  </div>
+
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+</div>
+
+<script>
+/**
+ * RETRO PIXEL ART ENGINE
+ * Handles drawing the scene programmatically without external assets.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Disable smoothing for pixel art look
+ctx.imageSmoothingEnabled = false;
+
+// Game Constants
+const WIDTH = 320;
+const HEIGHT = 240;
+const PIXEL = 1; // Scale factor for internal drawing (1px = 1 unit here)
+
+// Colors
+const C_SKY = '#87CEEB';
+const C_SNOW = '#FFFFFF';
+const C_SNOW_SHADOW = '#E0E8F0';
+const C_TREE_TRUNK = '#8B4513';
+const C_TREE_LEAF = '#228B22';
+const C_SKIER_JACKET = '#FF0000';
+const C_SKIER_PANTS = '#000080';
+const C_SKIER_SKIN = '#FFCCAA';
+const C_SKIER_SKIS = '#333333';
+
+// State
+let frameCount = 0;
+let skierX = WIDTH / 2;
+let skierY = 60;
+let isMoving = false;
+let moveDir = 0; // -1 left, 0 straight, 1 right
+let animTimer = 0;
+
+// --- ASSET GENERATORS (Pixel Art Maps) ---
+
+// 0: Transparent, 1: Jacket, 2: Pants, 3: Skin, 4: Skis, 5: Hat
+const SPRITE_SKIER = [
+  [0,0,0,5,5,5,0,0,0],
+  [0,0,3,3,3,3,3,0,0],
+  [0,3,3,3,3,3,3,3,0],
+  [0,3,4,4,4,4,4,3,0], // Goggles
+  [0,0,1,1,1,1,1,0,0], // Shoulders
+  [0,1,1,1,1,1,1,1,0],
+  [0,0,1,1,1,1,1,0,0], // Waist
+  [0,0,2,2,2,2,2,0,0], // Hips
+  [0,0,2,0,0,0,2,0,0], // Legs (gap for animation)
+  [0,0,4,4,0,4,4,0,0]  // Skis
+];
+
+// --- DRAWING FUNCTIONS ---
+
+function drawPixelRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+}
+
+function drawSkier(x, y, frame) {
+  const scale = 2; // Skier is 2x pixel size
+  const spriteW = SPRITE_SKIER[0].length;
+  const spriteH = SPRITE_SKIER.length;
+  
+  // Simple bobbing animation
+  const bob = (frame % 20 < 10) ? 0 : 1;
+  
+  for (let r = 0; r < spriteH; r++) {
+    for (let c = 0; c < spriteW; c++) {
+      const colorCode = SPRITE_SKIER[r][c];
+      if (colorCode === 0) continue;
+      
+      let color = C_SKIER_JACKET;
+      if (colorCode === 2) color = C_SKIER_PANTS;
+      if (colorCode === 3) color = C_SKIER_SKIN;
+      if (colorCode === 4) color = C_SKIER_SKIS;
+      if (colorCode === 5) color = C_SKIER_JACKET; // Hat same color
+
+      // Animation: Slight leg separation
+      let drawX = x + (c * scale);
+      let drawY = y + (r * scale) + bob;
+      
+      // Tilt effect
+      if (moveDir !== 0 && r > 5) {
+        drawX += moveDir * 2;
+      }
+
+      drawPixelRect(drawX, drawY, scale, scale, color);
+    }
+  }
+}
+
+function drawTree(x, y) {
+  // Trunk
+  drawPixelRect(x, y + 12, 4, 8, C_TREE_TRUNK);
+  
+  // Leaves (3 tiers)
+  // Bottom
+  drawPixelRect(x - 6, y + 8, 16, 8, C_TREE_LEAF);
+  // Middle
+  drawPixelRect(x - 4, y + 2, 12, 8, C_TREE_LEAF);
+  // Top
+  drawPixelRect(x - 2, y - 4, 8, 8, C_TREE_LEAF);
+  
+  // Snow caps (simple white dots on top)
+  drawPixelRect(x - 2, y - 4, 2, 2, C_SNOW);
+  drawPixelRect(x + 4, y - 2, 2, 2, C_SNOW);
+}
+
+function drawBackground() {
+  // Sky
+  ctx.fillStyle = C_SKY;
+  ctx.fillRect(0, 0, WIDTH, 80);
+  
+  // Sun (Pixelated circle approximation)
+  const sunX = 260;
+  const sunY = 40;
+  ctx.fillStyle = '#FFD700';
+  ctx.beginPath();
+  ctx.arc(sunX, sunY, 16, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Snow Ground
+  ctx.fillStyle = C_SNOW;
+  ctx.fillRect(0, 80, WIDTH, HEIGHT - 80);
+  
+  // Snow Horizon Line
+  ctx.fillStyle = '#D0E0F0';
+  ctx.fillRect(0, 80, WIDTH, 2);
+}
+
+function drawSnowParticles() {
+  ctx.fillStyle = 'rgba(200, 220, 255, 0.6)';
+  for(let i=0; i<10; i++) {
+    // Deterministic pseudo-random based on time
+    let px = (frameCount * 2 + i * 37) % WIDTH;
+    let py = (frameCount * 3 + i * 53) % HEIGHT;
+    if (py > 80) {
+      ctx.fillRect(px, py, 2, 2);
+    }
+  }
+}
+
+// --- GAME LOGIC ---
+
+// Trees Array
+let trees = [];
+const TREE_SPACING = 60;
+
+function initTrees() {
+  trees = [];
+  for (let y = 100; y < HEIGHT + 100; y += TREE_SPACING) {
+    // Create 2 columns of trees
+    trees.push({ x: 60 + (Math.random() * 40), y: y });
+    trees.push({ x: 160 + (Math.random() * 40), y: y });
+    trees.push({ x: 260 + (Math.random() * 40), y: y });
+  }
+}
+
+function update() {
+  frameCount++;
+  
+  // Move Skier
+  if (isMoving) {
+    skierX += moveDir * 2;
+    // Clamp
+    if (skierX < 10) skierX = 10;
+    if (skierX > WIDTH - 20) skierX = WIDTH - 20;
+    
+    animTimer++;
+    
+    // Infinite scroll logic for trees
+    trees.forEach(tree => {
+      tree.y += 2; // Speed
+      if (tree.y > HEIGHT) {
+        tree.y = -20;
+        tree.x = Math.random() * (WIDTH - 20);
+      }
+    });
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  
+  drawBackground();
+  drawSnowParticles();
+  
+  // Draw Trees
+  trees.forEach(tree => {
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(tree.x, tree.y + 20, 16, 4);
+    
+    drawTree(tree.x, tree.y);
+  });
+  
+  // Draw Skier
+  drawSkier(skierX, skierY, animTimer);
+  
+  requestAnimationFrame(loop);
+}
+
+function loop() {
+  update();
+  render();
+}
+
+// --- INTERACTION ---
+
+function startGame() {
+  // Simple "Start" effect: Flash screen and start moving
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0,0,WIDTH,HEIGHT);
+  
+  isMoving = true;
+  
+  // Hide button visually
+  const btn = document.querySelector('.start-btn');
+  btn.style.display = 'none';
+  
+  // Remove Scanlines for "Game Mode" feel (optional, but let's keep them for retro)
+}
+
+// Input Handling
+window.addEventListener('keydown', (e) => {
+  if (!isMoving) return;
+  
+  if (e.key === 'ArrowLeft') moveDir = -1;
+  if (e.key === 'ArrowRight') moveDir = 1;
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft' && moveDir === -1) moveDir = 0;
+  if (e.key === 'ArrowRight' && moveDir === 1) moveDir = 0;
+});
+
+// Initialize
+initTrees();
+loop();
+
+</script>
+</body>
+</html>

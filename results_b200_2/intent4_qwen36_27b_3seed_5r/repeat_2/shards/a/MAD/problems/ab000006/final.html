@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkiFree - Retro Edition</title>
+<style>
+  /* 
+    SYSTEM FONTS ONLY. 
+    'Courier New' + 'Lucida Console' + 'VCR OSD Mono' + 'monospace' 
+    Rendered with pixelated smoothing.
+  */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Courier New', 'Lucida Console', 'VCR OSD Mono', monospace;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: crisp-edges;
+    color: #fff;
+  }
+
+  /* 
+    CONTAINER: Fixed 4:3 Aspect Ratio, centered.
+    The "Game Screen"
+  */
+  #game-container {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    background: #000;
+    box-shadow: 0 0 0 2px #333, 0 0 50px rgba(0,0,0,0.8);
+    overflow: hidden;
+  }
+
+  /* 
+    CANVAS: The Game World (Background Layer)
+    Scaled up 2.5x from 320x240 internal resolution.
+  */
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    /* Ensure canvas is behind UI */
+    z-index: 1;
+  }
+
+  /* 
+    SCANLINES: Overlay on the Game World ONLY.
+    Creates the CRT texture without blurring the sharp UI text.
+  */
+  #scanlines {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.25),
+      rgba(0,0,0,0.25) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 2; /* On top of canvas, below UI */
+    mix-blend-mode: multiply;
+  }
+
+  /* 
+    VIGNETTE: Adds depth to the screen edges.
+  */
+  #vignette {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 3;
+    background: radial-gradient(circle at center, transparent 50%, rgba(0,0,0,0.6) 100%);
+  }
+
+  /* 
+    UI LAYER: Sharp, crisp, high contrast.
+    Positioned above the scanlines/vignette.
+  */
+  #ui-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none; /* Allow clicks to pass to button */
+  }
+
+  /* 
+    TITLE: "SkiFree"
+    1. Typography: Pixelated monospace.
+    2. Shadow: Hard 1px offset (no blur).
+  */
+  #title {
+    margin-top: 40px;
+    font-size: 72px;
+    font-weight: 900;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: -2px;
+    /* Hard pixel shadow */
+    text-shadow: 
+      4px 4px 0px #0000aa, /* Blue depth */
+      6px 6px 0px #000;    /* Black outline */
+    user-select: none;
+    line-height: 1;
+    z-index: 11;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  
+  #title:hover {
+    transform: scale(1.05);
+  }
+
+  /* 
+    FOOTER / HUD BAR
+    Dark anchor at the bottom.
+  */
+  #hud-bar {
+    width: 100%;
+    height: 100px;
+    background: #0a0a12;
+    border-top: 4px solid #333;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 15px 40px 10px 40px;
+    pointer-events: auto;
+  }
+
+  /* 
+    INSTRUCTIONS: Bottom Left
+    4. HUD Legibility: High contrast, redrawn pixel arrows.
+  */
+  #instructions {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .pixel-arrow-group {
+    display: flex;
+    gap: 4px;
+    margin-right: 10px;
+  }
+
+  .pixel-key {
+    width: 24px;
+    height: 24px;
+    background: #222;
+    border: 2px solid #555;
+    box-shadow: 2px 2px 0px #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+  
+  /* 
+    START BUTTON: Center Bottom
+    2. UI Component: Distinct, clickable, bordered.
+    3. Hierarchy: High visibility.
+  */
+  #start-btn {
+    width: 240px;
+    height: 48px;
+    margin: 0 auto;
+    background: #111;
+    border: 4px solid #00e5ff; /* Cyan outline */
+    box-shadow: 4px 4px 0px #000; /* Hard shadow */
+    color: #00e5ff; /* Cyan text */
+    font-family: inherit;
+    font-size: 20px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #start-btn:hover {
+    background: #00e5ff;
+    color: #000;
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px #000;
+  }
+
+  #start-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px #000;
+  }
+
+  /* Blinking cursor effect inside button */
+  .cursor-blink {
+    animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink {
+    to { opacity: 0; }
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <!-- The Game World -->
+  <canvas id="scene" width="320" height="240"></canvas>
+  
+  <!-- CRT Effects (Applied to game world only) -->
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+  
+  <!-- The UI Layer (Sharp, on top) -->
+  <div id="ui-layer">
+    <div id="title">SkiFree</div>
+    
+    <div id="hud-bar">
+      <!-- Instructions -->
+      <div id="instructions">
+        <div class="pixel-arrow-group">
+          <div class="pixel-key">▲</div>
+          <div class="pixel-key">▼</div>
+          <div class="pixel-key">◄</div>
+          <div class="pixel-key">►</div>
+        </div>
+        <span>to Ski</span>
+      </div>
+      
+      <!-- Start Button -->
+      <button id="start-btn" onclick="startGame()">
+        START <span class="cursor-blink">_</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const W = 320, H = 240;
+
+// 1. PALETTE: Golden Hour Twilight
+// Warmer, more saturated colors for the subject visibility requirement.
+const PAL = {
+  sky1: '#05001a', 
+  sky2: '#10003a',
+  sky3: '#20005a',
+  sky4: '#40007a',
+  sky5: '#60009a', 
+  snow1: '#2a3a5a', // Shadow snow (cool)
+  snow2: '#4a5a7a',
+  snow3: '#6a7a9a',
+  snow4: '#8a9aba',
+  snow5: '#aabbdd', // Highlight snow
+  tree1: '#051505', // Dark forest green
+  tree2: '#0a250a',
+  trunk: '#150a05',
+  // Skier: High saturation to pop against green/blue background
+  skier_body: '#ff2a2a', // Bright Red
+  skier_skin: '#ffccaa', // Golden Hour Skin
+  skier_hair: '#201000',
+  skier_pants: '#0000aa', // Deep Blue
+  skier_skis: '#ffffff',
+  skier_poles: '#dddddd',
+  skier_goggles: '#111',
+  shadow: 'rgba(0, 0, 20, 0.3)',
+  cloud: '#606080',
+  mountain: '#151525',
+  mountainSnow: '#353555',
+};
+
+// State
+let time = 0;
+let skierX = W / 2 - 20; // 5. Subject Visibility: Shifted left slightly
+let skierY = 140; 
+let skierDir = 1;
+let isMoving = false;
+let speed = 0;
+let score = 0;
+
+// Trees (5. Subject Visibility: Thinned out near center)
+const trees = [];
+for (let i = 0; i < 35; i++) {
+  let tx = Math.random() * W;
+  // Create a "path" by avoiding the center lane where the skier is
+  if (Math.abs(tx - (W/2)) < 40) {
+    tx += (Math.random() > 0.5 ? 60 : -60);
+  }
+  trees.push({
+    x: tx,
+    y: 80 + Math.random() * 160, 
+    size: 0.6 + Math.random() * 0.5,
+    shade: Math.random() > 0.5 ? 0 : 1
+  });
+}
+trees.sort((a, b) => a.y - b.y);
+
+// Clouds
+const clouds = [];
+for (let i = 0; i < 5; i++) {
+  clouds.push({
+    x: Math.random() * W,
+    y: 20 + Math.random() * 30,
+    w: 25 + Math.random() * 35,
+    speed: 0.05 + Math.random() * 0.1
+  });
+}
+
+// Snow particles
+const snowflakes = [];
+for (let i = 0; i < 60; i++) {
+  snowflakes.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    speed: 1 + Math.random() * 2,
+    size: Math.random() > 0.7 ? 2 : 1
+  });
+}
+
+// Controls
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.code === 'Space' && !isMoving) {
+    startGame();
+  }
+});
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+// UI Logic
+function startGame() {
+  isMoving = true;
+  const btn = document.getElementById('start-btn');
+  btn.style.opacity = '0';
+  btn.style.pointerEvents = 'none'; // Disable clicking
+  
+  // Fade out title slightly
+  document.getElementById('title').style.opacity = '0.3';
+  document.getElementById('title').style.transform = 'scale(0.8)';
+}
+
+// --- Drawing Functions ---
+
+function drawSky() {
+  // Stepped Gradient (8-bit style)
+  const bandHeight = 12;
+  const bands = [PAL.sky1, PAL.sky1, PAL.sky2, PAL.sky2, PAL.sky3, PAL.sky3, PAL.sky4, PAL.sky5, PAL.sky5];
+  
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(0, i * bandHeight, W, bandHeight);
+  }
+}
+
+function drawClouds() {
+  ctx.fillStyle = PAL.cloud;
+  clouds.forEach(c => {
+    c.x += c.speed;
+    if (c.x > W + 30) c.x = -c.w;
+    
+    const cx = Math.round(c.x);
+    const cy = Math.round(c.y);
+    const cw = Math.round(c.w);
+    
+    ctx.fillRect(cx, cy + 4, cw, 4); 
+    ctx.fillRect(cx + 6, cy, cw - 12, 4); 
+    ctx.fillRect(cx + 4, cy + 8, cw - 8, 2); 
+  });
+}
+
+function drawMountains() {
+  ctx.fillStyle = PAL.mountain;
+  ctx.beginPath();
+  ctx.moveTo(0, 80);
+  ctx.lineTo(50, 40);
+  ctx.lineTo(100, 65);
+  ctx.lineTo(160, 25);
+  ctx.lineTo(220, 55);
+  ctx.lineTo(280, 30);
+  ctx.lineTo(320, 70);
+  ctx.lineTo(320, 100);
+  ctx.lineTo(0, 100);
+  ctx.fill();
+  
+  // Snow caps
+  ctx.fillStyle = PAL.mountainSnow;
+  ctx.beginPath();
+  // Peak 1
+  ctx.moveTo(40, 45); ctx.lineTo(50, 40); ctx.lineTo(60, 45);
+  // Peak 2
+  ctx.moveTo(150, 30); ctx.lineTo(160, 25); ctx.lineTo(170, 30);
+  // Peak 3
+  ctx.moveTo(270, 35); ctx.lineTo(280, 30); ctx.lineTo(290, 35);
+  ctx.fill();
+}
+
+function drawSnow() {
+  // Stepped Gradient for ground
+  const startH = 80;
+  const bandH = 12;
+  const colors = [PAL.snow1, PAL.snow1, PAL.snow2, PAL.snow3, PAL.snow3, PAL.snow4, PAL.snow5];
+  
+  for (let y = startH; y < H; y += bandH) {
+    const colorIdx = Math.min(Math.floor((y - startH) / bandH), colors.length - 1);
+    ctx.fillStyle = colors[colorIdx];
+    ctx.fillRect(0, y, W, bandH);
+  }
+  
+  // Subtle noise
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  for(let i=0; i<50; i++) {
+    const rx = Math.random() * W;
+    const ry = startH + Math.random() * (H - startH);
+    ctx.fillRect(Math.round(rx), Math.round(ry), 2, 1);
+  }
+}
+
+function drawTree(x, y, size, shade) {
+  const s = Math.floor(size * 12); 
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  
+  // Shadow
+  ctx.fillStyle = PAL.shadow;
+  ctx.fillRect(tx - 4, ty, 8, 3);
+  
+  // Trunk
+  ctx.fillStyle = PAL.trunk;
+  ctx.fillRect(tx - 1, ty - 2, 2, 6);
+  
+  // Leaves
+  ctx.fillStyle = shade === 0 ? PAL.tree1 : PAL.tree2;
+  
+  // Tier 1 (Top)
+  ctx.fillRect(tx, ty - 14, 2, 2);
+  ctx.fillRect(tx - 2, ty - 12, 6, 2);
+  ctx.fillRect(tx - 4, ty - 10, 10, 2);
+  
+  // Tier 2
+  ctx.fillRect(tx - 6, ty - 8, 14, 2);
+  ctx.fillRect(tx - 8, ty - 6, 16, 2);
+  
+  // Tier 3 (Bottom)
+  ctx.fillRect(tx - 10, ty - 4, 20, 2);
+  ctx.fillRect(tx - 12, ty - 2, 24, 2);
+  
+  // Snow on branches
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(tx - 1, ty - 14, 2, 1);
+  ctx.fillRect(tx - 4, ty - 10, 2, 1);
+  ctx.fillRect(tx + 2, ty - 8, 2, 1);
+  ctx.fillRect(tx - 8, ty - 6, 3, 1);
+  ctx.fillRect(tx + 4, ty - 4, 3, 1);
+}
+
+function drawSkier(x, y, dir) {
+  const sx = Math.round(x);
+  const sy = Math.round(y);
+  
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(dir, 1);
+  
+  // Skis
+  ctx.fillStyle = PAL.skier_skis;
+  ctx.fillRect(-7, 12, 6, 2); // Left
+  ctx.fillRect(1, 12, 6, 2);  // Right
+  
+  // Legs
+  ctx.fillStyle = PAL.skier_pants;
+  ctx.fillRect(-5, 7, 3, 5);
+  ctx.fillRect(2, 7, 3, 5);
+  
+  // Body (5. Subject Visibility: Slightly larger/brighter)
+  ctx.fillStyle = PAL.skier_body;
+  ctx.fillRect(-6, -4, 12, 12); // Increased width/height slightly
+  
+  // Head
+  ctx.fillStyle = PAL.skier_skin;
+  ctx.fillRect(-4, -9, 8, 6);
+  
+  // Goggles
+  ctx.fillStyle = PAL.skier_goggles;
+  ctx.fillRect(0, -7, 5, 4);
+  
+  // Poles
+  ctx.fillStyle = PAL.skier_poles;
+  ctx.fillRect(-7, 2, 1, 12);
+  ctx.fillRect(6, 2, 1, 12);
+  
+  ctx.restore();
+}
+
+function drawSnowflakes() {
+  ctx.fillStyle = '#fff';
+  snowflakes.forEach(f => {
+    f.y += f.speed + (isMoving ? speed * 1.5 : 0); 
+    f.x += Math.sin(time * 0.05 + f.y * 0.1) * 0.5;
+    
+    if (f.y > H) f.y = 0;
+    if (f.x > W) f.x = 0;
+    if (f.x < 0) f.x = W;
+    
+    ctx.fillRect(Math.round(f.x), Math.round(f.y), f.size, f.size);
+  });
+}
+
+// --- Main Loop ---
+
+function update() {
+  time++;
+  
+  if (isMoving) {
+    if (keys['ArrowUp']) speed = Math.min(speed + 0.08, 5);
+    else if (keys['ArrowDown']) speed = Math.max(speed - 0.15, 0);
+    else speed = Math.min(speed + 0.01, 2.5); 
+    
+    if (speed > 0.5) {
+      if (keys['ArrowLeft']) { skierX -= 1.5; skierDir = -1; }
+      if (keys['ArrowRight']) { skierX += 1.5; skierDir = 1; }
+    }
+    
+    if (skierX < 10) skierX = 10;
+    if (skierX > W - 10) skierX = W - 10;
+  } else {
+    // Idle sway - more relaxed
+    skierX = W/2 - 20 + Math.sin(time * 0.02) * 30;
+    skierDir = Math.cos(time * 0.02) > 0 ? 1 : -1;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  
+  drawSky();
+  drawClouds();
+  drawMountains();
+  drawSnow();
+  
+  // Draw Trees
+  const treeOffset = isMoving ? (time * speed * 3) % H : 0;
+  
+  trees.forEach(t => {
+    let ty = t.y + (isMoving ? treeOffset : 0);
+    if (ty > H) ty -= H;
+    
+    if (ty > 0 && ty < H) {
+      drawTree(t.x, ty, t.size, t.shade);
+    }
+  });
+  
+  drawSkier(skierX, skierY, skierDir);
+  drawSnowflakes();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JS Planet Defense</title>
+<style>
+  :root {
+    --c-bg: #020408;
+    --c-grid: rgba(0, 255, 255, 0.05);
+    --c-primary: #00f0ff;
+    --c-primary-dim: #005a60;
+    --c-accent: #ffaa00;
+    --c-accent-glow: rgba(255, 170, 0, 0.4);
+    --c-danger: #ff2a2a;
+    --c-text-main: #e0f0ff;
+    --c-text-muted: #78909c;
+    
+    --f-ui: 'Segoe UI', system-ui, sans-serif;
+    --f-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+    
+    --scan-color: rgba(0, 240, 255, 0.04);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+  }
+
+  body {
+    background-color: var(--c-bg);
+    color: var(--c-text-main);
+    font-family: var(--f-ui);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* --- Visual FX Layers --- */
+  .fx-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+  
+  .scanlines {
+    background: repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 2px,
+      var(--scan-color) 2px,
+      var(--scan-color) 4px
+    );
+    background-size: 100% 4px;
+    opacity: 0.5;
+    mix-blend-mode: overlay;
+  }
+
+  .vignette {
+    background: radial-gradient(circle at center, transparent 30%, #000000 100%);
+    box-shadow: inset 0 0 150px rgba(0,0,0,0.95);
+  }
+
+  /* --- Canvas Background --- */
+  #bg-canvas {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* --- Main Layout Grid --- */
+  .interface-grid {
+    position: relative;
+    z-index: 5;
+    width: 100%;
+    height: 100%;
+    max-width: 1600px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1fr;
+    grid-template-rows: auto 1fr 1fr auto;
+    padding: 2rem;
+    gap: 2rem;
+  }
+
+  /* --- HUD Header --- */
+  .hud-bar {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: center;
+    padding: 1rem 0;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+    position: relative;
+  }
+
+  .hud-bar::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--c-primary), transparent);
+    opacity: 0.5;
+  }
+
+  .hud-group {
+    display: flex;
+    flex-direction: column;
+    padding: 0 1rem;
+  }
+
+  .hud-group.left { justify-content: flex-start; align-items: flex-start; }
+  .hud-group.center { justify-content: center; align-items: center; }
+  .hud-group.right { justify-content: flex-end; align-items: flex-end; }
+  
+  .hud-label {
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    color: var(--c-primary);
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    opacity: 0.8;
+    text-transform: uppercase;
+  }
+
+  .hud-value {
+    font-family: var(--f-mono);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(255,255,255,0.2);
+    position: relative;
+  }
+
+  .hud-value.hp { color: var(--c-primary); text-shadow: 0 0 10px var(--c-primary); }
+  .hud-value.credits { color: var(--c-accent); text-shadow: 0 0 10px var(--c-accent); }
+
+  /* --- Mission Briefing (Top Left) --- */
+  .briefing-container {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 1rem;
+  }
+
+  .briefing-panel {
+    width: 100%;
+    background: linear-gradient(135deg, rgba(0, 15, 25, 0.9) 0%, rgba(0, 5, 10, 0.95) 100%);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-left: 4px solid var(--c-primary);
+    padding: 1.5rem;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    /* Military Chamfered Shape */
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%);
+  }
+
+  .briefing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+    padding-bottom: 0.5rem;
+  }
+
+  .briefing-title {
+    font-family: var(--f-mono);
+    color: var(--c-primary);
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .blink { animation: blinker 1.2s linear infinite; color: var(--c-primary); }
+  @keyframes blinker { 50% { opacity: 0; } }
+
+  .briefing-text {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--c-text-muted);
+  }
+  
+  .briefing-text strong { color: #fff; }
+  .briefing-text .highlight { color: var(--c-primary); font-family: var(--f-mono); display: block; margin-top: 0.5rem; font-size: 0.8rem; }
+
+  /* --- Title (Top Right / Floating) --- */
+  .title-container {
+    grid-column: 2 / 4;
+    grid-row: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-start;
+    padding-top: 2rem;
+    text-align: right;
+    z-index: 4;
+  }
+
+  h1.game-title {
+    font-size: 5rem;
+    line-height: 0.85;
+    font-weight: 900;
+    font-family: 'Arial Black', Impact, sans-serif; /* Heavy System Font */
+    text-transform: uppercase;
+    letter-spacing: -2px;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(0, 240, 255, 0.2);
+    margin-bottom: 0.5rem;
+    position: relative;
+    mix-blend-mode: screen;
+  }
+  
+  /* Glitch Effect */
+  h1.game-title::before, h1.game-title::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.8;
+  }
+  
+  h1.game-title::before {
+    color: var(--c-primary);
+    z-index: -1;
+    animation: glitch-1 2.5s infinite linear alternate-reverse;
+  }
+  
+  h1.game-title::after {
+    color: var(--c-danger);
+    z-index: -2;
+    animation: glitch-2 3s infinite linear alternate-reverse;
+  }
+
+  @keyframes glitch-1 {
+    0% { clip-path: inset(20% 0 80% 0); transform: translate(-2px, -1px); }
+    20% { clip-path: inset(60% 0 10% 0); transform: translate(2px, 1px); }
+    40% { clip-path: inset(40% 0 50% 0); transform: translate(-2px, 2px); }
+    60% { clip-path: inset(80% 0 5% 0); transform: translate(2px, -2px); }
+    100% { clip-path: inset(10% 0 70% 0); transform: translate(-1px, 2px); }
+  }
+  @keyframes glitch-2 {
+    0% { clip-path: inset(10% 0 60% 0); transform: translate(2px, 1px); }
+    20% { clip-path: inset(30% 0 20% 0); transform: translate(-2px, -1px); }
+    40% { clip-path: inset(10% 0 80% 0); transform: translate(1px, 2px); }
+    60% { clip-path: inset(70% 0 10% 0); transform: translate(-1px, -2px); }
+    100% { clip-path: inset(50% 0 30% 0); transform: translate(2px, 1px); }
+  }
+
+  .subtitle {
+    font-family: var(--f-mono);
+    font-size: 1.2rem;
+    color: var(--c-primary);
+    letter-spacing: 6px;
+    background: rgba(0, 240, 255, 0.1);
+    padding: 6px 15px;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+
+  /* --- Command Deck (Bottom) --- */
+  .command-deck {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: center;
+    padding-top: 1rem;
+  }
+
+  /* Upgrades Row */
+  .upgrade-menu {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+  }
+
+  .upgrade-card {
+    background: rgba(0, 20, 30, 0.4);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-bottom: 4px solid rgba(0, 240, 255, 0.3);
+    padding: 1.2rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  }
+
+  .upgrade-card:hover {
+    background: rgba(0, 240, 255, 0.1);
+    border-color: var(--c-primary);
+    transform: translateY(-4px);
+    box-shadow: 0 10px 20px rgba(0, 240, 255, 0.1);
+  }
+
+  .upgrade-icon {
+    width: 32px; height: 32px; fill: var(--c-primary); margin-bottom: 10px;
+    filter: drop-shadow(0 0 5px var(--c-primary));
+    transition: transform 0.2s;
+  }
+  .upgrade-card:hover .upgrade-icon { transform: scale(1.1); }
+
+  .upgrade-name {
+    font-family: var(--f-mono); font-size: 0.8rem; color: #fff; letter-spacing: 1px; margin-bottom: 4px; font-weight: 700;
+  }
+  
+  .upgrade-level {
+    font-family: var(--f-mono); font-size: 0.7rem; color: var(--c-accent);
+    border: 1px solid var(--c-accent);
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+
+  /* Start Button */
+  .start-zone {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .btn-start {
+    background: linear-gradient(180deg, #ffaa00 0%, #cc8800 100%);
+    color: #000;
+    border: none;
+    padding: 1.2rem 4rem;
+    font-family: 'Arial Black', sans-serif;
+    font-weight: 900;
+    font-size: 1.8rem;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    cursor: pointer;
+    position: relative;
+    clip-path: polygon(20px 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%, 0 20px);
+    transition: all 0.2s;
+    box-shadow: 0 0 0 rgba(255, 170, 0, 0);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+  }
+
+  .btn-start:hover {
+    transform: scale(1.02);
+    background: linear-gradient(180deg, #ffcc00 0%, #ffaa00 100%);
+    box-shadow: 0 0 40px var(--c-accent-glow);
+    text-shadow: 0 0 10px rgba(255,255,255,0.5);
+  }
+  
+  .btn-start:active { transform: scale(0.98); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .interface-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto auto auto;
+      padding: 1rem;
+      gap: 1.5rem;
+    }
+    .hud-bar { grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .hud-group.center { display: none; }
+    .title-container { grid-column: 1; grid-row: 2; align-items: center; text-align: center; padding-top: 0; }
+    h1.game-title { font-size: 3.5rem; }
+    .briefing-container { grid-column: 1; grid-row: 3; }
+    .command-deck { grid-column: 1; grid-row: 4; grid-template-columns: 1fr; }
+    .upgrade-menu { margin-bottom: 1rem; }
+    .start-zone { justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- Visual FX -->
+  <canvas id="bg-canvas"></canvas>
+  <div class="fx-layer scanlines"></div>
+  <div class="fx-layer vignette"></div>
+
+  <div class="interface-grid">
+    
+    <!-- HUD Header -->
+    <header class="hud-bar">
+      <div class="hud-group left">
+        <div class="hud-label">Current Wave</div>
+        <div class="hud-value">01</div>
+      </div>
+      
+      <div class="hud-group center">
+        <div class="hud-label">Planet Integrity</div>
+        <div class="hud-value hp">100%</div>
+        <!-- Progress Bar -->
+        <div style="height: 4px; width: 150px; background: rgba(255,255,255,0.1); margin-top: 6px; clip-path: polygon(0 0, 100% 0, 95% 100%, 0% 100%);">
+          <div style="height: 100%; width: 100%; background: var(--c-primary); box-shadow: 0 0 10px var(--c-primary);"></div>
+        </div>
+      </div>
+
+      <div class="hud-group right">
+        <div class="hud-label">Available Credits</div>
+        <div class="hud-value credits">500</div>
+      </div>
+    </header>
+
+    <!-- Title -->
+    <div class="title-container">
+      <h1 class="game-title" data-text="PLANET DEFENSE">PLANET DEFENSE</h1>
+      <div class="subtitle">ORBITAL COMMAND ONLINE</div>
+    </div>
+
+    <!-- Mission Briefing -->
+    <div class="briefing-container">
+      <div class="briefing-panel">
+        <div class="briefing-header">
+          <span class="briefing-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            MISSION BRIEFING
+          </span>
+          <span style="font-family: var(--f-mono); color: var(--c-text-muted); font-size: 0.7rem;">ID: 884-XA <span class="blink">_</span></span>
+        </div>
+        <p class="briefing-text">
+          <strong>Commander,</strong> hostile vanguard detected in the upper atmosphere. Planetary shield generators are online but vulnerable. 
+          <br><br>
+          Allocate credits to upgrade turret output immediately.
+          <span class="highlight">> SYSTEM READY. AWAITING COMMAND INPUT...</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Command Deck -->
+    <div class="command-deck">
+      
+      <!-- Upgrades -->
+      <div class="upgrade-menu">
+        <!-- Damage -->
+        <div class="upgrade-card">
+          <svg class="upgrade-icon" viewBox="0 0 24 24">
+            <path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5z"/>
+          </svg>
+          <div class="upgrade-name">DAMAGE</div>
+          <div class="upgrade-level">LVL 1</div>
+        </div>
+        <!-- Fire Rate -->
+        <div class="upgrade-card">
+          <svg class="upgrade-icon" viewBox="0 0 24 24">
+            <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
+            <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+          </svg>
+          <div class="upgrade-name">FIRE RATE</div>
+          <div class="upgrade-level">LVL 1</div>
+        </div>
+        <!-- Speed -->
+        <div class="upgrade-card">
+          <svg class="upgrade-icon" viewBox="0 0 24 24">
+            <path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.5 2.53l2.24 1.31c.56-1.24.86-2.62.86-4.04 0-5.19-3.93-9.45-9-9.75zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.06.3-9 4.56-9 9.75 0 5.52 4.47 10 10 10 3.25 0 6.13-1.45 8.06-3.75l-2.24-1.31C16.17 17.95 14.17 19 12 19z"/>
+          </svg>
+          <div class="upgrade-name">SPEED</div>
+          <div class="upgrade-level">LVL 1</div>
+        </div>
+      </div>
+
+      <!-- Start Button -->
+      <div class="start-zone">
+        <button class="btn-start">START</button>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+  /**
+   * Canvas Visuals:
+   * - Deep space starfield
+   * - Central Planet with "Holographic" grid overlay
+   * - Radar sweep animation
+   */
+
+  const canvas = document.getElementById('bg-canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  let stars = [];
+  const numStars = 150;
+  let time = 0;
+
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    initStars();
+  }
+
+  function initStars() {
+    stars = [];
+    for(let i=0; i<numStars; i++) {
+      stars.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        size: Math.random() * 1.5,
+        opacity: Math.random(),
+        speed: Math.random() * 0.02 + 0.005,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function drawPlanet(cx, cy, radius, time) {
+    // Planet Core (Dark, solid presence)
+    const gradient = ctx.createRadialGradient(cx - radius*0.3, cy - radius*0.3, radius*0.1, cx, cy, radius);
+    gradient.addColorStop(0, '#0a1520');
+    gradient.addColorStop(0.7, '#03060a');
+    gradient.addColorStop(1, '#000000');
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Atmosphere Glow (Subtle)
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 20, 0, Math.PI * 2);
+    const atmoGrad = ctx.createRadialGradient(cx, cy, radius, cx, cy, radius + 80);
+    atmoGrad.addColorStop(0, 'rgba(0, 240, 255, 0.15)');
+    atmoGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    ctx.fillStyle = atmoGrad;
+    ctx.fill();
+
+    // Holographic Grid (Tech feel)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.1)';
+    ctx.lineWidth = 1;
+
+    // Latitude
+    for(let i = -radius; i <= radius; i += 30) {
+        ctx.beginPath();
+        const y = cy + i;
+        const xDist = Math.sqrt(Math.max(0, radius*radius - i*i));
+        ctx.moveTo(cx - xDist, y);
+        ctx.lineTo(cx + xDist, y);
+        ctx.stroke();
+    }
+    
+    // Longitude (Ellipses)
+    for(let i = -radius/2; i <= radius/2; i+=40) {
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, Math.abs(i), radius, 0, 0, Math.PI*2);
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // Radar Sweep
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    
+    const sweepAngle = (time * 0.0005) % (Math.PI * 2);
+    
+    // Sweep Wedge
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius + 20, sweepAngle, sweepAngle + 0.5);
+    ctx.lineTo(cx, cy);
+    
+    const sweepGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    sweepGrad.addColorStop(0, 'rgba(0, 240, 255, 0)');
+    sweepGrad.addColorStop(0.8, 'rgba(0, 240, 255, 0.05)');
+    sweepGrad.addColorStop(1, 'rgba(0, 240, 255, 0.2)');
+    ctx.fillStyle = sweepGrad;
+    ctx.fill();
+    
+    // Sweep Leading Line
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(sweepAngle) * radius, cy + Math.sin(sweepAngle) * radius);
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.restore();
+  }
+
+  function animate(timestamp) {
+    time = timestamp;
+    ctx.clearRect(0, 0, width, height);
+
+    // Stars
+    stars.forEach(star => {
+      star.phase += 0.015;
+      const opacity = 0.4 + 0.6 * Math.abs(Math.sin(star.phase));
+      ctx.fillStyle = `rgba(200, 230, 255, ${opacity})`;
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Planet
+    // Position planet slightly lower and centered to anchor the bottom visual weight
+    const planetRadius = Math.min(width, height) * 0.35;
+    const planetY = height * 0.65;
+    const planetX = width / 2;
+    
+    drawPlanet(planetX, planetY, planetRadius, time);
+
+    requestAnimationFrame(animate);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(animate);
+
+</script>
+</body>
+</html>

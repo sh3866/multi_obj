@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere Life // Visualizer</title>
+<style>
+    :root {
+        --bg: #050508;
+        --panel-bg: rgba(10, 12, 18, 0.6);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text-main: #ececec;
+        --text-dim: #6b7280;
+        --accent: #00f0ff;
+        --accent-glow: rgba(0, 240, 255, 0.4);
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --font-mono: "SF Mono", "Fira Code", "Roboto Mono", Consolas, monospace;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle Film Grain */
+    .noise-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 100;
+        opacity: 0.04;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    /* Canvas Container */
+    #canvas-container {
+        flex-grow: 1;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        cursor: grab;
+        background: radial-gradient(circle at 50% 50%, #0f111a 0%, #000000 100%);
+    }
+    #canvas-container:active {
+        cursor: grabbing;
+    }
+
+    canvas {
+        display: block;
+    }
+
+    /* Control Panel - Glassmorphism */
+    #controls {
+        width: 380px;
+        height: 100%;
+        background: var(--panel-bg);
+        backdrop-filter: blur(40px) saturate(120%);
+        -webkit-backdrop-filter: blur(40px) saturate(120%);
+        border-left: 1px solid var(--panel-border);
+        padding: 50px 40px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        z-index: 10;
+        position: relative;
+        box-shadow: -10px 0 50px rgba(0,0,0,0.5);
+    }
+
+    /* Typography */
+    h1 {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        margin: 0 0 10px 0;
+        color: #fff;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 20px rgba(255,255,255,0.1);
+    }
+
+    .subtitle {
+        font-size: 14px;
+        color: var(--text-dim);
+        line-height: 1.5;
+        margin-bottom: 50px;
+        padding-left: 15px;
+        border-left: 2px solid var(--accent);
+        font-weight: 400;
+        letter-spacing: 0.5px;
+        font-family: var(--font-mono);
+    }
+
+    /* Controls */
+    .control-group {
+        margin-bottom: 40px;
+    }
+
+    .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 15px;
+    }
+
+    .label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.2px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+    }
+
+    .value {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--accent);
+        letter-spacing: -0.5px;
+        text-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* Custom Slider - High End */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        position: relative;
+        z-index: 2;
+        cursor: pointer;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 14px;
+        width: 14px;
+        border-radius: 50%;
+        background: #fff;
+        margin-top: -6px;
+        box-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent-glow);
+        border: 2px solid #000;
+        transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    
+    input[type=range]::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 2px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* Buttons */
+    .btn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 50px;
+    }
+
+    button {
+        padding: 16px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.02);
+        color: #ccc;
+        font-family: var(--font-ui);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        backdrop-filter: blur(5px);
+    }
+
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.3);
+        color: #fff;
+        transform: translateY(-2px);
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+    }
+
+    button:active {
+        transform: translateY(0);
+    }
+
+    button.primary {
+        grid-column: span 2;
+        background: rgba(0, 240, 255, 0.05);
+        border-color: rgba(0, 240, 255, 0.3);
+        color: var(--accent);
+        box-shadow: 0 0 0 rgba(0, 240, 255, 0);
+    }
+
+    button.primary:hover {
+        background: rgba(0, 240, 255, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 20px rgba(0, 240, 255, 0.15);
+    }
+
+    /* Stats Footer */
+    .stats-container {
+        border-top: 1px solid rgba(255,255,255,0.08);
+        padding-top: 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+    }
+
+    .stat-box {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .stat-val {
+        font-family: var(--font-mono);
+        font-size: 32px;
+        color: #fff;
+        font-weight: 300;
+        letter-spacing: -1.5px;
+        line-height: 1;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+        body { flex-direction: column; }
+        #controls {
+            width: 100%;
+            height: auto;
+            border-left: none;
+            border-top: 1px solid var(--panel-border);
+            padding: 30px;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .subtitle { margin-bottom: 30px; }
+        .btn-grid { width: 100%; margin-top: 20px; margin-bottom: 30px; }
+        .stats-container { width: 100%; }
+    }
+</style>
+</head>
+<body>
+
+<div class="noise-overlay"></div>
+
+<div id="canvas-container">
+    <canvas id="canvas"></canvas>
+</div>
+
+<div id="controls">
+    <div>
+        <h1>Sphere Life</h1>
+        <div class="subtitle">Conway's Game of Life<br>on a 3D manifold.</div>
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Simulation Speed</span>
+            <span class="value" id="speedVal">50%</span>
+        </div>
+        <input type="range" id="speed" min="0" max="100" value="50">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Cell Density</span>
+            <span class="value" id="densityVal">40%</span>
+        </div>
+        <input type="range" id="density" min="5" max="90" value="40">
+    </div>
+
+    <div class="control-group">
+        <div class="label-row">
+            <span class="label">Auto-Rotation</span>
+            <span class="value" id="rotVal">Active</span>
+        </div>
+        <input type="range" id="rotation" min="0" max="100" value="20">
+    </div>
+
+    <div class="btn-grid">
+        <button id="btnReset">Randomize</button>
+        <button id="btnStep">Step Frame</button>
+        <button id="btnPause" class="primary">Pause Simulation</button>
+    </div>
+
+    <div class="stats-container">
+        <div class="stat-box">
+            <span class="label">Population</span>
+            <span class="stat-val" id="popCount">0</span>
+        </div>
+        <div class="stat-box">
+            <span class="label">Generation</span>
+            <span class="stat-val" id="genCount">0</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * Configuration & State
+     */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false }); 
+    
+    let width, height;
+    let cx, cy;
+    let radius;
+    
+    // Sphere Grid Parameters
+    const RINGS = 70; 
+    const SEGMENTS = 140; 
+    const TOTAL_CELLS = RINGS * SEGMENTS;
+    
+    // Game State
+    let grid = new Int8Array(TOTAL_CELLS); 
+    let nextGrid = new Int8Array(TOTAL_CELLS);
+    let generation = 0;
+    let isPaused = false;
+    let frameCount = 0;
+    
+    // Visual Parameters
+    let rotationSpeed = 0.002;
+    let simSpeed = 50; 
+    let cellDensity = 0.40;
+    let rotY = 0;
+    let rotX = 0.4; 
+    
+    // Interaction State
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    /**
+     * Initialization
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        randomizeGrid();
+        setupControls();
+        setupInteraction();
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.parentElement.getBoundingClientRect();
+        
+        width = rect.width;
+        height = rect.height;
+        
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        
+        ctx.scale(dpr, dpr);
+        
+        cx = width / 2;
+        cy = height / 2;
+        radius = Math.min(width, height) * 0.32;
+    }
+
+    function randomizeGrid() {
+        generation = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            grid[i] = Math.random() < (cellDensity * 0.6) ? 1 : 0;
+        }
+        updateStats();
+    }
+
+    /**
+     * Math & Geometry
+     */
+    function getCellCoords(index) {
+        const ring = index % RINGS;
+        const segment = Math.floor(index / RINGS);
+        
+        const phi = (ring / RINGS) * Math.PI;
+        const theta = (segment / SEGMENTS) * 2 * Math.PI;
+        
+        return {
+            x: Math.sin(phi) * Math.cos(theta),
+            y: Math.cos(phi), 
+            z: Math.sin(phi) * Math.sin(theta)
+        };
+    }
+
+    function rotatePoint(x, y, z, ry, rx) {
+        let x1 = x * Math.cos(ry) - z * Math.sin(ry);
+        let z1 = x * Math.sin(ry) + z * Math.cos(ry);
+        
+        let y2 = y * Math.cos(rx) - z1 * Math.sin(rx);
+        let z2 = y * Math.sin(rx) + z1 * Math.cos(rx);
+        
+        return { x: x1, y: y2, z: z2 };
+    }
+
+    function project(x, y, z) {
+        const fov = 3.5;
+        const zOffset = fov + z; 
+        const scale = radius * (fov / zOffset);
+        
+        return {
+            x: cx + x * scale,
+            y: cy - y * scale,
+            scale: scale,
+            depth: z
+        };
+    }
+
+    /**
+     * Game Logic
+     */
+    function getNeighbors(r, s) {
+        let count = 0;
+        
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let ds = -1; ds <= 1; ds++) {
+                if (dr === 0 && ds === 0) continue;
+                
+                let nr = (r + dr + RINGS) % RINGS;
+                let ns = (s + ds + SEGMENTS) % SEGMENTS;
+                
+                if (grid[nr * SEGMENTS + ns]) count++;
+            }
+        }
+        return count;
+    }
+
+    function step() {
+        for (let r = 0; r < RINGS; r++) {
+            for (let s = 0; s < SEGMENTS; s++) {
+                const idx = r * SEGMENTS + s;
+                const state = grid[idx];
+                const neighbors = getNeighbors(r, s);
+                
+                if (state === 1) {
+                    nextGrid[idx] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                } else {
+                    nextGrid[idx] = (neighbors === 3) ? 1 : 0;
+                }
+            }
+        }
+        
+        let temp = grid;
+        grid = nextGrid;
+        nextGrid = temp;
+        
+        generation++;
+        updateStats();
+    }
+
+    /**
+     * Rendering
+     */
+    function draw() {
+        // Clear with slight trail for motion blur effect
+        ctx.fillStyle = '#050508'; 
+        ctx.fillRect(0, 0, width, height);
+        
+        // Update Rotation
+        if (!isDragging) {
+            rotY += rotationSpeed;
+        }
+
+        const cells = [];
+        
+        // Pre-calculate positions
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            const r = i % RINGS;
+            const s = Math.floor(i / RINGS);
+            
+            const pos3D = getCellCoords(i);
+            const rotated = rotatePoint(pos3D.x, pos3D.y, pos3D.z, rotY, rotX);
+            
+            // Only render front-facing cells to save performance and ensure depth
+            if (rotated.z > 0.05) {
+                const projected = project(rotated.x, rotated.y, rotated.z);
+                
+                cells.push({
+                    x: projected.x,
+                    y: projected.y,
+                    z: rotated.z,
+                    scale: projected.scale,
+                    alive: grid[i],
+                    // Calculate base hue based on spherical position for color mapping
+                    baseHue: (s / SEGMENTS) * 360 
+                });
+            }
+        }
+        
+        // Sort by depth (painters algorithm)
+        cells.sort((a, b) => a.z - b.z);
+        
+        // Render Loop
+        ctx.globalCompositeOperation = 'lighter';
+        
+        for (let cell of cells) {
+            if (cell.alive) {
+                // Visual Logic:
+                // Hue: Cyan (180) to Purple (280) based on position and depth
+                const hue = 190 + (cell.baseHue * 0.15) + (cell.z * 50); 
+                
+                // Brightness & Alpha increase towards the front (z > 0)
+                const lightness = 60 + (cell.z * 30); 
+                const alpha = 0.1 + (cell.z * 0.6);
+                
+                // Size increases with perspective
+                const size = 1.8 * (cell.scale / 3.5); 
+                
+                // Main Cell
+                ctx.fillStyle = `hsla(${hue}, 100%, ${lightness}%, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(cell.x, cell.y, Math.max(0.5, size), 0, Math.PI * 2);
+                ctx.fill();
+                
+                // "Hotspot" / Glow for very front cells
+                if (cell.z > 0.8) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${(cell.z - 0.8) * 0.9})`;
+                    ctx.beginPath();
+                    ctx.arc(cell.x, cell.y, size * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Reset composite
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Outer Atmosphere Glow
+        const gradient = ctx.createRadialGradient(cx, cy, radius * 0.85, cx, cy, radius * 1.6);
+        gradient.addColorStop(0, 'rgba(0, 240, 255, 0.08)');
+        gradient.addColorStop(0.4, 'rgba(100, 0, 255, 0.04)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Subtle Sphere Outline
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Inner Shadow for 3D volume
+        const innerShadow = ctx.createRadialGradient(cx, cy, radius * 0.8, cx, cy, radius);
+        innerShadow.addColorStop(0, 'rgba(0,0,0,0)');
+        innerShadow.addColorStop(1, 'rgba(0,0,0,0.6)');
+        ctx.fillStyle = innerShadow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function loop() {
+        if (!isPaused) {
+            // Simulation Throttling
+            const skipFrames = Math.max(0, Math.floor(60 - (simSpeed * 0.55)));
+            
+            if (frameCount % (skipFrames + 1) === 0) {
+                step();
+            }
+            frameCount++;
+        }
+        
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    /**
+     * UI & Controls
+     */
+    function setupControls() {
+        const speedSlider = document.getElementById('speed');
+        const speedVal = document.getElementById('speedVal');
+        speedSlider.addEventListener('input', (e) => {
+            simSpeed = parseInt(e.target.value);
+            speedVal.innerText = simSpeed + '%';
+        });
+
+        const densitySlider = document.getElementById('density');
+        const densityVal = document.getElementById('densityVal');
+        densitySlider.addEventListener('input', (e) => {
+            cellDensity = parseInt(e.target.value) / 100;
+            densityVal.innerText = e.target.value + '%';
+        });
+
+        const rotSlider = document.getElementById('rotation');
+        const rotVal = document.getElementById('rotVal');
+        rotSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            if (val === 0) {
+                rotationSpeed = 0;
+                rotVal.innerText = 'Off';
+            } else {
+                rotationSpeed = val * 0.00015;
+                rotVal.innerText = 'Active';
+            }
+        });
+
+        document.getElementById('btnReset').addEventListener('click', randomizeGrid);
+        
+        document.getElementById('btnStep').addEventListener('click', () => {
+            isPaused = true;
+            step();
+            updatePauseBtn();
+        });
+
+        const pauseBtn = document.getElementById('btnPause');
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            updatePauseBtn();
+        });
+    }
+
+    function updatePauseBtn() {
+        const btn = document.getElementById('btnPause');
+        btn.innerText = isPaused ? 'Resume Simulation' : 'Pause Simulation';
+    }
+
+    function setupInteraction() {
+        const container = document.getElementById('canvas-container');
+
+        const startDrag = (x, y) => {
+            isDragging = true;
+            lastMouseX = x;
+            lastMouseY = y;
+        };
+
+        const endDrag = () => {
+            isDragging = false;
+        };
+
+        const moveDrag = (x, y) => {
+            if (isDragging) {
+                const deltaX = x - lastMouseX;
+                const deltaY = y - lastMouseY;
+                
+                rotY += deltaX * 0.005;
+                rotX += deltaY * 0.005;
+                
+                // Clamp X rotation
+                rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+                
+                lastMouseX = x;
+                lastMouseY = y;
+            }
+        };
+
+        // Mouse
+        container.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        window.addEventListener('mouseup', endDrag);
+        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
+        
+        // Touch
+        container.addEventListener('touchstart', (e) => {
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+            e.preventDefault();
+        }, {passive: false});
+
+        window.addEventListener('touchend', endDrag);
+        window.addEventListener('touchmove', (e) => {
+            if(isDragging) {
+                moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+                e.preventDefault();
+            }
+        }, {passive: false});
+    }
+
+    function updateStats() {
+        let pop = 0;
+        for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (grid[i]) pop++;
+        }
+        document.getElementById('popCount').innerText = pop;
+        document.getElementById('genCount').innerText = generation;
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

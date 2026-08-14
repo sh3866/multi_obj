@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aether Catcher</title>
+<style>
+  :root {
+    --bg-deep: #0f172a;
+    --bg-surface: #1e293b;
+    --primary: #f59e0b;
+    --primary-glow: rgba(245, 158, 11, 0.4);
+    --accent: #38bdf8;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --font-stack: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--bg-deep);
+    color: var(--text-main);
+    font-family: var(--font-stack);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* --- Layout & UI --- */
+  .app-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* HUD */
+  header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 2rem 3rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 10;
+    pointer-events: none; /* Let clicks pass through to canvas */
+  }
+
+  .title-group h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+    text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  .title-group p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+
+  .hud-stats {
+    display: flex;
+    gap: 2rem;
+    pointer-events: auto;
+  }
+
+  .stat-pill {
+    background: rgba(30, 41, 59, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 0.75rem 1.5rem;
+    border-radius: 99px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    transition: transform 0.2s ease;
+  }
+
+  .stat-pill:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  .stat-icon {
+    width: 24px;
+    height: 24px;
+    fill: var(--primary);
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Canvas Layer */
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    cursor: none; /* Hide default cursor for custom net */
+  }
+
+  /* Bottom Action Bar */
+  .action-bar {
+    position: absolute;
+    bottom: 3rem;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .btn-collect {
+    pointer-events: auto;
+    background: var(--primary);
+    color: var(--bg-deep);
+    border: none;
+    padding: 1rem 3rem;
+    font-size: 1rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 0 20px var(--primary-glow), 0 10px 40px rgba(0,0,0,0.3);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-collect::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(120deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .btn-collect:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px var(--primary-glow), 0 15px 50px rgba(0,0,0,0.4);
+  }
+  
+  .btn-collect:hover::before { opacity: 1; }
+
+  .btn-collect:active {
+    transform: scale(0.95);
+  }
+
+  /* Notification Toast */
+  .toast {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid var(--primary);
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 20;
+    text-align: center;
+  }
+
+  .toast.active {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .toast h3 { color: var(--primary); margin-bottom: 0.25rem; }
+  .toast p { font-size: 0.9rem; color: var(--text-muted); }
+
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  
+  <!-- HUD -->
+  <header>
+    <div class="title-group">
+      <h1>Aether Catcher</h1>
+      <p>Region 04: The Floating Isles</p>
+    </div>
+    
+    <div class="hud-stats">
+      <div class="stat-pill">
+        <svg class="stat-icon" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <div>
+          <div class="stat-value" id="score">0</div>
+          <div class="stat-label">Caught</div>
+        </div>
+      </div>
+      
+      <div class="stat-pill">
+        <svg class="stat-icon" style="fill:var(--accent)" viewBox="0 0 24 24">
+          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/>
+        </svg>
+        <div>
+          <div class="stat-value">74%</div>
+          <div class="stat-label">Completion</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Game Field -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <h3>Captured!</h3>
+    <p id="catchName">Mist Sprite</p>
+  </div>
+
+  <!-- Action Bar -->
+  <div class="action-bar">
+    <button class="btn-collect" id="collectBtn">Open Collection</button>
+  </div>
+
+</div>
+
+<script>
+/**
+ * Aether Catcher - Visual Interaction Script
+ * Handles Canvas rendering, particle effects, and creature logic.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const toast = document.getElementById('toast');
+const catchNameEl = document.getElementById('catchName');
+
+// State
+let width, height;
+let score = 0;
+let mouse = { x: 0, y: 0 };
+let particles = [];
+let creatures = [];
+let floatingTexts = [];
+let netActive = false;
+
+// Resize Handler
+function resize() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Mouse Tracking
+window.addEventListener('mousemove', (e) => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+// --- Classes ---
+
+class Particle {
+  constructor(x, y, color) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * 4;
+    this.vy = (Math.random() - 0.5) * 4;
+    this.life = 1.0;
+    this.color = color;
+    this.size = Math.random() * 3 + 1;
+  }
+
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= 0.02;
+    this.size *= 0.95;
+  }
+
+  draw(ctx) {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
+}
+
+class FloatingText {
+  constructor(x, y, text) {
+    this.x = x;
+    this.y = y;
+    this.text = text;
+    this.life = 1.0;
+    this.vy = -1;
+  }
+
+  update() {
+    this.y += this.vy;
+    this.life -= 0.015;
+  }
+
+  draw(ctx) {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 16px system-ui';
+    ctx.fillText(this.text, this.x, this.y);
+    ctx.globalAlpha = 1.0;
+  }
+}
+
+class Creature {
+  constructor() {
+    this.init();
+  }
+
+  init() {
+    this.x = Math.random() * width;
+    this.y = Math.random() * height;
+    this.size = Math.random() * 20 + 15;
+    this.speedX = (Math.random() - 0.5) * 1.5;
+    this.speedY = (Math.random() - 0.5) * 1.5;
+    this.angle = Math.random() * Math.PI * 2;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.color = this.getColor();
+    this.caught = false;
+  }
+
+  getColor() {
+    const colors = ['#38bdf8', '#a78bfa', '#34d399', '#f472b6', '#fb923c'];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  update() {
+    // Movement
+    this.x += this.speedX;
+    this.y += this.speedY;
+    this.wobble += 0.05;
+    this.angle += 0.02;
+
+    // Bounce off walls
+    if (this.x < 0 || this.x > width) this.speedX *= -1;
+    if (this.y < 0 || this.y > height) this.speedY *= -1;
+
+    // Catch Logic
+    if (!this.caught) {
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < this.size + 20) {
+        this.catch();
+      }
+    } else {
+      // Move towards mouse
+      this.x += (mouse.x - this.x) * 0.1;
+      this.y += (mouse.y - this.y) * 0.1;
+    }
+  }
+
+  catch() {
+    this.caught = true;
+    score++;
+    scoreEl.innerText = score;
+    
+    // Visual feedback
+    createExplosion(this.x, this.y, this.color);
+    floatingTexts.push(new FloatingText(this.x, this.y, "+1"));
+    
+    // Show Toast occasionally
+    if (Math.random() > 0.7) {
+      const names = ["Mist Sprite", "Ember Wisp", "Crystal Shard", "Void Moth"];
+      catchNameEl.innerText = names[Math.floor(Math.random() * names.length)];
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 2000);
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    
+    // Glow
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = this.color;
+    
+    // Body
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    
+    if (this.caught) {
+        // Squashed shape
+        ctx.scale(1.2, 0.8);
+    }
+
+    // Organic Blob Shape
+    const points = 5;
+    for (let i = 0; i < points; i++) {
+        const a = (Math.PI * 2 / points) * i + this.angle;
+        const r = this.size + Math.sin(this.wobble + i) * 5;
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 0;
+    const eyeOffset = this.size * 0.3;
+    ctx.beginPath();
+    ctx.arc(-eyeOffset, -eyeOffset/2, this.size * 0.2, 0, Math.PI*2);
+    ctx.arc(eyeOffset, -eyeOffset/2, this.size * 0.2, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function createExplosion(x, y, color) {
+  for (let i = 0; i < 12; i++) {
+    particles.push(new Particle(x, y, color));
+  }
+}
+
+// Draw The Net
+function drawNet() {
+  const size = 40;
+  
+  ctx.save();
+  ctx.translate(mouse.x, mouse.y);
+  
+  // Outer Ring
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, size, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner Ring
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.beginPath();
+  ctx.arc(0, 0, size - 5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1;
+  for(let i = -size; i <= size; i+=10) {
+      ctx.beginPath();
+      ctx.moveTo(i, -Math.sqrt(Math.max(0, size*size - i*i)));
+      ctx.lineTo(i, Math.sqrt(Math.max(0, size*size - i*i)));
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(-Math.sqrt(Math.max(0, size*size - i*i)), i);
+      ctx.lineTo(Math.sqrt(Math.max(0, size*size - i*i)), i);
+      ctx.stroke();
+  }
+
+  // Center Dot
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(0, 0, 2, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Draw Background Stars
+const stars = Array(50).fill().map(() => ({
+    x: Math.random() * 2000,
+    y: Math.random() * 2000,
+    size: Math.random() * 2,
+    alpha: Math.random()
+}));
+
+function drawBackground() {
+    // Clear
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, width, height);
+
+    // Subtle Gradient
+    const grad = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width);
+    grad.addColorStop(0, '#1e293b');
+    grad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Stars
+    ctx.fillStyle = '#ffffff';
+    stars.forEach(star => {
+        ctx.globalAlpha = Math.abs(Math.sin(Date.now() * 0.001 + star.x)) * star.alpha;
+        ctx.beginPath();
+        ctx.arc(star.x % width, star.y % height, star.size, 0, Math.PI*2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+}
+
+// Init
+for (let i = 0; i < 8; i++) {
+  creatures.push(new Creature());
+}
+
+// Animation Loop
+function animate() {
+  drawBackground();
+  
+  // Draw Creatures
+  creatures.forEach(c => {
+    c.update();
+    c.draw(ctx);
+  });
+
+  // Draw Particles
+  particles.forEach((p, index) => {
+    p.update();
+    p.draw(ctx);
+    if (p.life <= 0) particles.splice(index, 1);
+  });
+
+  // Draw Floating Text
+  floatingTexts.forEach((t, index) => {
+    t.update();
+    t.draw(ctx);
+    if (t.life <= 0) floatingTexts.splice(index, 1);
+  });
+
+  drawNet();
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// UI Interactions
+document.getElementById('collectBtn').addEventListener('click', () => {
+    // Visual feedback on button click
+    const btn = document.getElementById('collectBtn');
+    btn.style.transform = 'scale(0.95)';
+    setTimeout(() => btn.style.transform = '', 150);
+    
+    // Logic could go here (e.g. open modal)
+    // For now, just clear screen for effect
+    score = 0;
+    scoreEl.innerText = 0;
+    creatures.forEach(c => {
+        c.caught = false;
+        c.init();
+    });
+    createExplosion(mouse.x, mouse.y, '#fff');
+});
+
+</script>
+</body>
+</html>

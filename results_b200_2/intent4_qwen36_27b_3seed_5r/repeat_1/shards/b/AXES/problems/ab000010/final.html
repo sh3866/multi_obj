@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spherical Life // Volumetric Interface</title>
+<style>
+    :root {
+        /* Atmosphere - Deep Space Blue/Grey */
+        --bg-color: #0B0F19;
+        --bg-gradient: radial-gradient(circle at 50% 50%, #141b2d 0%, #05070a 100%);
+        
+        /* UI Surface */
+        --panel-bg: rgba(11, 15, 25, 0.75);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --glass-blur: 24px;
+        
+        /* Typography & Data */
+        --text-main: #8b92a5;
+        --text-bright: #ffffff;
+        --text-muted: #4a5060;
+        
+        /* Accents - Cyberpunk / Bioluminescent */
+        --accent-primary: #00f2ff; /* Cyan */
+        --accent-secondary: #bd00ff; /* Violet */
+        --accent-highlight: #ff0055; /* Magenta */
+        
+        /* Fonts - Geometric Sans for UI, Mono for Data */
+        --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        
+        --panel-width: 340px;
+        --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+
+    body {
+        background: var(--bg-color);
+        background-image: var(--bg-gradient);
+        background-attachment: fixed;
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+    }
+
+    /* Canvas Area */
+    #canvas-container {
+        flex-grow: 1;
+        position: relative;
+        cursor: grab;
+        overflow: hidden;
+    }
+    #canvas-container:active { cursor: grabbing; }
+
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* UI Overlay - Top Left */
+    .hud-top {
+        position: absolute;
+        top: 32px;
+        left: 32px;
+        pointer-events: none;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .hud-title {
+        font-family: var(--font-ui);
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -1px;
+        color: var(--text-bright);
+        text-transform: uppercase;
+        text-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+    }
+    .hud-subtitle {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-primary);
+        letter-spacing: 2px;
+        font-weight: 600;
+        opacity: 0.8;
+    }
+
+    /* Control Panel (Frosted Glass) */
+    aside {
+        width: var(--panel-width);
+        height: 100%;
+        background: var(--panel-bg);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+        border-left: 1px solid var(--panel-border);
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 36px;
+        z-index: 20;
+        box-shadow: -10px 0 60px rgba(0,0,0,0.5);
+    }
+
+    /* Panel Header */
+    .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--panel-border);
+    }
+    .panel-title {
+        font-family: var(--font-ui);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text-bright);
+        text-transform: uppercase;
+    }
+    .status-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(0,0,0,0.3);
+        padding: 4px 10px;
+        border-radius: 20px;
+        border: 1px solid var(--panel-border);
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--text-main);
+        text-transform: uppercase;
+    }
+    .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: var(--accent-primary);
+        box-shadow: 0 0 8px var(--accent-primary);
+        animation: pulse 2s infinite;
+    }
+    .status-dot.paused {
+        background-color: var(--accent-highlight);
+        box-shadow: 0 0 8px var(--accent-highlight);
+        animation: none;
+    }
+
+    /* Metrics - Prominent Data */
+    .stats-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .stat-label {
+        font-family: var(--font-ui);
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+    .stat-val {
+        font-family: var(--font-mono);
+        font-size: 32px; /* Increased Size */
+        font-weight: 700;
+        color: var(--text-bright);
+        letter-spacing: -1px;
+        line-height: 1;
+        text-shadow: 0 0 15px rgba(255,255,255,0.1);
+    }
+
+    /* Control Groups */
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .label {
+        font-family: var(--font-ui);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-main);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .label span:last-child {
+        font-family: var(--font-mono);
+        color: var(--text-bright);
+        font-weight: 400;
+        font-size: 10px;
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+        margin-top: 4px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        border-radius: 50%;
+        background: var(--text-bright);
+        cursor: pointer;
+        margin-top: -6px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        border: 2px solid var(--bg-color);
+        transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+    }
+
+    /* Buttons - Unified Grammar */
+    .btn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+    }
+    button {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: var(--text-main);
+        padding: 12px 0;
+        font-family: var(--font-ui);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        transition: all 0.2s var(--ease);
+        border-radius: 6px;
+        width: 100%;
+    }
+    button:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.3);
+        color: var(--text-bright);
+    }
+    button:active { transform: translateY(1px); }
+    
+    /* Primary Action: Ghost Style */
+    button.primary {
+        background: transparent;
+        border: 1px solid var(--text-main);
+        color: var(--text-bright);
+        padding: 14px 0;
+        font-size: 11px;
+        letter-spacing: 1px;
+    }
+    button.primary:hover {
+        background: rgba(255,255,255,0.05);
+        border-color: var(--text-bright);
+        box-shadow: 0 0 15px rgba(255,255,255,0.1);
+    }
+
+    button.danger {
+        color: var(--accent-highlight);
+        border-color: rgba(255, 0, 85, 0.3);
+    }
+    button.danger:hover {
+        background: rgba(255, 0, 85, 0.1);
+        border-color: var(--accent-highlight);
+    }
+
+    /* Theme Toggles */
+    .theme-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+    }
+    .theme-btn {
+        padding: 10px;
+        font-size: 10px;
+        text-align: center;
+        border-radius: 6px;
+        font-weight: 700;
+    }
+    .theme-btn.active {
+        background: var(--text-bright);
+        color: var(--bg-color);
+        border-color: var(--text-bright);
+        box-shadow: 0 0 15px rgba(255,255,255,0.2);
+    }
+
+    /* Footer */
+    .footer {
+        margin-top: auto;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: rgba(255,255,255,0.3);
+        line-height: 1.6;
+        border-top: 1px solid var(--panel-border);
+        padding-top: 24px;
+        letter-spacing: 0.5px;
+    }
+
+    @keyframes pulse {
+        0% { opacity: 0.4; }
+        50% { opacity: 1; }
+        100% { opacity: 0.4; }
+    }
+</style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="sphereCanvas"></canvas>
+        
+        <div class="hud-top">
+            <div class="hud-title">Spherical Life</div>
+            <div class="hud-subtitle">TOPOLOGY: CLOSED MANIFOLD</div>
+        </div>
+    </div>
+
+    <aside>
+        <!-- Header -->
+        <div class="panel-header">
+            <div class="panel-title">System Control</div>
+            <div class="status-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Running</span>
+            </div>
+        </div>
+
+        <!-- Primary Action -->
+        <div class="control-group">
+            <button class="primary" id="btn-toggle">Pause Simulation</button>
+        </div>
+
+        <!-- Metrics -->
+        <div class="stats-container">
+            <div class="stat-item">
+                <span class="stat-label">Generation</span>
+                <span class="stat-val" id="gen-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Population</span>
+                <span class="stat-val" id="pop-count">0</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="label">
+                <span>Simulation Speed</span>
+                <span id="speed-val">30</span>
+            </div>
+            <input type="range" id="speedRange" min="1" max="60" value="30">
+        </div>
+
+        <div class="control-group">
+            <div class="label">
+                <span>Grid Resolution</span>
+                <span id="res-val">100</span>
+            </div>
+            <input type="range" id="resRange" min="50" max="150" value="100">
+        </div>
+
+        <div class="control-group">
+            <div class="label">Visual Theme</div>
+            <div class="theme-grid">
+                <button class="theme-btn active" onclick="setTheme('nebula')">Nebula</button>
+                <button class="theme-btn" onclick="setTheme('thermal')">Thermal</button>
+                <button class="theme-btn" onclick="setTheme('matrix')">Matrix</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="label">Manual Overrides</div>
+            <div class="btn-grid">
+                <button class="danger" id="btn-reset">Random</button>
+                <button id="btn-clear">Clear</button>
+                <button id="btn-step">Step</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            RENDER: HTML5 CANVAS 2D<br>
+            LOGIC: CONWAY'S GOL<br>
+            DRAG TO ROTATE • CLICK TO SPAWN
+        </div>
+    </aside>
+
+<script>
+/**
+ * Spherical Game of Life - Volumetric Rendering
+ */
+
+const canvas = document.getElementById('sphereCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const container = document.getElementById('canvas-container');
+
+// State
+let width, height;
+let cols = 100; 
+let rows = 50;
+let grid = [];
+let nextGrid = [];
+let generation = 0;
+let isRunning = true;
+let lastTime = 0;
+let fpsInterval = 33; 
+let theme = 'nebula';
+
+// Camera / Rotation
+let rotX = 0.3; 
+let rotY = 0;
+let autoRotate = true;
+let isDragging = false;
+let lastMouse = { x: 0, y: 0 };
+
+// Themes Configuration (High Contrast / Rich)
+const themes = {
+    nebula: {
+        bg: '#0B0F19',
+        sphereRim: 'rgba(0, 242, 255, 0.5)',
+        cellColor: (n, age) => {
+            // Indigo/Violet/Cyan
+            const hue = 260 + (n * 15); 
+            const sat = 85;
+            const light = 60 + (n * 3);
+            return `hsla(${hue}, ${sat}%, ${light}%, 1)`;
+        }
+    },
+    thermal: {
+        bg: '#120505',
+        sphereRim: 'rgba(255, 69, 0, 0.5)',
+        cellColor: (n, age) => {
+            // Deep Red -> Orange -> Yellow
+            const hue = 10 + (n * 8); 
+            return `hsla(${hue}, 100%, 55%, 1)`;
+        }
+    },
+    matrix: {
+        bg: '#000000',
+        sphereRim: 'rgba(57, 255, 20, 0.4)',
+        cellColor: (n, age) => {
+            // Classic Green
+            const hue = 120;
+            const light = 40 + (n * 5);
+            return `hsla(${hue}, 100%, ${light}%, 1)`;
+        }
+    }
+};
+
+// Setup Canvas
+function resize() {
+    width = container.clientWidth;
+    height = container.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+    width = width; 
+    height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Grid Logic
+function initGrid() {
+    grid = new Array(cols * rows).fill(0);
+    nextGrid = new Array(cols * rows).fill(0);
+    randomize();
+    generation = 0;
+}
+
+function randomize() {
+    for (let i = 0; i < grid.length; i++) {
+        grid[i] = Math.random() > 0.75 ? 1 : 0;
+    }
+    updateStats();
+}
+
+function clearGrid() {
+    grid.fill(0);
+    updateStats();
+}
+
+function getIdx(x, y) {
+    return y * cols + x;
+}
+
+// Get neighbor count (Torus wrapping)
+function countNeighbors(x, y) {
+    let sum = 0;
+    for (let i = -1; i < 2; i++) {
+        for (let j = -1; j < 2; j++) {
+            if (i === 0 && j === 0) continue;
+            
+            let col = (x + i + cols) % cols;
+            let row = (y + j + rows) % rows;
+            
+            sum += grid[getIdx(col, row)];
+        }
+    }
+    return sum;
+}
+
+function update() {
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const state = grid[getIdx(x, y)];
+            const neighbors = countNeighbors(x, y);
+            
+            if (state === 0 && neighbors === 3) {
+                nextGrid[getIdx(x, y)] = 1;
+            } else if (state === 1 && (neighbors < 2 || neighbors > 3)) {
+                nextGrid[getIdx(x, y)] = 0;
+            } else {
+                nextGrid[getIdx(x, y)] = state;
+            }
+        }
+    }
+    
+    let temp = grid;
+    grid = nextGrid;
+    nextGrid = temp;
+    
+    generation++;
+    updateStats();
+}
+
+function updateStats() {
+    let pop = grid.reduce((a, b) => a + b, 0);
+    document.getElementById('gen-count').innerText = generation;
+    document.getElementById('pop-count').innerText = pop;
+}
+
+// Rendering
+function drawSphere() {
+    // Clear with background color
+    ctx.fillStyle = themes[theme].bg;
+    ctx.fillRect(0, 0, width, height);
+    
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.min(width, height) * 0.35;
+
+    // 1. Volumetric Body (Dark core)
+    const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+    grad.addColorStop(0, 'rgba(20, 25, 40, 0.4)');
+    grad.addColorStop(0.8, 'rgba(10, 10, 15, 0.8)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
+    
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 2. Draw Cells
+    const cellsToDraw = [];
+
+    // Pre-calculate trig for rotation
+    const cosY = Math.cos(rotY);
+    const sinY = Math.sin(rotY);
+    const cosX = Math.cos(rotX);
+    const sinX = Math.sin(rotX);
+
+    // Optimization: Calculate sphere projection once per frame
+    for (let y = 0; y < rows; y++) {
+        const phi = (y / rows) * Math.PI;
+        const sinPhi = Math.sin(phi);
+        const cosPhi = Math.cos(phi);
+
+        for (let x = 0; x < cols; x++) {
+            const idx = getIdx(x, y);
+            if (grid[idx] === 1) {
+                const theta = (x / cols) * Math.PI * 2;
+                const cosTheta = Math.cos(theta);
+                const sinTheta = Math.sin(theta);
+
+                // 3D Position (Unit Sphere)
+                let px = sinPhi * cosTheta;
+                let py = sinPhi * sinTheta;
+                let pz = cosPhi;
+
+                // Rotate Y
+                let px2 = px * cosY - pz * sinY;
+                let pz2 = px * sinY + pz * cosY;
+                
+                // Rotate X
+                let py2 = py * cosX - pz2 * sinX;
+                let pz3 = py * sinX + pz2 * cosX;
+
+                // Project
+                const fov = 400;
+                const scale = fov / (fov + pz3 * radius);
+                
+                // Culling: Only draw if in front of camera (with some tolerance)
+                if (pz3 < 0.95) { 
+                    const sx = cx + px2 * radius * scale;
+                    const sy = cy + py2 * radius * scale;
+                    
+                    // Dynamic cell size - Smaller cells for density
+                    // Base size approx 1/cols of circumference
+                    const baseSize = (Math.PI * radius) / cols; 
+                    const size = Math.max(1, baseSize * scale * 0.7); 
+
+                    // Calculate neighbor count for color mapping
+                    const n = countNeighbors(x, y);
+                    const color = themes[theme].cellColor(n, generation);
+                    
+                    cellsToDraw.push({ sx, sy, size, z: pz3, color });
+                }
+            }
+        }
+    }
+
+    // Sort by Z (Painter's Algorithm) - back to front
+    cellsToDraw.sort((a, b) => b.z - a.z);
+
+    // Draw Cells
+    // Use 'lighter' for additive glow effect
+    ctx.globalCompositeOperation = 'lighter';
+    
+    for (let cell of cellsToDraw) {
+        // Depth fog: fade out back cells
+        const alpha = Math.max(0.2, 1 - ((cell.z + 1) / 2));
+        
+        ctx.fillStyle = cell.color;
+        ctx.globalAlpha = alpha;
+        
+        // Reduced glow for clarity
+        ctx.shadowBlur = 4; 
+        ctx.shadowColor = cell.color;
+        
+        ctx.beginPath();
+        ctx.arc(cell.sx, cell.sy, cell.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Reset Context
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // 3. Rim Light (Fresnel effect) - White/Blue stroke
+    const rimGrad = ctx.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius);
+    rimGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    rimGrad.addColorStop(0.8, 'rgba(0,0,0,0.5)');
+    rimGrad.addColorStop(1, themes[theme].sphereRim);
+    
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = rimGrad;
+    ctx.fill();
+    
+    // Thin outer stroke
+    ctx.strokeStyle = themes[theme].sphereRim;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.6;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+// Main Loop
+function loop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const elapsed = timestamp - lastTime;
+
+    if (isRunning && elapsed > fpsInterval) {
+        update();
+        lastTime = timestamp;
+    }
+
+    if (autoRotate && !isDragging) {
+        rotY += 0.004;
+    }
+
+    drawSphere();
+    requestAnimationFrame(loop);
+}
+
+// Interactions
+container.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastMouse = { x: e.clientX, y: e.clientY };
+    autoRotate = false;
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+        const dx = e.clientX - lastMouse.x;
+        const dy = e.clientY - lastMouse.y;
+        rotY += dx * 0.005;
+        rotX += dy * 0.005;
+        lastMouse = { x: e.clientX, y: e.clientY };
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
+// Click to spawn life
+container.addEventListener('click', (e) => {
+    // Toggle a random block of cells
+    const startIdx = Math.floor(Math.random() * grid.length);
+    for(let i=0; i<30; i++) {
+        grid[(startIdx + i) % grid.length] = 1;
+    }
+    updateStats();
+});
+
+// UI Controls
+document.getElementById('btn-toggle').addEventListener('click', () => {
+    isRunning = !isRunning;
+    const btn = document.getElementById('btn-toggle');
+    const statusText = document.getElementById('status-text');
+    const statusDot = document.getElementById('status-dot');
+    
+    if (isRunning) {
+        btn.innerText = "Pause Simulation";
+        statusText.innerText = "Running";
+        statusText.style.color = "var(--accent-primary)";
+        statusDot.classList.remove('paused');
+    } else {
+        btn.innerText = "Resume Simulation";
+        statusText.innerText = "Paused";
+        statusText.style.color = "var(--accent-highlight)";
+        statusDot.classList.add('paused');
+    }
+});
+
+document.getElementById('btn-step').addEventListener('click', () => {
+    isRunning = false;
+    const btn = document.getElementById('btn-toggle');
+    btn.innerText = "Resume Simulation";
+    const statusText = document.getElementById('status-text');
+    statusText.innerText = "Paused";
+    statusText.style.color = "var(--accent-highlight)";
+    const statusDot = document.getElementById('status-dot');
+    statusDot.classList.add('paused');
+    
+    update();
+});
+
+document.getElementById('btn-reset').addEventListener('click', randomize);
+document.getElementById('btn-clear').addEventListener('click', clearGrid);
+
+document.getElementById('speedRange').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('speed-val').innerText = val;
+    fpsInterval = 1000 / val;
+});
+
+document.getElementById('resRange').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('res-val').innerText = val;
+    cols = val;
+    rows = Math.floor(val / 2);
+    initGrid();
+});
+
+function setTheme(name) {
+    theme = name;
+    document.body.style.backgroundImage = `radial-gradient(circle at 50% 50%, ${themes[name].bg} 0%, #000000 100%)`;
+    document.body.style.backgroundColor = themes[name].bg;
+    
+    // Update active button state
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.innerText.toLowerCase() === name) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// Start
+initGrid();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Planet Defense</title>
+    <style>
+        :root {
+            /* Palette - Deep Space & Tactical */
+            --c-bg-deep: #000510;
+            --c-bg-radial: radial-gradient(circle at 50% 50%, #0a1526 0%, #000510 100%);
+            
+            --c-primary: #00f0ff; /* Cyan */
+            --c-primary-dim: rgba(0, 240, 255, 0.15);
+            --c-primary-glow: rgba(0, 240, 255, 0.6);
+            
+            --c-secondary: #ff0055; /* Red/Pink */
+            --c-accent: #ffcc00; /* Gold */
+            
+            --c-text: #e2e8f0;
+            --c-text-dim: #8892b0;
+            
+            /* Typography - Terminal Style */
+            --font-ui: 'Courier New', Courier, monospace;
+            
+            /* UI Dimensions */
+            --hud-height: 60px;
+            --footer-height: 160px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--c-bg-deep);
+            background-image: var(--c-bg-radial);
+            color: var(--c-text);
+            font-family: var(--font-ui);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- BACKGROUND FX --- */
+        #starfield {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.6;
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.6;
+        }
+
+        /* --- LAYOUT --- */
+        .ui-container {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-rows: var(--hud-height) 1fr var(--footer-height);
+        }
+
+        /* --- 1. HUD HEADER --- */
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 30px;
+            background: rgba(0, 10, 20, 0.8);
+            border-bottom: 1px solid var(--c-primary-dim);
+            backdrop-filter: blur(5px);
+            /* Tech corners */
+            clip-path: polygon(
+                0 0, 
+                100% 0, 
+                100% calc(100% - 15px), 
+                calc(100% - 20px) 100%, 
+                0 100%
+            );
+        }
+
+        .hud-group {
+            display: flex;
+            gap: 40px;
+            height: 100%;
+            align-items: center;
+        }
+
+        .hud-item {
+            display: flex;
+            flex-direction: row;
+            align-items: baseline;
+            gap: 10px;
+            text-transform: uppercase;
+        }
+
+        .hud-label {
+            font-size: 0.8rem;
+            color: var(--c-primary);
+            font-weight: bold;
+            letter-spacing: 1px;
+            background: rgba(0, 240, 255, 0.1);
+            padding: 4px 6px;
+            border: 1px solid var(--c-primary-dim);
+        }
+
+        .hud-value {
+            font-size: 1.2rem;
+            color: #fff;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-shadow: 0 0 5px var(--c-primary-glow);
+        }
+
+        .hud-value.hp { color: var(--c-primary); }
+        .hud-value.credits { color: var(--c-accent); }
+
+        /* --- 2. MAIN CONTENT (Z-Pattern Layout) --- */
+        .main-stage {
+            position: relative;
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Left: Title/Planet, Right: Briefing */
+            align-items: center;
+            padding: 0 50px;
+            overflow: hidden;
+        }
+
+        /* Left Column: Title + Planet */
+        .visual-column {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            position: relative;
+            height: 100%;
+        }
+
+        /* Title Treatment */
+        .title-block {
+            position: absolute;
+            top: 15%;
+            left: 0;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .title-js {
+            display: block;
+            font-size: 1.2rem;
+            color: var(--c-text-dim);
+            letter-spacing: 4px;
+            margin-bottom: -5px;
+            opacity: 0.8;
+        }
+
+        .title-planet {
+            font-size: 4.5rem;
+            line-height: 0.9;
+            color: #fff;
+            text-transform: uppercase;
+            /* Glow to separate from planet background */
+            text-shadow: 
+                0 0 10px var(--c-primary),
+                0 0 20px var(--c-primary-dim);
+            /* Monospace aesthetic */
+            letter-spacing: -2px;
+        }
+
+        /* The Planet Graphic (Textured Sphere) */
+        .planet-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-40%, -50%); /* Offset to center-left */
+            width: 450px;
+            height: 450px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1;
+        }
+
+        .planet {
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            position: relative;
+            /* Complex radial gradient for cratered look */
+            background: 
+                radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 20%), /* Highlight */
+                radial-gradient(circle at 70% 80%, #001a33 0%, #000 100%), /* Base Dark */
+                radial-gradient(circle at 50% 50%, #004e92 0%, #000428 100%); /* Base Color */
+            
+            box-shadow: 
+                inset -30px -30px 60px rgba(0,0,0,0.9), /* Deep Shadow */
+                0 0 40px rgba(0, 240, 255, 0.2); /* Atmosphere Glow */
+            
+            overflow: hidden;
+        }
+
+        /* Crater Texture Overlay */
+        .planet-texture {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: 50%;
+            background-image: 
+                radial-gradient(circle at 20% 30%, rgba(0,0,0,0.4) 0%, transparent 10%),
+                radial-gradient(circle at 80% 70%, rgba(0,0,0,0.5) 0%, transparent 15%),
+                radial-gradient(circle at 40% 80%, rgba(0,0,0,0.3) 0%, transparent 8%),
+                radial-gradient(circle at 60% 20%, rgba(0,0,0,0.4) 0%, transparent 12%);
+            opacity: 0.8;
+            mix-blend-mode: multiply;
+        }
+
+        /* Rotating Shield Grid */
+        .shield-grid {
+            position: absolute;
+            top: -20px; left: -20px; right: -20px; bottom: -20px;
+            border-radius: 50%;
+            border: 2px dashed var(--c-primary);
+            opacity: 0.4;
+            animation: rotateShield 30s linear infinite;
+            box-shadow: 0 0 15px var(--c-primary-dim);
+            z-index: 5;
+        }
+        
+        .shield-grid-inner {
+            position: absolute;
+            top: 10px; left: 10px; right: 10px; bottom: 10px;
+            border-radius: 50%;
+            border: 1px solid var(--c-primary);
+            opacity: 0.2;
+            background: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(0, 240, 255, 0.05) 10px,
+                rgba(0, 240, 255, 0.05) 11px
+            );
+            animation: rotateShield 15s linear infinite reverse;
+        }
+
+        @keyframes rotateShield { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Right Column: Briefing */
+        .info-column {
+            display: flex;
+            justify-content: center; /* Center in right column */
+            align-items: center;
+            height: 100%;
+            padding-left: 40px;
+        }
+
+        .briefing-panel {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(5, 15, 30, 0.85);
+            border: 1px solid var(--c-primary-dim);
+            border-left: 4px solid var(--c-primary);
+            padding: 25px;
+            position: relative;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* Decorative Corner */
+        .briefing-panel::after {
+            content: '';
+            position: absolute;
+            bottom: 0; right: 0;
+            width: 20px; height: 20px;
+            background: linear-gradient(135deg, transparent 50%, var(--c-primary) 50%);
+            opacity: 0.5;
+        }
+
+        .panel-header {
+            border-bottom: 1px solid var(--c-primary-dim);
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--c-primary);
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .briefing-content {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--c-text);
+        }
+
+        .briefing-content strong { color: #fff; }
+        .briefing-content p { margin-bottom: 12px; }
+
+        .warning-box {
+            margin-top: 15px;
+            background: rgba(255, 0, 85, 0.1);
+            border: 1px solid var(--c-secondary);
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.8rem;
+            color: var(--c-secondary);
+        }
+
+        /* --- 3. CONTROL DECK (Footer) --- */
+        .control-deck {
+            background: linear-gradient(to top, rgba(0, 10, 20, 0.95), rgba(0, 10, 20, 0.7));
+            border-top: 1px solid var(--c-primary-dim);
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 30px;
+            position: relative;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* Upgrade Cards */
+        .upgrades-container {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .upgrade-card {
+            flex: 1;
+            background: rgba(0, 20, 40, 0.6);
+            border: 1px solid var(--c-primary-dim);
+            padding: 10px 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            height: 100%;
+            min-height: 100px;
+        }
+
+        /* Card Header: Icon + Label */
+        .uc-top {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+
+        .uc-icon {
+            width: 24px; height: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Specific Icon Styles */
+        .icon-damage {
+            width: 0; height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 14px solid var(--c-secondary);
+            filter: drop-shadow(0 0 4px var(--c-secondary));
+        }
+        .icon-rate {
+            width: 16px; height: 16px;
+            border: 2px solid var(--c-primary);
+            border-radius: 50%;
+            position: relative;
+        }
+        .icon-rate::after {
+            content: ''; position: absolute; top: 50%; left: -4px;
+            width: 24px; height: 2px; background: var(--c-primary);
+            transform: translateY(-50%) rotate(45deg);
+        }
+        .icon-speed {
+            width: 16px; height: 10px;
+            border-top: 2px solid var(--c-accent);
+            border-right: 2px solid var(--c-accent);
+            transform: rotate(45deg);
+            box-shadow: 2px 2px 4px rgba(255, 204, 0, 0.3);
+        }
+
+        .uc-title {
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: var(--c-text);
+            letter-spacing: 1px;
+        }
+
+        /* Card Body: Cost + Action */
+        .uc-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: auto;
+        }
+
+        .uc-cost {
+            font-size: 0.9rem;
+            color: var(--c-accent);
+        }
+
+        .uc-action {
+            font-size: 0.7rem;
+            background: var(--c-primary-dim);
+            color: var(--c-primary);
+            padding: 2px 8px;
+            border: 1px solid var(--c-primary);
+            transition: background 0.2s;
+        }
+
+        /* Hover Effects */
+        .upgrade-card:hover {
+            background: rgba(0, 240, 255, 0.1);
+            border-color: var(--c-primary);
+            transform: translateY(-2px);
+        }
+        .upgrade-card:hover .uc-action {
+            background: var(--c-primary);
+            color: #000;
+        }
+
+        /* Start Button */
+        .start-btn {
+            background: linear-gradient(135deg, var(--c-primary), #008c9e);
+            color: #000;
+            border: none;
+            width: 200px;
+            height: 100%;
+            min-height: 100px;
+            font-family: var(--font-ui);
+            font-size: 1.8rem;
+            font-weight: bold;
+            letter-spacing: 2px;
+            cursor: pointer;
+            position: relative;
+            /* Tech Shape */
+            clip-path: polygon(
+                15px 0, 100% 0, 
+                100% calc(100% - 15px), calc(100% - 15px) 100%, 
+                0 100%, 0 15px
+            );
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 20px var(--c-primary-glow);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .start-btn span {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            letter-spacing: 3px;
+            margin-top: 5px;
+            display: block;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 30px var(--c-primary);
+            background: linear-gradient(135deg, #fff, var(--c-primary));
+        }
+
+        .start-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 900px) {
+            .main-stage {
+                grid-template-columns: 1fr;
+                padding: 20px;
+                gap: 40px;
+            }
+            .planet-container {
+                position: relative;
+                top: auto; left: auto;
+                transform: none;
+                margin-bottom: 20px;
+            }
+            .info-column { padding-left: 0; }
+            .title-block { position: static; margin-bottom: 20px; }
+            .title-planet { font-size: 3rem; }
+            .control-deck { flex-direction: column; height: auto; padding: 20px; }
+            .upgrades-container { width: 100%; }
+            .start-btn { width: 100%; height: 60px; min-height: 60px; }
+        }
+
+        @media (max-width: 600px) {
+            .hud-group { gap: 15px; }
+            .hud-label { display: none; } /* Save space on mobile */
+            .upgrades-container { flex-direction: column; }
+            .planet-container { width: 250px; height: 250px; }
+            .planet { width: 180px; height: 180px; }
+            .title-planet { font-size: 2.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- BACKGROUND -->
+    <canvas id="starfield"></canvas>
+    <div class="scanlines"></div>
+
+    <!-- MAIN INTERFACE -->
+    <div class="ui-container">
+
+        <!-- 1. HUD HEADER -->
+        <header class="hud-bar">
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">SECTOR</span>
+                    <span class="hud-value">ALPHA-9</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">WAVE</span>
+                    <span class="hud-value">001</span>
+                </div>
+            </div>
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">SHIELD</span>
+                    <span class="hud-value hp">100%</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">CREDITS</span>
+                    <span class="hud-value credits">500</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 2. MAIN STAGE -->
+        <section class="main-stage">
+            
+            <!-- Left: Visuals -->
+            <div class="visual-column">
+                <div class="title-block">
+                    <span class="title-js">JS</span>
+                    <h1 class="title-planet">PLANET<br>DEFENSE</h1>
+                </div>
+
+                <!-- The Planet Visual -->
+                <div class="planet-container">
+                    <div class="shield-grid"></div>
+                    <div class="planet">
+                        <div class="planet-texture"></div>
+                        <div class="shield-grid-inner"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Briefing -->
+            <div class="info-column">
+                <div class="briefing-panel">
+                    <div class="panel-header">
+                        <span>// MISSION BRIEFING</span>
+                        <span>SECURE</span>
+                    </div>
+                    <div class="briefing-content">
+                        <p><strong>Commander,</strong></p>
+                        <p>The <strong>Xenon Swarm</strong> has entered the sector. Primary orbital shields are holding.</p>
+                        <p style="color: var(--c-text-dim); font-size: 0.85rem;">
+                            > Configure automated turret network.<br>
+                            > Repel initial vanguard.<br>
+                            > Protect core integrity.
+                        </p>
+                        
+                        <div class="warning-box">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                            <span class="warning-text">PROXIMITY ALERT DETECTED</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 3. CONTROL DECK -->
+        <footer class="control-deck">
+            
+            <div class="upgrades-container">
+                <!-- Card 1: Damage -->
+                <div class="upgrade-card">
+                    <div class="uc-top">
+                        <div class="uc-icon"><div class="icon-damage"></div></div>
+                        <div class="uc-title">DAMAGE</div>
+                    </div>
+                    <div class="uc-bottom">
+                        <div class="uc-cost">100 CR</div>
+                        <div class="uc-action">BUY</div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Fire Rate -->
+                <div class="upgrade-card">
+                    <div class="uc-top">
+                        <div class="uc-icon"><div class="icon-rate"></div></div>
+                        <div class="uc-title">FIRE RATE</div>
+                    </div>
+                    <div class="uc-bottom">
+                        <div class="uc-cost">150 CR</div>
+                        <div class="uc-action">BUY</div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Speed -->
+                <div class="upgrade-card">
+                    <div class="uc-top">
+                        <div class="uc-icon"><div class="icon-speed"></div></div>
+                        <div class="uc-title">SPEED</div>
+                    </div>
+                    <div class="uc-bottom">
+                        <div class="uc-cost">120 CR</div>
+                        <div class="uc-action">BUY</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Start Button -->
+            <button class="start-btn" id="startBtn">
+                START
+                <span>INITIALIZE</span>
+            </button>
+
+        </footer>
+    </div>
+
+    <script>
+        /**
+         * STARFIELD ANIMATION
+         * Optimized for performance and visual depth
+         */
+        const canvas = document.getElementById('starfield');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let stars = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((width * height) / 4000); 
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 1.5,
+                    speed: Math.random() * 0.15 + 0.02,
+                    opacity: Math.random() * 0.8 + 0.2
+                });
+            }
+        }
+
+        function animate() {
+            // Clear with slight transparency for trail effect? No, clean clear for crispness.
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                star.y += star.speed;
+                if (star.y > height) {
+                    star.y = 0;
+                    star.x = Math.random() * width;
+                }
+            });
+            ctx.globalAlpha = 1;
+
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+
+        /**
+         * INTERACTIVITY
+         */
+        const startBtn = document.getElementById('startBtn');
+        
+        startBtn.addEventListener('click', () => {
+            const btnContent = startBtn.innerHTML;
+            startBtn.innerHTML = "LAUNCHING...";
+            startBtn.style.transform = "scale(0.95)";
+            
+            setTimeout(() => {
+                startBtn.style.transform = "scale(1)";
+                startBtn.innerHTML = "SYSTEM ACTIVE";
+                startBtn.style.background = "#fff";
+                startBtn.style.color = "#000";
+                
+                setTimeout(() => {
+                    alert("SIMULATION STARTED: WAVE 1 INCOMING");
+                    startBtn.innerHTML = btnContent;
+                    startBtn.style.background = ""; 
+                    startBtn.style.color = "";
+                }, 500);
+            }, 800);
+        });
+
+        // Interactive hover glow for cards
+        const cards = document.querySelectorAll('.upgrade-card');
+        cards.forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(0,240,255,0.15), rgba(0,20,40,0.6))`;
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.background = 'rgba(0, 20, 40, 0.6)';
+            });
+        });
+    </script>
+</body>
+</html>

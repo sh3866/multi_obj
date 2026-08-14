@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grandmaster Chess</title>
+    <style>
+        :root {
+            /* --- Palette: "Slate & Onyx" --- */
+            --bg-app: #09090b;
+            --bg-panel: #18181b;
+            --bg-panel-hover: #27272a;
+            --border-panel: #27272a;
+            
+            --text-main: #e4e4e7;
+            --text-muted: #a1a1aa;
+            --text-dim: #52525b;
+            
+            --accent: #d4af37; /* Classic Gold */
+            --accent-glow: rgba(212, 175, 55, 0.15);
+            
+            --board-light: #e8ebd8; /* Warm Cream */
+            --board-dark: #779556;  /* Deep Moss */
+            --highlight-move: rgba(255, 255, 0, 0.2);
+            
+            --shadow-soft: 0 8px 30px -10px rgba(0, 0, 0, 0.5);
+            --shadow-piece: 0 4px 8px rgba(0, 0, 0, 0.4);
+            
+            --radius-lg: 16px;
+            --radius-md: 8px;
+            --radius-sm: 4px;
+            
+            --board-dim: min(85vw, 85vh);
+            --sq-dim: calc(var(--board-dim) / 8);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background-color: var(--bg-app);
+            /* Subtle grain texture via CSS */
+            background-image: radial-gradient(circle at 50% 0%, #202023 0%, var(--bg-app) 60%);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* --- Layout --- */
+        .app-container {
+            display: flex;
+            gap: 40px;
+            padding: 40px;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 1400px;
+            perspective: 1000px; /* For subtle 3D feel if needed */
+        }
+
+        /* --- Board Component --- */
+        .board-wrapper {
+            position: relative;
+            padding: 12px;
+            background: var(--bg-panel);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-soft);
+            border: 1px solid var(--border-panel);
+            transition: transform 0.3s ease;
+        }
+
+        .chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: var(--board-dim);
+            height: var(--board-dim);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            position: relative;
+            /* Inner shadow for depth */
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2);
+        }
+
+        .square {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Board Colors */
+        .square.light { background-color: var(--board-light); color: var(--board-dark); }
+        .square.dark { background-color: var(--board-dark); color: var(--board-light); }
+
+        /* Coordinates */
+        .coord {
+            position: absolute;
+            font-size: 0.6rem;
+            font-weight: 700;
+            line-height: 1;
+            font-family: "SF Mono", "Roboto Mono", monospace;
+            pointer-events: none;
+        }
+        .coord.rank { top: 4px; left: 4px; }
+        .coord.file { bottom: 3px; right: 4px; }
+
+        /* Highlight effect */
+        .square.highlight::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--highlight-move);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Pieces */
+        .piece {
+            width: 85%;
+            height: 85%;
+            cursor: grab;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            z-index: 2;
+        }
+        .piece:active {
+            cursor: grabbing;
+            transform: scale(1.15);
+            filter: drop-shadow(0 8px 12px rgba(0,0,0,0.4));
+        }
+        .piece svg { width: 100%; height: 100%; display: block; }
+
+        /* --- Side Panel --- */
+        .panel {
+            width: 360px;
+            height: var(--board-dim);
+            background: var(--bg-panel);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-panel);
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .panel-header {
+            padding: 24px;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        .game-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .game-meta span {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        /* Player Cards */
+        .player-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            transition: opacity 0.3s ease;
+        }
+        .player-card.inactive { opacity: 0.4; }
+        .player-card.active { opacity: 1; }
+
+        .player-info { display: flex; align-items: center; gap: 12px; }
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            border: 2px solid transparent;
+        }
+        .player-card.active .avatar { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+        
+        .avatar.black { background: #333; color: #fff; }
+        .avatar.white { background: #eee; color: #000; }
+
+        .details h3 { font-size: 0.9rem; font-weight: 600; color: var(--text-main); margin-bottom: 2px; }
+        .details span { font-size: 0.75rem; color: var(--text-muted); }
+
+        .clock {
+            font-family: "SF Mono", "Roboto Mono", monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            background: #000;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            color: #fff;
+            min-width: 70px;
+            text-align: center;
+            border: 1px solid #333;
+            letter-spacing: 1px;
+        }
+        .player-card.active .clock {
+            background: #fff;
+            color: #000;
+            border-color: #fff;
+        }
+
+        /* Move History */
+        .history-container {
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        .history-table th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-panel);
+            padding: 12px 24px;
+            text-align: left;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border-panel);
+            z-index: 10;
+        }
+
+        .history-table td {
+            padding: 8px 24px;
+            color: var(--text-main);
+            font-family: "SF Mono", "Roboto Mono", monospace;
+            font-size: 0.85rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            cursor: pointer;
+        }
+        
+        .history-table tr:hover td { background: var(--bg-panel-hover); }
+        .history-table td:first-child { color: var(--text-dim); width: 40px; text-align: right; padding-right: 10px; }
+
+        /* Controls */
+        .controls {
+            padding: 20px;
+            border-top: 1px solid var(--border-panel);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            background: rgba(0,0,0,0.1);
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--border-panel);
+            color: var(--text-muted);
+            padding: 12px;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn:hover {
+            background: var(--bg-panel-hover);
+            color: var(--text-main);
+            border-color: var(--text-dim);
+        }
+
+        .btn-danger { border-color: rgba(255, 80, 80, 0.2); color: #ff6b6b; }
+        .btn-danger:hover { background: rgba(255, 80, 80, 0.1); border-color: #ff6b6b; }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #111;
+            border: none;
+            grid-column: span 2;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.2);
+        }
+        .btn-primary:hover {
+            background: #e5c14b;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(212, 175, 55, 0.3);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        @media (max-width: 900px) {
+            .app-container { flex-direction: column; padding: 20px; gap: 20px; }
+            .panel { width: var(--board-dim); height: auto; min-height: 300px; }
+            .board-wrapper { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Board Section -->
+        <div class="board-wrapper">
+            <div class="chessboard" id="board">
+                <!-- Generated via JS -->
+            </div>
+        </div>
+
+        <!-- Side Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="game-meta">
+                    <span>Classical • 10+5</span>
+                    <span style="color: var(--accent);">#8241</span>
+                </div>
+                
+                <!-- Opponent (Black) -->
+                <div class="player-card inactive" id="p-black">
+                    <div class="player-info">
+                        <div class="avatar black">♚</div>
+                        <div class="details">
+                            <h3>Stockfish 16</h3>
+                            <span>Engine • Lvl 8</span>
+                        </div>
+                    </div>
+                    <div class="clock" id="clock-black">10:00</div>
+                </div>
+
+                <!-- Player (White) -->
+                <div class="player-card active" id="p-white">
+                    <div class="player-info">
+                        <div class="avatar white">♔</div>
+                        <div class="details">
+                            <h3>You</h3>
+                            <span>Player • 1450</span>
+                        </div>
+                    </div>
+                    <div class="clock" id="clock-white">10:00</div>
+                </div>
+            </div>
+
+            <div class="history-container">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>White</th>
+                            <th>Black</th>
+                        </tr>
+                    </thead>
+                    <tbody id="move-list">
+                        <!-- Moves -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="controls">
+                <button class="btn">Undo</button>
+                <button class="btn">Draw</button>
+                <button class="btn btn-danger" style="grid-column: span 2;">Resign</button>
+                <button class="btn btn-primary" onclick="resetGame()">New Game</button>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    // --- Piece Assets (SVG) ---
+    // Using high-contrast paths for clarity.
+    const pieces = {
+        w: {
+            p: '<svg viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" /></svg>',
+            r: '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zM12 36v-4h21v4H12zM11 14V9h4v2h5V9h5v2h5V9h4v5" stroke-linecap="butt"/><path d="M34 14l-3 3H14l-3-3"/><path d="M31 17v12.5c1.71.37 3 2.22 3 4.5v3H11v-3c0-2.28 1.29-4.13 3-4.5V17h17z"/><path d="M31 29.5l1.5 2.5h-20l1.5-2.5"/><path d="M11 14h23" fill="none" stroke-linejoin="miter"/></g></svg>',
+            n: '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21"/><path d="M24 18c.38 2.32-2.58 2.9-3 3-3.45.84-7.2 4.14-8 6-1.27 3.09-1.67 6.45-2 10h22c-1.27-3.09-1.67-6.45-2-10-.84-1.86-4.55-5.16-8-6-.42-.1-3.38-.68-3-3z" fill="none"/><path d="M9.5 25.5A4.5 4.5 0 1 1 5 21a4.5 4.5 0 0 1 4.5 4.5z"/><path d="M15 15.5c-1.66 0-3 1.34-3 3 .6 0 1 .4 1 1s-.4 1-1 1c-1.66 0-3 1.34-3 3 .6 0 1 .4 1 1s-.4 1-1 1c-1.66 0-3 1.34-3 3 0 1.66 1.34 3 3 3 1.66 0 3-1.34 3-3 .6 0 1-.4 1-1s-.4-1-1-1c-1.66 0-3-1.34-3-3 .6 0 1-.4 1-1s-.4-1-1-1z" transform="translate(12 -8)"/></g></svg>',
+            b: '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g fill="#fff" stroke-linecap="butt"><path d="M9 36c3.39-.97 9.11-1.45 13.5-1.45 4.38 0 10.11.48 13.5 1.45V30H9v6z"/><path d="M15 24c4 1 11 1 15 0v-8c0-6-4.5-11-7.5-11s-7.5 5-7.5 11v8z"/><path d="M22.5 9c-3 0-4.5 3-4.5 6 0 2 1 4 4.5 4s4.5-2 4.5-4c0-3-1.5-6-4.5-6z"/></g><path d="M15 30c0-3 3-6 7.5-6s7.5 3 7.5 6" fill="none"/></g></svg>',
+            q: '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM24.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM10.5 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM38.5 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/><path d="M9 26c8.5-1.5 21-1.5 27 0l2-12-7 11V11l-5.5 13.5-3-15-3 15-5.5-13.5V25l-7-11 2 12z"/><path d="M9 26c0 2 1.5 2 2.5 4 1 2.5 3 1 5 1 2.5 0 2.5-2.5 6-2.5s3.5 2.5 6 2.5c2 0 4 1.5 5-1 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z"/><path d="M11.5 30c3.5-1 18.5-1 22 0M12 33.5c6-1 15-1 21 0" fill="none"/></g></svg>',
+            k: '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6M20 8h5"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-1-5 2-8 2s-4-1-9-1-5 0-8-2-4-3-8-2c-3 6 6 10.5 6 10.5v7z"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0" fill="none"/></g></svg>'
+        },
+        b: {
+            p: '<svg viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" /></svg>',
+            r: '<svg viewBox="0 0 45 45"><g fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 39h27v-3H9v3zM12 36v-4h21v4H12zM11 14V9h4v2h5V9h5v2h5V9h4v5" stroke-linecap="butt"/><path d="M34 14l-3 3H14l-3-3"/><path d="M31 17v12.5c1.71.37 3 2.22 3 4.5v3H11v-3c0-2.28 1.29-4.13 3-4.5V17h17z"/><path d="M31 29.5l1.5 2.5h-20l1.5-2.5"/><path d="M11 14h23" fill="none" stroke-linejoin="miter"/></g></svg>',
+            n: '<svg viewBox="0 0 45 45"><g fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10c10.5 1 16.5 8 16 29H15c0-9 10-6.5 8-21"/><path d="M24 18c.38 2.32-2.58 2.9-3 3-3.45.84-7.2 4.14-8 6-1.27 3.09-1.67 6.45-2 10h22c-1.27-3.09-1.67-6.45-2-10-.84-1.86-4.55-5.16-8-6-.42-.1-3.38-.68-3-3z" fill="none"/><path d="M9.5 25.5A4.5 4.5 0 1 1 5 21a4.5 4.5 0 0 1 4.5 4.5z"/><path d="M15 15.5c-1.66 0-3 1.34-3 3 .6 0 1 .4 1 1s-.4 1-1 1c-1.66 0-3 1.34-3 3 .6 0 1 .4 1 1s-.4 1-1 1c-1.66 0-3 1.34-3 3 0 1.66 1.34 3 3 3 1.66 0 3-1.34 3-3 .6 0 1-.4 1-1s-.4-1-1-1c-1.66 0-3-1.34-3-3 .6 0 1-.4 1-1s-.4-1-1-1z" transform="translate(12 -8)"/></g></svg>',
+            b: '<svg viewBox="0 0 45 45"><g fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g fill="#111" stroke-linecap="butt"><path d="M9 36c3.39-.97 9.11-1.45 13.5-1.45 4.38 0 10.11.48 13.5 1.45V30H9v6z"/><path d="M15 24c4 1 11 1 15 0v-8c0-6-4.5-11-7.5-11s-7.5 5-7.5 11v8z"/><path d="M22.5 9c-3 0-4.5 3-4.5 6 0 2 1 4 4.5 4s4.5-2 4.5-4c0-3-1.5-6-4.5-6z"/></g><path d="M15 30c0-3 3-6 7.5-6s7.5 3 7.5 6" fill="none"/></g></svg>',
+            q: '<svg viewBox="0 0 45 45"><g fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM24.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM41 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM10.5 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM38.5 20a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/><path d="M9 26c8.5-1.5 21-1.5 27 0l2-12-7 11V11l-5.5 13.5-3-15-3 15-5.5-13.5V25l-7-11 2 12z"/><path d="M9 26c0 2 1.5 2 2.5 4 1 2.5 3 1 5 1 2.5 0 2.5-2.5 6-2.5s3.5 2.5 6 2.5c2 0 4 1.5 5-1 1-2 2.5-2 2.5-4-8.5-1.5-18.5-1.5-27 0z"/><path d="M11.5 30c3.5-1 18.5-1 22 0M12 33.5c6-1 15-1 21 0" fill="none"/></g></svg>',
+            k: '<svg viewBox="0 0 45 45"><g fill="#111" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22.5 11.63V6M20 8h5"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-1-5 2-8 2s-4-1-9-1-5 0-8-2-4-3-8-2c-3 6 6 10.5 6 10.5v7z"/><path d="M11.5 30c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0m-21 3.5c5.5-3 15.5-3 21 0" fill="none"/></g></svg>'
+        }
+    };
+
+    // --- Logic ---
+    const boardEl = document.getElementById('board');
+    const moveListEl = document.getElementById('move-list');
+    const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    
+    // Initial Setup
+    const initialBoard = [
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r']
+    ];
+
+    const mockMoves = [
+        { w: 'e4', b: 'e5' },
+        { w: 'Nf3', b: 'Nc6' },
+        { w: 'Bb5', b: 'a6' },
+        { w: 'Ba4', b: 'Nf6' },
+        { w: 'O-O', b: 'Be7' },
+        { w: 'Re1', b: 'b5' },
+        { w: 'Bb3', b: 'd6' },
+        { w: 'c3', b: 'O-O' },
+        { w: 'h3', b: 'Nb8' },
+        { w: 'd4', b: 'Nbd7' }
+    ];
+
+    function renderBoard() {
+        boardEl.innerHTML = '';
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const square = document.createElement('div');
+                const isLight = (row + col) % 2 === 0;
+                square.className = `square ${isLight ? 'light' : 'dark'}`;
+
+                // Coordinates
+                if (col === 0) {
+                    const rank = document.createElement('span');
+                    rank.className = 'coord rank';
+                    rank.innerText = 8 - row;
+                    square.appendChild(rank);
+                }
+                if (row === 7) {
+                    const file = document.createElement('span');
+                    file.className = 'coord file';
+                    file.innerText = files[col];
+                    square.appendChild(file);
+                }
+
+                // Pieces
+                const pieceCode = initialBoard[row][col];
+                if (pieceCode) {
+                    const pieceDiv = document.createElement('div');
+                    pieceDiv.className = 'piece';
+                    
+                    let color = 'w';
+                    if (row < 2) color = 'b';
+                    else if (row > 5) color = 'w';
+
+                    pieceDiv.innerHTML = pieces[color][pieceCode];
+                    square.appendChild(pieceDiv);
+                }
+
+                boardEl.appendChild(square);
+            }
+        }
+    }
+
+    function renderHistory() {
+        moveListEl.innerHTML = '';
+        mockMoves.forEach((move, index) => {
+            const tr = document.createElement('tr');
+            
+            const numTd = document.createElement('td');
+            numTd.innerText = index + 1 + '.';
+            
+            const wTd = document.createElement('td');
+            wTd.innerText = move.w;
+            
+            const bTd = document.createElement('td');
+            bTd.innerText = move.b;
+
+            tr.appendChild(numTd);
+            tr.appendChild(wTd);
+            tr.appendChild(bTd);
+            moveListEl.appendChild(tr);
+        });
+    }
+
+    function resetGame() {
+        boardEl.style.opacity = '0';
+        setTimeout(() => {
+            renderBoard();
+            boardEl.style.opacity = '1';
+        }, 200);
+    }
+
+    // Init
+    renderBoard();
+    renderHistory();
+
+</script>
+</body>
+</html>

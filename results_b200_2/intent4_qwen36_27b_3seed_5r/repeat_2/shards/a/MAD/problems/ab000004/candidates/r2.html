@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Planet Defense</title>
+    <style>
+        :root {
+            --c-bg: #030407;
+            --c-grid-line: rgba(0, 240, 255, 0.08);
+            --c-primary: #00f0ff;
+            --c-primary-dim: rgba(0, 240, 255, 0.2);
+            --c-secondary: #ff2a6d;
+            --c-accent: #f0f0f0;
+            --c-warning: #ffcc00;
+            --c-text: #ffffff;
+            --c-text-dim: #94a3b8;
+            
+            --font-display: 'Arial Black', Impact, sans-serif;
+            --font-mono: 'Courier New', Courier, monospace;
+            --font-sans: system-ui, -apple-system, sans-serif;
+            
+            --clip-main: polygon(
+                0 0, 
+                calc(100% - 20px) 0, 
+                100% 20px, 
+                100% 100%, 
+                20px 100%, 
+                0 calc(100% - 20px)
+            );
+            
+            --clip-btn: polygon(
+                15px 0, 
+                100% 0, 
+                100% calc(100% - 15px), 
+                calc(100% - 15px) 100%, 
+                0 100%, 
+                0 15px
+            );
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--c-bg);
+            color: var(--c-text);
+            font-family: var(--font-sans);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 1000px;
+        }
+
+        /* --- ATMOSPHERE LAYERS --- */
+        #canvas-bg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+        }
+
+        /* Subtle Vignette & Radial Gradient for Depth */
+        .vignette {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 20%, #000000 120%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.3));
+            background-size: 100% 4px;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* --- UI CONTAINER --- */
+        .interface-container {
+            position: relative;
+            z-index: 10;
+            width: 95%;
+            max-width: 1200px;
+            height: 95vh;
+            display: grid;
+            grid-template-rows: 70px 1fr auto;
+            gap: 20px;
+        }
+
+        /* --- HUD HEADER --- */
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            /* Critique 5: Defined surface area with background and border */
+            background: rgba(10, 15, 25, 0.85);
+            border-bottom: 2px solid var(--c-primary);
+            padding: 0 30px;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 20px rgba(0, 240, 255, 0.15);
+            clip-path: polygon(
+                0 0, 
+                100% 0, 
+                100% calc(100% - 20px), 
+                calc(100% - 20px) 100%, 
+                0 100%
+            );
+        }
+
+        .hud-group { display: flex; gap: 50px; }
+        .hud-item { display: flex; flex-direction: column; align-items: flex-start; }
+
+        .hud-label {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--c-primary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            text-shadow: 0 0 5px var(--c-primary-dim);
+        }
+
+        .hud-value {
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            color: #fff;
+            letter-spacing: 1px;
+        }
+
+        .hud-value.hp { color: var(--c-secondary); text-shadow: 0 0 10px rgba(255, 42, 109, 0.5); }
+        .hud-value.credits { color: var(--c-warning); text-shadow: 0 0 10px rgba(255, 204, 0, 0.3); }
+
+        /* --- MAIN VIEW --- */
+        .main-view {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 60px;
+            align-items: center;
+            padding: 0 40px;
+            position: relative;
+        }
+
+        /* --- TITLE LOCKUP --- */
+        .title-block {
+            position: relative;
+            z-index: 5;
+        }
+
+        /* Critique 1: Unify Typography */
+        .title-prefix {
+            font-family: var(--font-display);
+            font-size: 2.5rem;
+            color: var(--c-primary);
+            letter-spacing: 5px;
+            margin-bottom: -10px;
+            opacity: 0.8;
+            transform: skewX(-10deg);
+            display: inline-block;
+        }
+
+        h1 {
+            font-family: var(--font-display);
+            font-size: 6rem;
+            line-height: 0.85;
+            text-transform: uppercase;
+            color: #fff;
+            margin: 0;
+            transform: skewX(-10deg);
+            text-shadow: 5px 5px 0px var(--c-primary-dim);
+            letter-spacing: -2px;
+        }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            color: var(--c-text);
+            letter-spacing: 4px;
+            margin-top: 20px;
+            font-size: 0.9rem;
+            background: var(--c-primary-dim);
+            display: inline-block;
+            padding: 5px 15px;
+            clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+        }
+
+        /* --- BRIEFING PANEL --- */
+        /* Critique 5: Improved Legibility */
+        .briefing-panel {
+            background: rgba(5, 10, 15, 0.9);
+            border: 1px solid var(--c-primary);
+            padding: 30px;
+            position: relative;
+            height: 100%;
+            max-height: 400px;
+            clip-path: var(--clip-main);
+            box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+        }
+
+        /* Decorative corner markers */
+        .briefing-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border: 1px solid transparent;
+            clip-path: var(--clip-main);
+            pointer-events: none;
+        }
+
+        .panel-header {
+            font-family: var(--font-mono);
+            color: var(--c-primary);
+            border-bottom: 1px solid var(--c-primary-dim);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .briefing-text {
+            color: #e2e8f0; /* Light gray for contrast */
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        .briefing-text p { margin-bottom: 15px; }
+        .briefing-text strong { color: #fff; font-weight: 700; }
+
+        .warning-box {
+            margin-top: 25px;
+            border-left: 4px solid var(--c-secondary);
+            background: rgba(255, 42, 109, 0.1);
+            padding: 15px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--c-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* --- ACTION BAR (BOTTOM) --- */
+        /* Critique 3: Harmonized Start Button & Layout */
+        .action-bar {
+            background: linear-gradient(to top, rgba(5,10,15,0.95), rgba(5,10,15,0.8));
+            border-top: 2px solid var(--c-primary-dim);
+            padding: 25px 40px;
+            display: flex;
+            align-items: stretch;
+            gap: 20px;
+            clip-path: polygon(
+                30px 0, 
+                calc(100% - 30px) 0, 
+                100% 30px, 
+                100% 100%, 
+                0 100%, 
+                0 30px
+            );
+            backdrop-filter: blur(5px);
+        }
+
+        .upgrades-row {
+            display: flex;
+            gap: 15px;
+            flex: 1;
+            justify-content: space-between;
+        }
+
+        /* Critique 2: Interactive Upgrade Cards */
+        .upgrade-card {
+            flex: 1;
+            background: rgba(0, 240, 255, 0.03);
+            border: 1px solid var(--c-primary-dim);
+            padding: 0; /* Reset padding for button structure */
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            clip-path: polygon(
+                0 0, 
+                calc(100% - 15px) 0, 
+                100% 15px, 
+                100% 100%, 
+                15px 100%, 
+                0 calc(100% - 15px)
+            );
+            overflow: hidden;
+        }
+
+        .upgrade-card:hover {
+            background: rgba(0, 240, 255, 0.1);
+            border-color: var(--c-primary);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(0, 240, 255, 0.15);
+        }
+
+        .uc-content {
+            padding: 15px 20px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            justify-content: center;
+        }
+
+        .uc-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+
+        .uc-icon {
+            font-size: 1.2rem;
+            color: var(--c-primary);
+            filter: drop-shadow(0 0 5px var(--c-primary));
+        }
+
+        .uc-title {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: #fff;
+            letter-spacing: 1px;
+        }
+
+        .uc-cost {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--c-warning);
+            font-weight: bold;
+        }
+
+        /* The distinct "BUY" button element at the bottom */
+        .uc-action {
+            background: rgba(0, 240, 255, 0.15);
+            border-top: 1px solid var(--c-primary-dim);
+            color: var(--c-primary);
+            text-align: center;
+            padding: 10px 0;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: background 0.2s;
+        }
+
+        .upgrade-card:hover .uc-action {
+            background: var(--c-primary);
+            color: #000;
+        }
+
+        /* Critique 3: Harmonized Start Button */
+        .btn-start {
+            /* Gradient instead of flat pink */
+            background: linear-gradient(180deg, #00f0ff 0%, #00a8b3 100%);
+            color: #000;
+            border: none;
+            min-width: 220px;
+            font-family: var(--font-display);
+            font-size: 2rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            clip-path: var(--clip-btn);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0; /* Height handled by flex stretch */
+        }
+
+        .btn-start:hover {
+            background: linear-gradient(180deg, #fff 0%, #00f0ff 100%);
+            box-shadow: 0 0 40px rgba(0, 240, 255, 0.6);
+            transform: scale(1.02);
+        }
+
+        .btn-start::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+            transition: 0.6s;
+        }
+
+        .btn-start:hover::after {
+            left: 100%;
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 900px) {
+            .interface-container { height: auto; min-height: 100vh; padding: 20px 0; }
+            .main-view { grid-template-columns: 1fr; gap: 30px; text-align: center; }
+            .title-block { align-items: center; }
+            h1 { font-size: 4rem; }
+            .briefing-panel { max-height: 250px; }
+            .action-bar { flex-direction: column; padding: 20px; }
+            .upgrades-row { flex-direction: column; }
+            .uc-action { display: none; } /* Hide buy button text on mobile to save space, rely on click */
+            .btn-start { width: 100%; height: 60px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL FX -->
+    <canvas id="canvas-bg"></canvas>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- MAIN INTERFACE -->
+    <div class="interface-container">
+        
+        <!-- HEADER HUD -->
+        <div class="hud-header">
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Sector</span>
+                    <span class="hud-value">ALPHA-9</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Wave</span>
+                    <span class="hud-value">001</span>
+                </div>
+            </div>
+            <div class="hud-group">
+                <div class="hud-item">
+                    <span class="hud-label">Shield HP</span>
+                    <span class="hud-value hp">100%</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">Credits</span>
+                    <span class="hud-value credits">500</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER CONTENT -->
+        <div class="main-view">
+            
+            <!-- Left: Title & Art -->
+            <div class="title-block">
+                <!-- Critique 1: Prefix 'JS' small, 'PLANET DEFENSE' dominant -->
+                <div class="title-prefix">JS</div>
+                <h1>PLANET<br>DEFENSE</h1>
+                <div class="subtitle">PLANETARY DEFENSE INITIATIVE</div>
+                
+                <!-- Canvas for the Planet Graphic -->
+                <canvas id="planet-canvas" width="300" height="300" style="position: absolute; right: -60px; top: -20px; z-index: -1; opacity: 0.8; pointer-events: none;"></canvas>
+            </div>
+
+            <!-- Right: Briefing -->
+            <div class="briefing-panel">
+                <div class="panel-header">
+                    <span>// MISSION BRIEFING</span>
+                    <span>SECURE</span>
+                </div>
+                <div class="briefing-text">
+                    <p><strong>Commander,</strong></p>
+                    <p>
+                        The <strong>Xenon Swarm</strong> has entered the sector. Primary orbital shields are holding at 100%.
+                    </p>
+                    <p>
+                        Configure automated turret network to repel the initial vanguard.
+                    </p>
+                    
+                    <div class="warning-box">
+                        <span>⚠ WARNING: PROXIMITY ALERT DETECTED.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UNIFIED ACTION BAR -->
+        <div class="action-bar">
+            
+            <div class="upgrades-row">
+                <!-- Critique 2: Redesigned Cards with explicit action area -->
+                <div class="upgrade-card">
+                    <div class="uc-content">
+                        <div class="uc-header">
+                            <span class="uc-icon">⚡</span>
+                            <span class="uc-title">DAMAGE</span>
+                        </div>
+                        <span class="uc-cost">100 CR</span>
+                    </div>
+                    <div class="uc-action">UPGRADE</div>
+                </div>
+
+                <div class="upgrade-card">
+                    <div class="uc-content">
+                        <div class="uc-header">
+                            <span class="uc-icon">⏱</span>
+                            <span class="uc-title">FIRE RATE</span>
+                        </div>
+                        <span class="uc-cost">150 CR</span>
+                    </div>
+                    <div class="uc-action">UPGRADE</div>
+                </div>
+
+                <div class="upgrade-card">
+                    <div class="uc-content">
+                        <div class="uc-header">
+                            <span class="uc-icon">🚀</span>
+                            <span class="uc-title">SPEED</span>
+                        </div>
+                        <span class="uc-cost">120 CR</span>
+                    </div>
+                    <div class="uc-action">UPGRADE</div>
+                </div>
+            </div>
+
+            <button class="btn-start">START MISSION</button>
+
+        </div>
+    </div>
+
+    <script>
+        /**
+         * BACKGROUND STARFIELD & GRID
+         */
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let stars = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((width * height) / 4000);
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 1.5,
+                    speed: Math.random() * 0.2 + 0.05,
+                    opacity: Math.random()
+                });
+            }
+        }
+
+        function animateBg() {
+            // Deep space background
+            ctx.fillStyle = '#030407'; 
+            ctx.fillRect(0, 0, width, height);
+
+            // Subtle Grid
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
+            ctx.lineWidth = 1;
+            const gridSize = 80;
+            
+            // Moving grid effect
+            const offset = (Date.now() / 40) % gridSize;
+
+            ctx.beginPath();
+            for(let x = 0; x < width; x += gridSize) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+            }
+            for(let y = offset; y < height; y += gridSize) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+
+            // Stars
+            ctx.fillStyle = '#fff';
+            stars.forEach(star => {
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                star.y += star.speed;
+                if (star.y > height) star.y = 0;
+            });
+            ctx.globalAlpha = 1;
+
+            requestAnimationFrame(animateBg);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        animateBg();
+
+
+        /**
+         * PLANET CANVAS
+         */
+        const pCanvas = document.getElementById('planet-canvas');
+        const pCtx = pCanvas.getContext('2d');
+        const pW = pCanvas.width;
+        const pH = pCanvas.height;
+        const centerX = pW / 2;
+        const centerY = pH / 2;
+        const radius = 90;
+
+        function drawPlanet() {
+            pCtx.clearRect(0, 0, pW, pH);
+
+            // Critique 4: Subtle Glow
+            const grad = pCtx.createRadialGradient(centerX, centerY, radius, centerX, centerY, radius + 40);
+            grad.addColorStop(0, 'rgba(0, 240, 255, 0.15)');
+            grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, pW, pH);
+
+            // Planet Body
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.fillStyle = '#05080d';
+            pCtx.fill();
+            pCtx.lineWidth = 3;
+            pCtx.strokeStyle = 'rgba(0, 240, 255, 0.6)';
+            pCtx.stroke();
+
+            // Wireframe Grid
+            pCtx.save();
+            pCtx.beginPath();
+            pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            pCtx.clip(); 
+
+            pCtx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+            pCtx.lineWidth = 1;
+
+            // Vertical lines
+            for (let i = -radius; i <= radius; i += 25) {
+                pCtx.beginPath();
+                pCtx.ellipse(centerX + i, centerY, 15, radius, 0, 0, Math.PI * 2);
+                pCtx.stroke();
+            }
+
+            // Horizontal lines
+            const time = Date.now() * 0.0005;
+            for (let i = -radius; i <= radius; i += 25) {
+                pCtx.beginPath();
+                let y = i + Math.sin(time + i) * 3; 
+                pCtx.moveTo(centerX - radius, y);
+                pCtx.lineTo(centerX + radius, y);
+                pCtx.stroke();
+            }
+
+            pCtx.restore();
+
+            // Rotation Ring
+            pCtx.save();
+            pCtx.translate(centerX, centerY);
+            pCtx.rotate(Date.now() * 0.0005);
+            pCtx.scale(1, 0.3); 
+            
+            pCtx.beginPath();
+            pCtx.arc(0, 0, radius + 30, 0, Math.PI * 2);
+            pCtx.strokeStyle = 'rgba(255, 42, 109, 0.4)';
+            pCtx.lineWidth = 2;
+            pCtx.setLineDash([15, 10]);
+            pCtx.stroke();
+            pCtx.setLineDash([]);
+            pCtx.restore();
+
+            requestAnimationFrame(drawPlanet);
+        }
+
+        drawPlanet();
+
+        /**
+         * INTERACTIVITY
+         */
+        const startBtn = document.querySelector('.btn-start');
+        startBtn.addEventListener('click', () => {
+            startBtn.innerText = "LAUNCHING...";
+            startBtn.style.background = "#fff";
+            startBtn.style.color = "#000";
+            startBtn.style.boxShadow = "0 0 30px #fff";
+            
+            setTimeout(() => {
+                alert("SIMULATION STARTED: WAVE 1 INCOMING");
+                startBtn.innerText = "START MISSION";
+                startBtn.style.background = ""; 
+                startBtn.style.color = "";
+                startBtn.style.boxShadow = "";
+            }, 500);
+        });
+
+        // Hover effect on upgrade cards
+        document.querySelectorAll('.upgrade-card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(0,240,255,0.2), rgba(0,0,0,0.6))`;
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.background = 'rgba(0, 240, 255, 0.03)';
+            });
+        });
+
+    </script>
+</body>
+</html>
