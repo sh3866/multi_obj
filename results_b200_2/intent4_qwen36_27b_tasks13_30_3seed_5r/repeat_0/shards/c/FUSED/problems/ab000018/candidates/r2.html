@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road Redesign</title>
+    <style>
+        :root {
+            --ui-bg: #fff;
+            --ui-text: #333;
+            --ui-accent: #ff4757;
+            --ui-shadow: rgba(0, 0, 0, 0.2);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #4facfe; /* Fallback */
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* HUD Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud-top {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            z-index: 10;
+        }
+
+        .score-pill {
+            background: var(--ui-bg);
+            color: var(--ui-text);
+            padding: 10px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15), 0 2px 4px rgba(0,0,0,0.1);
+            font-weight: 900;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: 2px solid rgba(255,255,255,0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .score-pill .label {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #888;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .score-pill .value {
+            font-size: 26px;
+            color: var(--ui-accent);
+            line-height: 1;
+            text-shadow: 0 1px 0 rgba(0,0,0,0.1);
+        }
+
+        /* Controls Overlay */
+        .controls-area {
+            padding: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            pointer-events: none; /* Let clicks pass through empty space */
+        }
+
+        .d-pad {
+            pointer-events: auto;
+            width: 140px;
+            height: 140px;
+            position: relative;
+            opacity: 0.9;
+            transition: transform 0.1s;
+        }
+
+        .d-btn {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.25);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+            backdrop-filter: blur(2px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.1s, transform 0.1s;
+        }
+        
+        .d-btn:active { 
+            background: rgba(255, 255, 255, 0.6); 
+            transform: scale(0.92); 
+        }
+
+        .d-up { top: 0; left: 45px; }
+        .d-down { bottom: 0; left: 45px; }
+        .d-left { top: 45px; left: 0; }
+        .d-right { top: 45px; right: 0; }
+
+        /* Arrow Icons */
+        .d-icon {
+            width: 10px; 
+            height: 10px; 
+            border-right: 3px solid #fff;
+            border-bottom: 3px solid #fff;
+        }
+        .d-up .d-icon { transform: rotate(-45deg); margin-top: 2px; }
+        .d-down .d-icon { transform: rotate(135deg); margin-top: -2px; }
+        .d-left .d-icon { transform: rotate(45deg); margin-left: -2px; }
+        .d-right .d-icon { transform: rotate(-135deg); margin-left: 2px; }
+
+        .hint-text {
+            color: white;
+            font-weight: 800;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+            font-size: 14px;
+            text-align: right;
+            line-height: 1.4;
+            letter-spacing: 0.5px;
+            background: rgba(0,0,0,0.2);
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+        @media (max-width: 600px) {
+            .hint-text { display: none; }
+            .d-pad { transform: scale(0.8); transform-origin: bottom left; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="score-pill">
+                <div style="display: flex; flex-direction: column; line-height: 1;">
+                    <span class="label">Best</span>
+                    <span class="value">120</span>
+                </div>
+            </div>
+            <div class="score-pill">
+                <div style="display: flex; flex-direction: column; line-height: 1;">
+                    <span class="label">Score</span>
+                    <span class="value" id="current-score">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-area">
+            <div class="d-pad">
+                <div class="d-btn d-up" data-dir="up"><div class="d-icon"></div></div>
+                <div class="d-btn d-left" data-dir="left"><div class="d-icon"></div></div>
+                <div class="d-btn d-right" data-dir="right"><div class="d-icon"></div></div>
+                <div class="d-btn d-down" data-dir="down"><div class="d-icon"></div></div>
+            </div>
+            <div class="hint-text">
+                ARROW KEYS / WASD<br>TO MOVE
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * CROSSY ROAD REDESIGN
+ * 
+ * Changes applied:
+ * 1. Perspective: Reduced rotateX equivalent (lower camera height) for better readability.
+ * 2. Character: Replaced blob with a "Low Poly" Chicken (beak, comb, legs).
+ * 3. Lanes: Distinct color rhythm (Vibrant Green, Asphalt, Bright Blue).
+ * 4. Hazards: Scaled up vehicles with windows; Added floating logs.
+ * 5. HUD: Polished with shadows and better typography.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONFIGURATION ---
+const CONFIG = {
+    fov: 500,            // Field of view
+    cameraHeight: 350,   // Higher camera = more top-down (flatter perspective)
+    cameraDist: 300,     // Distance behind player
+    laneHeight: 40,      // Thickness of the 3D block
+    laneDepth: 50,       // Length of the lane
+    colors: {
+        skyTop: '#87CEEB',
+        skyBottom: '#E0F7FA',
+        grassTop: '#76c75a',
+        grassSide: '#5da844',
+        grassDarkTop: '#6bc04d',
+        grassDarkSide: '#53a53d',
+        roadTop: '#555555',
+        roadSide: '#333333',
+        waterTop: '#48b1bf',
+        waterSide: '#3a919c',
+        wood: '#b07c4e'
+    }
+};
+
+// --- STATE ---
+let state = {
+    width: 0,
+    height: 0,
+    centerX: 0,
+    centerY: 0,
+    playerZ: 0,
+    lanes: [],
+    score: 0
+};
+
+// --- UTILS ---
+
+// Simple 3D Projection
+function project(worldX, worldY, worldZ) {
+    const camZ = state.playerZ - CONFIG.cameraDist;
+    const camY = -CONFIG.cameraHeight; 
+    
+    const relZ = worldZ - camZ;
+    const relY = worldY - camY;
+    
+    if (relZ <= 0) return null;
+    
+    const scale = CONFIG.fov / relZ;
+    
+    const screenX = state.centerX + (worldX * scale);
+    const screenY = state.centerY + (relY * scale);
+    
+    return { x: screenX, y: screenY, scale: scale, z: relZ };
+}
+
+function darken(hex, amount) {
+    let col = parseInt(hex.replace("#",""), 16);
+    let r = (col >> 16) - amount;
+    let g = ((col >> 8) & 0x00FF) - amount;
+    let b = (col & 0x0000FF) - amount;
+    r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
+    return `rgb(${r},${g},${b})`;
+}
+
+// --- CLASSES ---
+
+class Lane {
+    constructor(zIndex) {
+        this.zIndex = zIndex;
+        this.z = zIndex * CONFIG.laneDepth;
+        this.type = this.determineType(zIndex);
+        this.traffic = [];
+        this.logs = [];
+        
+        if (this.type === 'road') {
+            this.speed = (Math.random() > 0.5 ? 1 : -1) * (4 + Math.random() * 3);
+            const count = 2 + Math.floor(Math.random() * 2);
+            for(let i=0; i<count; i++) {
+                this.traffic.push({
+                    x: (Math.random() * 500) - 250,
+                    z: Math.random() * CONFIG.laneDepth,
+                    width: 50,
+                    height: 40,
+                    depth: 70,
+                    color: ['#ff6b6b', '#feca57', '#54a0ff', '#a29bfe', '#ff9ff3'][Math.floor(Math.random()*5)],
+                    type: 'car'
+                });
+            }
+        } else if (this.type === 'water') {
+            this.speed = 3;
+            const count = 2;
+            for(let i=0; i<count; i++) {
+                this.logs.push({
+                    x: (Math.random() * 400) - 200,
+                    z: Math.random() * CONFIG.laneDepth,
+                    width: 50,
+                    depth: 110
+                });
+            }
+        }
+    }
+
+    determineType(z) {
+        const mod = z % 6;
+        if (mod < 2) return 'grass';
+        if (mod < 4) return 'road';
+        if (mod < 5) return 'water';
+        return 'grass';
+    }
+
+    update() {
+        if (this.type === 'road') {
+            this.traffic.forEach(car => {
+                car.x += this.speed;
+                if (this.speed > 0 && car.x > 350) car.x = -350;
+                if (this.speed < 0 && car.x < -350) car.x = 350;
+            });
+        } else if (this.type === 'water') {
+            this.logs.forEach(log => {
+                log.x += this.speed;
+                if (log.x > 350) log.x = -350;
+            });
+        }
+    }
+
+    draw() {
+        const leftX = -300;
+        const rightX = 300;
+        
+        const pFrontLeft = project(leftX, 0, this.z);
+        const pFrontRight = project(rightX, 0, this.z);
+        const pBackLeft = project(leftX, 0, this.z + CONFIG.laneDepth);
+        const pBackRight = project(rightX, 0, this.z + CONFIG.laneDepth);
+        
+        const pBotFrontLeft = project(leftX, -CONFIG.laneHeight, this.z);
+        const pBotFrontRight = project(rightX, -CONFIG.laneHeight, this.z);
+        const pBotBackLeft = project(leftX, -CONFIG.laneHeight, this.z + CONFIG.laneDepth);
+        const pBotBackRight = project(rightX, -CONFIG.laneHeight, this.z + CONFIG.laneDepth);
+
+        if (!pFrontLeft || !pBackLeft) return;
+
+        // 1. Draw Side Face
+        ctx.beginPath();
+        ctx.moveTo(pFrontLeft.x, pFrontLeft.y);
+        ctx.lineTo(pFrontRight.x, pFrontRight.y);
+        ctx.lineTo(pBotFrontRight.x, pBotFrontRight.y);
+        ctx.lineTo(pBotFrontLeft.x, pBotFrontLeft.y);
+        ctx.closePath();
+        
+        let sideColor, topColor;
+        if (this.type === 'grass') {
+            const isDark = Math.floor(this.zIndex) % 2 !== 0;
+            sideColor = isDark ? CONFIG.colors.grassDarkSide : CONFIG.colors.grassSide;
+            topColor = isDark ? CONFIG.colors.grassDarkTop : CONFIG.colors.grassTop;
+        } else if (this.type === 'road') {
+            sideColor = CONFIG.colors.roadSide;
+            topColor = CONFIG.colors.roadTop;
+        } else {
+            sideColor = CONFIG.colors.waterSide;
+            topColor = CONFIG.colors.waterTop;
+        }
+        
+        ctx.fillStyle = sideColor;
+        ctx.fill();
+
+        // 2. Draw Top Face
+        ctx.beginPath();
+        ctx.moveTo(pFrontLeft.x, pFrontLeft.y);
+        ctx.lineTo(pFrontRight.x, pFrontRight.y);
+        ctx.lineTo(pBackRight.x, pBackRight.y);
+        ctx.lineTo(pBackLeft.x, pBackLeft.y);
+        ctx.closePath();
+        ctx.fillStyle = topColor;
+        ctx.fill();
+
+        // 3. Details
+        if (this.type === 'road') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 3 * pFrontLeft.scale;
+            ctx.setLineDash([15 * pFrontLeft.scale, 20 * pFrontLeft.scale]);
+            ctx.beginPath();
+            ctx.moveTo((pFrontLeft.x + pFrontRight.x)/2, (pFrontLeft.y + pFrontRight.y)/2);
+            ctx.lineTo((pBackLeft.x + pBackRight.x)/2, (pBackLeft.y + pBackRight.y)/2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 4. Draw Objects
+        if (this.type === 'road') {
+            this.traffic.forEach(car => this.drawCar(car, pFrontLeft.scale));
+        } else if (this.type === 'water') {
+            this.logs.forEach(log => this.drawLog(log, pFrontLeft.scale));
+        }
+    }
+
+    drawCar(car, scale) {
+        const cx = car.x;
+        const cz = this.z + car.z;
+        const w = car.width;
+        const h = car.height;
+        const d = car.depth;
+        const p = (x, y, z) => project(x, y, z);
+
+        const bfl = p(cx - w/2, 0, cz);
+        const bfr = p(cx + w/2, 0, cz);
+        const bbr = p(cx + w/2, 0, cz + d);
+        const bbl = p(cx - w/2, 0, cz + d);
+        
+        const tfl = p(cx - w/2, h, cz);
+        const tfr = p(cx + w/2, h, cz);
+        const tbr = p(cx + w/2, h, cz + d);
+        const tbl = p(cx - w/2, h, cz + d);
+
+        if (!bfl) return;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bfr.x, bfr.y);
+        ctx.lineTo(bbr.x, bbr.y); ctx.lineTo(bbl.x, bbl.y);
+        ctx.fill();
+
+        // Body
+        // Top
+        ctx.fillStyle = car.color;
+        ctx.beginPath();
+        ctx.moveTo(tfl.x, tfl.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tbl.x, tbl.y);
+        ctx.fill();
+
+        // Side (Right)
+        ctx.fillStyle = darken(car.color, 30);
+        ctx.beginPath();
+        ctx.moveTo(bfr.x, bfr.y); ctx.lineTo(bbr.x, bbr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.fill();
+
+        // Side (Left)
+        ctx.fillStyle = darken(car.color, 50);
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bbl.x, bbl.y);
+        ctx.lineTo(tbl.x, tbl.y); ctx.lineTo(tfl.x, tfl.y);
+        ctx.fill();
+
+        // Front
+        ctx.fillStyle = darken(car.color, 10);
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bfr.x, bfr.y);
+        ctx.lineTo(tfr.x, tfr.y); ctx.lineTo(tfl.x, tfl.y);
+        ctx.fill();
+
+        // Window (Detail)
+        ctx.fillStyle = '#cceeff';
+        ctx.beginPath();
+        // Draw a slightly smaller rectangle on top
+        ctx.moveTo(tfl.x + 4*scale, tfl.y + 2*scale);
+        ctx.lineTo(tfr.x - 4*scale, tfr.y + 2*scale);
+        ctx.lineTo(tbr.x - 4*scale, tbr.y + 2*scale);
+        ctx.lineTo(tbl.x + 4*scale, tbl.y + 2*scale);
+        ctx.fill();
+    }
+
+    drawLog(log, scale) {
+        const cx = log.x;
+        const cz = this.z + log.z;
+        const w = log.width;
+        const d = log.depth;
+        const h = 15; // Taller logs
+
+        const p = (x, y, z) => project(x, y, z);
+        
+        const bfl = p(cx - w/2, 0, cz);
+        const bfr = p(cx + w/2, 0, cz);
+        const bbr = p(cx + w/2, 0, cz + d);
+        const bbl = p(cx - w/2, 0, cz + d);
+        
+        const tfl = p(cx - w/2, h, cz);
+        const tfr = p(cx + w/2, h, cz);
+        const tbr = p(cx + w/2, h, cz + d);
+        const tbl = p(cx - w/2, h, cz + d);
+
+        if (!bfl) return;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bfr.x, bfr.y);
+        ctx.lineTo(bbr.x, bbr.y); ctx.lineTo(bbl.x, bbl.y);
+        ctx.fill();
+
+        // Log Body
+        ctx.fillStyle = '#8c623d'; 
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bbl.x, bbl.y);
+        ctx.lineTo(tbl.x, tbl.y); ctx.lineTo(tfl.x, tfl.y);
+        ctx.fill();
+
+        ctx.fillStyle = '#b07c4e'; 
+        ctx.beginPath();
+        ctx.moveTo(bfr.x, bfr.y); ctx.lineTo(bbr.x, bbr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.fill();
+
+        ctx.fillStyle = '#c9935d'; 
+        ctx.beginPath();
+        ctx.moveTo(tfl.x, tfl.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tbl.x, tbl.y);
+        ctx.fill();
+    }
+}
+
+class Player {
+    constructor() {
+        this.x = 0;
+        this.z = 0;
+        this.targetX = 0;
+        this.targetZ = 0;
+        this.hopY = 0;
+        this.hopVel = 0;
+        this.isHopping = false;
+        this.rotation = 0; // 0: up, 1: right, 2: down, 3: left
+    }
+
+    move(dx, dy) {
+        if (this.isHopping) return;
+        
+        this.targetX += dx * 40; 
+        this.targetZ += dy * CONFIG.laneDepth; 
+        
+        // Update rotation based on movement
+        if (dy > 0) this.rotation = 0; // Up
+        if (dy < 0) this.rotation = 2; // Down
+        if (dx > 0) this.rotation = 1; // Right
+        if (dx < 0) this.rotation = 3; // Left
+        
+        this.isHopping = true;
+        this.hopVel = 12; 
+        
+        if (dy > 0) {
+            state.score++;
+            document.getElementById('current-score').innerText = state.score;
+        }
+    }
+
+    update() {
+        const speed = 0.25;
+        this.x += (this.targetX - this.x) * speed;
+        this.z += (this.targetZ - this.z) * speed;
+
+        if (this.isHopping) {
+            this.hopY += this.hopVel;
+            this.hopVel -= 1.0; 
+            
+            if (this.hopY <= 0) {
+                this.hopY = 0;
+                this.isHopping = false;
+                this.x = this.targetX;
+                this.z = this.targetZ;
+                state.playerZ = this.z; 
+            }
+        }
+    }
+
+    draw() {
+        const size = 30; 
+        const x = this.x;
+        const y = this.hopY;
+        const z = this.z;
+
+        // Simple shadow always on ground
+        const sP = project(x, 0, z);
+        if (sP) {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(sP.x, sP.y, 14 * sP.scale, 7 * sP.scale, 0, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        const p = (dx, dy, dz) => project(x + dx, y + dy, z + dz);
+
+        // --- DRAW CHICKEN ---
+        
+        // 1. Legs (Lines)
+        ctx.strokeStyle = '#ff9f43';
+        ctx.lineWidth = 4 * sP.scale;
+        const legL = p(-8, 0, 5);
+        const legR = p(8, 0, 5);
+        const footL = p(-8, -10, 10);
+        const footR = p(8, -10, 10);
+        if(legL && legR && footL && footR) {
+            ctx.beginPath(); ctx.moveTo(legL.x, legL.y); ctx.lineTo(footL.x, footL.y); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(legR.x, legR.y); ctx.lineTo(footR.x, footR.y); ctx.stroke();
+        }
+
+        // 2. Body (Cube)
+        const b0 = p(-12, 0, -12); 
+        const b1 = p(12, 0, -12);  
+        const b2 = p(12, 0, 12);   
+        const b3 = p(-12, 0, 12);  
+        
+        const t0 = p(-12, 22, -12); 
+        const t1 = p(12, 22, -12);  
+        const t2 = p(12, 22, 12);   
+        const t3 = p(-12, 22, 12);  
+
+        if (!b0) return;
+
+        const bodyTop = '#ffffff';
+        const bodySide = '#e0e0e0';
+        const bodyFront = '#f5f5f5';
+
+        // Top
+        ctx.fillStyle = bodyTop;
+        ctx.beginPath();
+        ctx.moveTo(t0.x, t0.y); ctx.lineTo(t1.x, t1.y);
+        ctx.lineTo(t2.x, t2.y); ctx.lineTo(t3.x, t3.y);
+        ctx.fill();
+
+        // Right Side
+        ctx.fillStyle = bodySide;
+        ctx.beginPath();
+        ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y);
+        ctx.lineTo(t2.x, t2.y); ctx.lineTo(t1.x, t1.y);
+        ctx.fill();
+
+        // Front Face
+        ctx.fillStyle = bodyFront;
+        ctx.beginPath();
+        ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y);
+        ctx.lineTo(t1.x, t1.y); ctx.lineTo(t0.x, t0.y);
+        ctx.fill();
+
+        // 3. Head (Sphere-ish on top)
+        const headY = 18;
+        const headZ = -8;
+        const headR = 14;
+        
+        const headP = project(x, y + headY, z + headZ);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(headP.x, headP.y, headR * headP.scale, 0, Math.PI*2);
+        ctx.fill();
+
+        // 4. Comb (Red triangle on top of head)
+        const combP = project(x, y + headY + 10, z + headZ);
+        const combL = project(x - 5, y + headY + 4, z + headZ);
+        const combR = project(x + 5, y + headY + 4, z + headZ);
+        
+        if(combP && combL && combR) {
+            ctx.fillStyle = '#ff4757';
+            ctx.beginPath();
+            ctx.moveTo(combP.x, combP.y);
+            ctx.lineTo(combL.x, combL.y);
+            ctx.lineTo(combR.x, combR.y);
+            ctx.fill();
+        }
+
+        // 5. Beak (Cone)
+        // Offset based on rotation
+        let beakDx = 0, beakDz = -15;
+        if (this.rotation === 1) { beakDx = 15; beakDz = -5; }
+        if (this.rotation === 3) { beakDx = -15; beakDz = -5; }
+        if (this.rotation === 2) { beakDx = 0; beakDz = 10; }
+
+        const beakTip = project(x + beakDx, y + headY - 2, z + headZ + beakDz);
+        const beakBaseL = project(x + beakDx - 4, y + headY - 2, z + headZ + (beakDz > 0 ? 0 : 0));
+        const beakBaseR = project(x + beakDx + 4, y + headY - 2, z + headZ + (beakDz > 0 ? 0 : 0));
+        
+        if(beakTip && beakBaseL) {
+            ctx.fillStyle = '#ff9f43';
+            ctx.beginPath();
+            ctx.moveTo(beakTip.x, beakTip.y);
+            ctx.lineTo(beakBaseL.x, beakBaseL.y);
+            ctx.lineTo(beakBaseR.x, beakBaseR.y);
+            ctx.fill();
+        }
+
+        // 6. Eyes
+        ctx.fillStyle = '#333';
+        const eyeOffset = 5;
+        let e1x = x - eyeOffset, e2x = x + eyeOffset;
+        if (this.rotation === 1) { e1x = x; e2x = x; } // Side view logic simplified
+        if (this.rotation === 3) { e1x = x; e2x = x; }
+
+        const eyeP1 = project(e1x, y + headY - 2, z + headZ - 10);
+        const eyeP2 = project(e2x, y + headY - 2, z + headZ - 10);
+        
+        if(eyeP1 && eyeP2) {
+            ctx.beginPath(); ctx.arc(eyeP1.x, eyeP1.y, 2.5*headP.scale, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(eyeP2.x, eyeP2.y, 2.5*headP.scale, 0, Math.PI*2); ctx.fill();
+        }
+    }
+}
+
+// --- INITIALIZATION ---
+
+const player = new Player();
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
+    // Create initial lanes
+    for (let i = -5; i < 20; i++) {
+        state.lanes.push(new Lane(i));
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+        switch(e.key) {
+            case 'ArrowUp': case 'w': player.move(0, 1); break;
+            case 'ArrowDown': case 's': player.move(0, -1); break;
+            case 'ArrowLeft': case 'a': player.move(-1, 0); break;
+            case 'ArrowRight': case 'd': player.move(1, 0); break;
+        }
+    });
+
+    // UI Controls
+    document.querySelectorAll('.d-btn').forEach(btn => {
+        const handleInput = (e) => {
+            if(e.cancelable) e.preventDefault();
+            const dir = btn.getAttribute('data-dir');
+            if (dir === 'up') player.move(0, 1);
+            if (dir === 'down') player.move(0, -1);
+            if (dir === 'left') player.move(-1, 0);
+            if (dir === 'right') player.move(1, 0);
+        };
+        btn.addEventListener('mousedown', handleInput);
+        btn.addEventListener('touchstart', handleInput);
+    });
+
+    loop();
+}
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    state.width = canvas.width;
+    state.height = canvas.height;
+    state.centerX = state.width / 2;
+    state.centerY = state.height / 2 + 150; 
+}
+
+// --- GAME LOOP ---
+
+function loop() {
+    // Clear & Background
+    const grad = ctx.createLinearGradient(0, 0, 0, state.height);
+    grad.addColorStop(0, CONFIG.colors.skyTop);
+    grad.addColorStop(1, CONFIG.colors.skyBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    // Update Player
+    player.update();
+
+    // Update Lanes
+    state.lanes.forEach(lane => lane.update());
+
+    // Infinite Scroll Logic
+    const playerLaneIndex = Math.floor(player.z / CONFIG.laneDepth);
+    
+    if (state.lanes[0].zIndex < playerLaneIndex - 5) {
+        state.lanes.shift();
+        const lastZ = state.lanes[state.lanes.length-1].zIndex;
+        state.lanes.push(new Lane(lastZ + 1));
+    }
+
+    // Sort Lanes (Painter's Algorithm)
+    const sortedLanes = [...state.lanes].sort((a, b) => b.z - a.z);
+    
+    // Draw Lanes
+    sortedLanes.forEach(lane => {
+        if (lane.z < state.playerZ - CONFIG.cameraDist) return;
+        lane.draw();
+    });
+
+    // Draw Player
+    player.draw();
+
+    requestAnimationFrame(loop);
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>

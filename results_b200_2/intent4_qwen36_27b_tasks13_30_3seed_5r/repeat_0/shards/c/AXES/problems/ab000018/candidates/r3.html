@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Poly Cross: Redesign</title>
+    <style>
+        :root {
+            --font-main: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --font-display: 'Arial Black', 'Impact', sans-serif;
+            --ui-bg: rgba(255, 255, 255, 0.15);
+            --ui-border: rgba(255, 255, 255, 0.3);
+            --ui-text: #fff;
+            --ui-accent: #ff4757;
+            --ui-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #333;
+            font-family: var(--font-main);
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI OVERLAY */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD - Split Corners */
+        .hud-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        .score-card {
+            background: var(--ui-bg);
+            backdrop-filter: blur(4px);
+            border: 2px solid var(--ui-border);
+            padding: 10px 20px;
+            border-radius: 12px;
+            color: var(--ui-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: var(--ui-shadow);
+            transform: skewX(-5deg); /* Stylized tilt */
+            min-width: 100px;
+        }
+
+        .score-card label {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            opacity: 0.8;
+            margin-bottom: 4px;
+        }
+
+        .score-card span {
+            font-family: var(--font-display);
+            font-size: 28px;
+            line-height: 1;
+            text-shadow: 0 2px 0 rgba(0,0,0,0.2);
+        }
+
+        .score-card span.pop {
+            animation: popAnim 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            color: #ffd32a;
+        }
+
+        @keyframes popAnim {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.4); }
+            100% { transform: scale(1); }
+        }
+
+        /* CONTROLS - Bottom Right */
+        .controls-wrapper {
+            padding: 20px 30px 40px 30px;
+            display: flex;
+            justify-content: flex-end; /* Move to right */
+            align-items: flex-end;
+            pointer-events: none;
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: 60px 60px 60px;
+            grid-template-rows: 60px 60px;
+            gap: 10px;
+            pointer-events: auto;
+            transform: perspective(200px) rotateX(10deg);
+        }
+
+        .d-btn {
+            background: var(--ui-bg);
+            border: 2px solid var(--ui-border);
+            border-radius: 12px;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .d-btn svg {
+            fill: var(--ui-text);
+            width: 24px;
+            height: 24px;
+            filter: drop-shadow(0 1px 0 rgba(0,0,0,0.2));
+        }
+
+        .d-btn:active, .d-btn.active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 rgba(0,0,0,0.2);
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Grid positioning */
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        @media (max-width: 600px) {
+            .controls-wrapper { padding: 10px 20px 20px 20px; }
+            .d-pad { transform: scale(0.8) perspective(200px) rotateX(10deg); }
+            .score-card { min-width: 80px; padding: 8px 12px; }
+            .score-card span { font-size: 22px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <!-- HUD -->
+        <div class="hud-row">
+            <div class="score-card">
+                <label>Best</label>
+                <span id="best-score">42</span>
+            </div>
+            <div class="score-card">
+                <label>Score</label>
+                <span id="current-score">12</span>
+            </div>
+        </div>
+
+        <!-- CONTROLS -->
+        <div class="controls-wrapper">
+            <div class="d-pad">
+                <div class="d-btn btn-up" data-dir="up">
+                    <svg viewBox="0 0 24 24"><path d="M12 5l-8 8h16z"/></svg>
+                </div>
+                <div class="d-btn btn-left" data-dir="left">
+                    <svg viewBox="0 0 24 24"><path d="M5 12l8-8v16z"/></svg>
+                </div>
+                <div class="d-btn btn-down" data-dir="down">
+                    <svg viewBox="0 0 24 24"><path d="M12 19l8-8H4z"/></svg>
+                </div>
+                <div class="d-btn btn-right" data-dir="right">
+                    <svg viewBox="0 0 24 24"><path d="M19 12l-8 8V4z"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * POLY CROSS REDESIGN
+ * 
+ * Key Changes:
+ * 1. Perspective: Tighter FOV, higher camera angle (Isometric-ish).
+ * 2. Visuals: Unified "Golden Hour" palette. Volumetric shadows.
+ * 3. Character: Detailed Low-Poly Chicken.
+ * 4. UI: Split HUD, tactile controls.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONFIGURATION ---
+const CONFIG = {
+    fov: 400,           // Tighter FOV for better depth
+    cameraHeight: 220,  // Higher camera
+    cameraDist: 140,    // Closer to player
+    laneWidth: 50,      // Lane Depth
+    laneSize: 60,       // Lane Width
+    colors: {
+        skyTop: '#6c5ce7',
+        skyMid: '#fd79a8',
+        skyBot: '#ffeaa7',
+        grassLight: '#55efc4',
+        grassDark: '#00b894',
+        road: '#2d3436',
+        roadLine: 'rgba(255,255,255,0.4)',
+        water: '#0984e3',
+        waterDark: '#0652DD',
+        wood: '#e17055',
+        woodDark: '#d35400',
+        carColors: ['#d63031', '#0984e3', '#fdcb6e', '#e84393']
+    }
+};
+
+// --- STATE ---
+let state = {
+    width: 0,
+    height: 0,
+    centerX: 0,
+    centerY: 0,
+    playerX: 0,
+    playerZ: 0,
+    lanes: [],
+    score: 12,
+    bestScore: 42,
+    clouds: [],
+    frame: 0
+};
+
+// --- UTILS ---
+function project(x, y, z) {
+    // Camera tracks player Z
+    const camZ = state.playerZ + CONFIG.cameraDist;
+    // Camera tracks player X with slight lag
+    const camX = state.playerX * 0.1; 
+    
+    const scale = CONFIG.fov / (CONFIG.fov + (z - camZ));
+    
+    // Y inversion for screen coords (0 is top)
+    const screenX = state.centerX + (x - camX) * scale;
+    const screenY = state.centerY - (y - CONFIG.cameraHeight) * scale;
+    
+    return { x: screenX, y: screenY, scale: scale };
+}
+
+function adjustColor(hex, percent) {
+    let c = hexToRgb(hex);
+    let r = Math.floor(c.r * (100 + percent) / 100);
+    let g = Math.floor(c.g * (100 + percent) / 100);
+    let b = Math.floor(c.b * (100 + percent) / 100);
+    return `rgb(${Math.min(255,Math.max(0,r))},${Math.min(255,Math.max(0,g))},${Math.min(255,Math.max(0,b))})`;
+}
+
+function hexToRgb(hex) {
+    let r = parseInt(hex.substring(1,3), 16);
+    let g = parseInt(hex.substring(3,5), 16);
+    let b = parseInt(hex.substring(5,7), 16);
+    return {r, g, b};
+}
+
+// --- CLASSES ---
+
+class Cloud {
+    constructor(z) {
+        this.x = (Math.random() - 0.5) * 4000;
+        this.y = (Math.random() * 100) + 50; // Higher up
+        this.z = z;
+        this.size = 0.8 + Math.random() * 0.8;
+    }
+    draw() {
+        const p = project(this.x, this.y, this.z);
+        if (p.scale <= 0) return;
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 60 * p.scale * this.size, 0, Math.PI*2);
+        ctx.arc(p.x + 40*p.scale, p.y - 20*p.scale, 70 * p.scale * this.size, 0, Math.PI*2);
+        ctx.arc(p.x + 90*p.scale, p.y, 50 * p.scale * this.size, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+class Tree {
+    constructor(z) {
+        this.x = (Math.random() > 0.5 ? 1 : -1) * (100 + Math.random() * 100);
+        this.z = z;
+        this.size = 0.8 + Math.random() * 0.4;
+        this.type = Math.random() > 0.3 ? 'pine' : 'bush';
+    }
+    draw() {
+        const p = project(this.x, 0, this.z);
+        if (p.scale <= 0) return;
+        
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 25 * p.scale * this.size, 12 * p.scale * this.size, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        if (this.type === 'pine') {
+            const h = 80 * p.scale * this.size;
+            const w = 35 * p.scale * this.size;
+            
+            // Trunk
+            ctx.fillStyle = '#5d4037';
+            ctx.fillRect(p.x - w/5, p.y - h/3, w/2.5, h/3);
+            
+            // Leaves (Layered Triangles)
+            const drawTri = (yOff, wScale, col) => {
+                ctx.fillStyle = col;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y - h + yOff);
+                ctx.lineTo(p.x + w * wScale, p.y - h/3 + yOff);
+                ctx.lineTo(p.x - w * wScale, p.y - h/3 + yOff);
+                ctx.fill();
+            };
+            
+            drawTri(0, 1, '#1e8449');
+            drawTri(h*0.25, 0.8, '#27ae60');
+            drawTri(h*0.5, 0.6, '#2ecc71');
+        } else {
+            // Bush
+            ctx.fillStyle = '#00b894';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y - 20*p.scale*this.size, 20*p.scale*this.size, 0, Math.PI*2);
+            ctx.fill();
+            // Highlight
+            ctx.fillStyle = '#55efc4';
+            ctx.beginPath();
+            ctx.arc(p.x - 5*p.scale, p.y - 25*p.scale*this.size, 10*p.scale*this.size, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+}
+
+class Lane {
+    constructor(zIndex) {
+        this.zIndex = zIndex;
+        this.z = zIndex * CONFIG.laneWidth;
+        this.type = this.determineType(zIndex);
+        this.traffic = [];
+        this.logs = [];
+        this.trees = [];
+
+        // Scenery
+        if (this.type === 'grass') {
+            if (Math.random() > 0.5) this.trees.push(new Tree(this.z + (Math.random()*10)));
+            if (Math.random() > 0.5) this.trees.push(new Tree(this.z + (Math.random()*10)));
+        }
+        
+        // Hazards
+        if (this.type === 'road') {
+            this.speed = (Math.random() > 0.5 ? 1 : -1) * (3 + Math.random() * 4);
+            const count = 1 + Math.floor(Math.random() * 2);
+            for(let i=0; i<count; i++) {
+                this.traffic.push({
+                    x: i * 350 - 150 + (Math.random()*100),
+                    width: 50, height: 35, depth: 80,
+                    color: CONFIG.colors.carColors[Math.floor(Math.random()*4)]
+                });
+            }
+        } else if (this.type === 'water') {
+            this.speed = (Math.random() > 0.5 ? 1 : -1) * 1.5;
+            for(let i=0; i<3; i++) {
+                this.logs.push({
+                    x: i * 300 - 150,
+                    width: 100 + Math.random() * 40,
+                    height: 12, depth: 35
+                });
+            }
+        }
+    }
+
+    determineType(z) {
+        const mod = Math.abs(z) % 5;
+        if (mod === 0 || mod === 4) return 'grass';
+        if (mod === 1 || mod === 2) return 'road';
+        if (mod === 3) return 'water';
+        return 'grass';
+    }
+
+    update() {
+        if (this.type === 'road') {
+            this.traffic.forEach(car => {
+                car.x += this.speed;
+                if (this.speed > 0 && car.x > 900) car.x = -700;
+                if (this.speed < 0 && car.x < -900) car.x = 700;
+            });
+        }
+        if (this.type === 'water') {
+            this.logs.forEach(log => {
+                log.x += this.speed;
+                if (this.speed > 0 && log.x > 900) log.x = -700;
+                if (this.speed < 0 && log.x < -900) log.x = 700;
+            });
+        }
+    }
+
+    draw() {
+        // 1. Draw Base Terrain
+        const pLeft = project(-400, 0, this.z);
+        const pRight = project(400, 0, this.z);
+        const pBackLeft = project(-400, 0, this.z + CONFIG.laneWidth);
+        const pBackRight = project(400, 0, this.z + CONFIG.laneWidth);
+
+        // Side Wall (Depth)
+        ctx.beginPath();
+        ctx.moveTo(pLeft.x, pLeft.y);
+        ctx.lineTo(pRight.x, pRight.y);
+        ctx.lineTo(pBackRight.x, pBackRight.y);
+        ctx.lineTo(pBackLeft.x, pBackLeft.y);
+        ctx.closePath();
+        
+        let sideColor, topColor;
+        if (this.type === 'grass') {
+            sideColor = CONFIG.colors.grassDark;
+            topColor = (Math.floor(this.zIndex) % 2 === 0) ? CONFIG.colors.grassLight : '#45e0b6';
+        } else if (this.type === 'road') {
+            sideColor = '#1e272e';
+            topColor = CONFIG.colors.road;
+        } else if (this.type === 'water') {
+            sideColor = CONFIG.colors.waterDark;
+            topColor = CONFIG.colors.water;
+        }
+        
+        ctx.fillStyle = sideColor;
+        ctx.fill();
+
+        // Top Surface
+        ctx.beginPath();
+        ctx.moveTo(pBackLeft.x, pBackLeft.y);
+        ctx.lineTo(pBackRight.x, pBackRight.y);
+        ctx.lineTo(pRight.x, pRight.y);
+        ctx.lineTo(pLeft.x, pLeft.y);
+        ctx.closePath();
+        ctx.fillStyle = topColor;
+        ctx.fill();
+
+        // Details
+        if (this.type === 'road') {
+            ctx.strokeStyle = CONFIG.colors.roadLine;
+            ctx.lineWidth = 4 * pLeft.scale;
+            ctx.setLineDash([30 * pLeft.scale, 40 * pLeft.scale]);
+            ctx.beginPath();
+            ctx.moveTo(pLeft.x + 400*pLeft.scale, pLeft.y);
+            ctx.lineTo(pBackLeft.x + 400*pBackLeft.scale, pBackLeft.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Scenery
+        this.trees.forEach(tree => tree.draw());
+
+        // Moving Objects
+        if (this.type === 'road') {
+            this.traffic.forEach(car => this.drawCar(car, pLeft.scale));
+        } else if (this.type === 'water') {
+            this.logs.forEach(log => this.drawLog(log, pLeft.scale));
+        }
+    }
+
+    drawCar(car, scale) {
+        const cx = car.x;
+        const cz = this.z + 2;
+        const cw = car.width;
+        const ch = car.height;
+        const cd = car.depth;
+
+        // Shadow
+        const s1 = project(cx - cw/2, 0, this.z);
+        const s2 = project(cx + cw/2, 0, this.z);
+        const s3 = project(cx + cw/2, 0, this.z + cd);
+        const s4 = project(cx - cw/2, 0, this.z + cd);
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.lineTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y);
+        ctx.fill();
+
+        // Vertices
+        const v = [
+            project(cx - cw/2, 0, cz),     // 0 FBL
+            project(cx + cw/2, 0, cz),     // 1 FBR
+            project(cx + cw/2, 0, cz + cd), // 2 BBR
+            project(cx - cw/2, 0, cz + cd), // 3 BBL
+            project(cx - cw/2, ch, cz),    // 4 FTL
+            project(cx + cw/2, ch, cz),    // 5 FTR
+            project(cx + cw/2, ch, cz + cd), // 6 BTR
+            project(cx - cw/2, ch, cz + cd)  // 7 BTL
+        ];
+
+        // Faces
+        // Top
+        ctx.fillStyle = adjustColor(car.color, 20);
+        ctx.beginPath(); ctx.moveTo(v[4].x, v[4].y); ctx.lineTo(v[5].x, v[5].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[7].x, v[7].y); ctx.fill();
+        
+        // Right Side
+        ctx.fillStyle = adjustColor(car.color, -10);
+        ctx.beginPath(); ctx.moveTo(v[1].x, v[1].y); ctx.lineTo(v[2].x, v[2].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[5].x, v[5].y); ctx.fill();
+
+        // Left Side
+        ctx.fillStyle = adjustColor(car.color, -30);
+        ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y); ctx.lineTo(v[3].x, v[3].y); ctx.lineTo(v[7].x, v[7].y); ctx.lineTo(v[4].x, v[4].y); ctx.fill();
+        
+        // Front
+        ctx.fillStyle = adjustColor(car.color, 0);
+        ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y); ctx.lineTo(v[1].x, v[1].y); ctx.lineTo(v[5].x, v[5].y); ctx.lineTo(v[4].x, v[4].y); ctx.fill();
+
+        // Windows
+        ctx.fillStyle = '#dfe6e9';
+        ctx.beginPath();
+        const wScale = 0.25;
+        ctx.moveTo(v[4].x + (v[5].x-v[4].x)*wScale, v[4].y);
+        ctx.lineTo(v[5].x - (v[5].x-v[4].x)*wScale, v[5].y);
+        ctx.lineTo(v[6].x - (v[6].x-v[7].x)*wScale, v[6].y);
+        ctx.lineTo(v[7].x + (v[6].x-v[7].x)*wScale, v[7].y);
+        ctx.fill();
+    }
+
+    drawLog(log, scale) {
+        const lx = log.x;
+        const lz = this.z + 2;
+        const lw = log.width;
+        const lh = 10; 
+        const ld = 35;
+
+        const v = [
+            project(lx - lw/2, lh, lz),
+            project(lx + lw/2, lh, lz),
+            project(lx + lw/2, lh, lz + ld),
+            project(lx - lw/2, lh, lz + ld),
+            project(lx - lw/2, lh+15, lz),
+            project(lx + lw/2, lh+15, lz),
+            project(lx + lw/2, lh+15, lz + ld),
+            project(lx - lw/2, lh+15, lz + ld)
+        ];
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(project(lx - lw/2, 0, lz).x, project(lx - lw/2, 0, lz).y);
+        ctx.lineTo(project(lx + lw/2, 0, lz).x, project(lx + lw/2, 0, lz).y);
+        ctx.lineTo(project(lx + lw/2, 0, lz + ld).x, project(lx + lw/2, 0, lz + ld).y);
+        ctx.lineTo(project(lx - lw/2, 0, lz + ld).x, project(lx - lw/2, 0, lz + ld).y);
+        ctx.fill();
+
+        // Log Top
+        ctx.fillStyle = CONFIG.colors.wood;
+        ctx.beginPath(); ctx.moveTo(v[4].x, v[4].y); ctx.lineTo(v[5].x, v[5].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[7].x, v[7].y); ctx.fill();
+        
+        // Log Sides
+        ctx.fillStyle = CONFIG.colors.woodDark;
+        ctx.beginPath(); ctx.moveTo(v[1].x, v[1].y); ctx.lineTo(v[2].x, v[2].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[5].x, v[5].y); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y); ctx.lineTo(v[3].x, v[3].y); ctx.lineTo(v[7].x, v[7].y); ctx.lineTo(v[4].x, v[4].y); ctx.fill();
+    }
+}
+
+class Player {
+    constructor() {
+        this.x = 0;
+        this.z = 0;
+        this.targetX = 0;
+        this.targetZ = 0;
+        this.hopY = 0;
+        this.hopVel = 0;
+        this.isHopping = false;
+        this.width = 40;
+        this.height = 50;
+        this.depth = 40;
+    }
+
+    move(dx, dy) {
+        if (this.isHopping) return;
+        
+        this.targetX += dx * CONFIG.laneSize;
+        this.targetZ += dy * CONFIG.laneWidth;
+        
+        this.isHopping = true;
+        this.hopVel = 12;
+        
+        if (dy > 0) {
+            state.score++;
+            const scoreEl = document.getElementById('current-score');
+            scoreEl.innerText = state.score;
+            scoreEl.classList.remove('pop');
+            void scoreEl.offsetWidth; // trigger reflow
+            scoreEl.classList.add('pop');
+        }
+    }
+
+    update() {
+        // Smooth Lerp
+        this.x += (this.targetX - this.x) * 0.2;
+        this.z += (this.targetZ - this.z) * 0.2;
+
+        // Hop Physics
+        if (this.isHopping) {
+            this.hopY += this.hopVel;
+            this.hopVel -= 0.7; // Gravity
+            
+            if (this.hopY <= 0) {
+                this.hopY = 0;
+                this.isHopping = false;
+                this.x = this.targetX;
+                this.z = this.targetZ;
+                state.playerZ = this.z;
+                state.playerX = this.x;
+            }
+        }
+    }
+
+    draw() {
+        // Shadow
+        const sP = project(this.x, 0, this.z);
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(sP.x, sP.y, 22 * sP.scale, 12 * sP.scale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Chicken Geometry
+        const pX = this.x;
+        const pY = this.hopY;
+        const pZ = this.z;
+        const w = this.width;
+        const h = this.height;
+        const d = this.depth;
+
+        // Vertices
+        const v = [
+            project(pX - w/2, pY, pZ),       // 0 FBL
+            project(pX + w/2, pY, pZ),       // 1 FBR
+            project(pX + w/2, pY, pZ + d),   // 2 BBR
+            project(pX - w/2, pY, pZ + d),   // 3 BBL
+            project(pX - w/2, pY + h, pZ),   // 4 FTL
+            project(pX + w/2, pY + h, pZ),   // 5 FTR
+            project(pX + w/2, pY + h, pZ + d), // 6 BTR
+            project(pX - w/2, pY + h, pZ + d)  // 7 BTL
+        ];
+
+        // Body
+        // Top
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(v[4].x, v[4].y); ctx.lineTo(v[5].x, v[5].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[7].x, v[7].y); ctx.fill();
+        // Right
+        ctx.fillStyle = '#f1f2f6';
+        ctx.beginPath(); ctx.moveTo(v[1].x, v[1].y); ctx.lineTo(v[2].x, v[2].y); ctx.lineTo(v[6].x, v[6].y); ctx.lineTo(v[5].x, v[5].y); ctx.fill();
+        // Left
+        ctx.fillStyle = '#dfe4ea';
+        ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y); ctx.lineTo(v[3].x, v[3].y); ctx.lineTo(v[7].x, v[7].y); ctx.lineTo(v[4].x, v[4].y); ctx.fill();
+        // Front
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y); ctx.lineTo(v[1].x, v[1].y); ctx.lineTo(v[5].x, v[5].y); ctx.lineTo(v[4].x, v[4].y); ctx.fill();
+
+        // Details: Comb (Red)
+        ctx.fillStyle = '#ff4757';
+        ctx.beginPath();
+        ctx.moveTo(v[4].x, v[4].y - 15*v[0].scale);
+        ctx.lineTo(v[5].x, v[5].y - 15*v[0].scale);
+        ctx.lineTo(v[5].x, v[5].y);
+        ctx.lineTo(v[4].x, v[4].y);
+        ctx.fill();
+
+        // Details: Beak (Orange)
+        ctx.fillStyle = '#ffa502';
+        ctx.beginPath();
+        ctx.moveTo(v[0].x + 8*v[0].scale, v[0].y - 25*v[0].scale);
+        ctx.lineTo(v[1].x - 8*v[0].scale, v[0].y - 25*v[0].scale);
+        ctx.lineTo(v[1].x - 14*v[0].scale, v[0].y - 15*v[0].scale); 
+        ctx.lineTo(v[0].x + 14*v[0].scale, v[0].y - 15*v[0].scale);
+        ctx.fill();
+
+        // Details: Eyes (Black)
+        ctx.fillStyle = '#2f3542';
+        ctx.beginPath();
+        ctx.arc(v[0].x + 10*v[0].scale, v[0].y - 28*v[0].scale, 3.5*v[0].scale, 0, Math.PI*2);
+        ctx.arc(v[1].x - 10*v[0].scale, v[1].y - 28*v[0].scale, 3.5*v[0].scale, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Details: Eyes (White Glint)
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(v[0].x + 11*v[0].scale, v[0].y - 29*v[0].scale, 1.5*v[0].scale, 0, Math.PI*2);
+        ctx.arc(v[1].x - 9*v[0].scale, v[1].y - 29*v[0].scale, 1.5*v[0].scale, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// --- INITIALIZATION ---
+
+const player = new Player();
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
+    // Generate initial world
+    for (let i = -10; i < 40; i++) {
+        state.lanes.push(new Lane(i));
+    }
+    
+    // Generate clouds
+    for(let i=0; i<15; i++) {
+        state.clouds.push(new Cloud(Math.random() * 3000));
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+        switch(e.key) {
+            case 'ArrowUp': case 'w': player.move(0, 1); break;
+            case 'ArrowDown': case 's': player.move(0, -1); break;
+            case 'ArrowLeft': case 'a': player.move(-1, 0); break;
+            case 'ArrowRight': case 'd': player.move(1, 0); break;
+        }
+    });
+
+    // D-Pad Listeners
+    document.querySelectorAll('.d-btn').forEach(btn => {
+        const handlePress = (e) => {
+            if(e.cancelable) e.preventDefault();
+            const dir = btn.dataset.dir;
+            if(dir === 'up') player.move(0, 1);
+            if(dir === 'down') player.move(0, -1);
+            if(dir === 'left') player.move(-1, 0);
+            if(dir === 'right') player.move(1, 0);
+            
+            // Visual feedback
+            btn.classList.add('active');
+            setTimeout(() => btn.classList.remove('active'), 100);
+        };
+
+        btn.addEventListener('mousedown', handlePress);
+        btn.addEventListener('touchstart', handlePress);
+    });
+
+    loop();
+}
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    state.width = canvas.width;
+    state.height = canvas.height;
+    state.centerX = state.width / 2;
+    state.centerY = state.height / 2 + 80; // Lower center point
+}
+
+// --- GAME LOOP ---
+
+function loop() {
+    state.frame++;
+    
+    // Clear & Draw Sky Gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, state.height);
+    gradient.addColorStop(0, CONFIG.colors.skyTop);
+    gradient.addColorStop(0.6, CONFIG.colors.skyMid);
+    gradient.addColorStop(1, CONFIG.colors.skyBot);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    // Update Logic
+    player.update();
+    state.lanes.forEach(lane => lane.update());
+    
+    // Infinite Scroll Logic
+    const playerLaneIndex = Math.floor(player.z / CONFIG.laneWidth);
+    while(state.lanes.length > 0 && state.lanes[0].zIndex < playerLaneIndex - 10) {
+        state.lanes.shift();
+    }
+    const lastZ = state.lanes[state.lanes.length-1].zIndex;
+    while(lastZ < playerLaneIndex + 20) {
+        state.lanes.push(new Lane(lastZ + 1));
+        lastZ++;
+    }
+
+    // Draw Clouds
+    state.clouds.forEach(c => c.draw());
+
+    // Draw Lanes (Back to Front)
+    const sortedLanes = [...state.lanes].sort((a, b) => b.z - a.z);
+    sortedLanes.forEach(lane => {
+        // Culling
+        if (lane.z < state.playerZ - CONFIG.cameraDist) return; 
+        if (lane.z > state.playerZ + CONFIG.fov * 2.5) return; 
+        lane.draw();
+    });
+
+    // Draw Player
+    player.draw();
+
+    requestAnimationFrame(loop);
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>

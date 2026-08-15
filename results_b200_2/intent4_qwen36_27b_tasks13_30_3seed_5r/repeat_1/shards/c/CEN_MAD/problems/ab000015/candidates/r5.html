@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Velocity: Sliding Challenge</title>
+<style>
+    :root {
+        --sky-top: #0b132b;
+        --sky-mid: #1c2541;
+        --ice-core: #ffffff;
+        --ice-edge: #778da9;
+        --ice-deep: #415a77;
+        --ui-glass: rgba(255, 255, 255, 0.1);
+        --ui-border: rgba(255, 255, 255, 0.2);
+        --ui-text: #ffffff;
+        --accent-red: #e63946;
+        --accent-cyan: #48cae4;
+        --font-main: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+        box-sizing: border-box;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        margin: 0;
+        padding: 0;
+        outline: none;
+    }
+
+    body, html {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: var(--sky-top);
+        font-family: var(--font-main);
+        color: var(--ui-text);
+    }
+
+    /* 1. THE PLAYFIELD: Perspective Container */
+    #game-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        /* 3D Perspective for the "Vanishing Point" feel */
+        perspective: 1000px;
+        transform-style: preserve-3d;
+    }
+
+    /* --- 1. ENVIRONMENT --- */
+
+    /* Sky */
+    .sky-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 60%;
+        background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-mid) 100%);
+        z-index: 0;
+    }
+
+    /* Fog/Horizon blend */
+    .fog-layer {
+        position: absolute;
+        bottom: 35%; left: 0; width: 100%; height: 15%;
+        background: linear-gradient(to top, rgba(255,255,255,0), rgba(255,255,255,0.6));
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    /* Canvas for the Slope Surface */
+    canvas#slope {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 1;
+    }
+
+    /* Speed Lines Overlay */
+    .speed-lines-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 3;
+        pointer-events: none;
+        /* Radial mask to hide lines in center, keep at edges */
+        mask-image: radial-gradient(circle at 50% 50%, transparent 30%, black 90%);
+        -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 30%, black 90%);
+    }
+    
+    .speed-line {
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.8));
+        width: 2px;
+        border-radius: 2px;
+    }
+
+    /* --- 2. GAMEPLAY OBJECTS --- */
+    #entities-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 4;
+        pointer-events: none;
+        transform-style: preserve-3d;
+    }
+
+    .entity {
+        position: absolute;
+        transform-origin: bottom center;
+        will-change: transform, opacity;
+        /* Center anchor */
+        left: 50%;
+        top: 50%; 
+    }
+
+    /* --- 3. RIDER --- */
+    #player-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 5;
+        pointer-events: none;
+    }
+
+    #player {
+        position: absolute;
+        bottom: 15%; /* Fixed position on screen */
+        left: 50%;
+        width: 160px; /* 2x Scale */
+        height: 160px;
+        transform: translate(-50%, 0);
+        /* Anchor shadow */
+        filter: drop-shadow(0 15px 10px rgba(0,0,0,0.5));
+        transition: transform 0.1s linear;
+    }
+
+    /* Animation: Bob/Shake */
+    @keyframes bobbing {
+        0%, 100% { transform: translateY(0px) scale(1); }
+        50% { transform: translateY(-3px) scale(1.02); }
+    }
+    
+    .player-bob {
+        animation: bobbing 0.15s infinite ease-in-out;
+    }
+
+    /* Spray Particles */
+    #spray-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 4;
+        pointer-events: none;
+    }
+    
+    .particle {
+        position: absolute;
+        background: #fff;
+        border-radius: 50%;
+        opacity: 0.8;
+        pointer-events: none;
+    }
+
+    /* --- 4. HUD: GLASSMORPHISM --- */
+    #hud-layer {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 10;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 24px;
+    }
+
+    /* Top HUD Bar */
+    .hud-top {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
+
+    /* Glassmorphism Container */
+    .glass-panel {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--ui-border);
+        border-radius: 16px;
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Progress Bar */
+    .progress-track {
+        width: 240px;
+        height: 6px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 10px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--accent-cyan);
+        box-shadow: 0 0 15px var(--accent-cyan);
+        border-radius: 10px;
+        transition: width 0.1s linear;
+    }
+
+    /* Stats Row */
+    .stats-row {
+        display: flex;
+        gap: 16px;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .stat-card {
+        padding: 10px 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 100px;
+        position: relative;
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: rgba(255,255,255,0.7);
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        color: #fff;
+        line-height: 1;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .stat-unit {
+        font-size: 0.8rem;
+        color: var(--accent-cyan);
+        margin-left: 4px;
+        font-weight: 600;
+        vertical-align: baseline;
+    }
+
+    /* Controls Area */
+    .controls-area {
+        padding-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        pointer-events: auto;
+        width: 100%;
+    }
+
+    /* Elevated Controls */
+    .control-btn {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        /* Solid, semi-transparent white */
+        background: rgba(255, 255, 255, 0.25);
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .control-btn:active, .control-btn.active {
+        background: rgba(255, 255, 255, 0.6);
+        transform: scale(0.92);
+        border-color: #fff;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .control-btn svg {
+        width: 40px;
+        height: 40px;
+        fill: #fff;
+        filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+    }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+    
+    <!-- 1. ENVIRONMENT -->
+    <div class="sky-layer"></div>
+    <canvas id="slope"></canvas>
+    <div class="fog-layer"></div>
+    <div class="speed-lines-overlay" id="speed-lines"></div>
+
+    <!-- 2. GAMEPLAY OBJECTS -->
+    <div id="entities-layer"></div>
+
+    <!-- 3. RIDER -->
+    <div id="spray-layer"></div>
+    <div id="player-layer">
+        <div id="player">
+            <!-- Wrapper for bobbing animation -->
+            <div class="player-bob">
+                <!-- Detailed Rider SVG -->
+                <svg viewBox="0 0 120 120" width="100%" height="100%">
+                    <!-- Board -->
+                    <path d="M10 95 Q60 110 110 95 L105 90 Q60 105 15 90 Z" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+                    
+                    <!-- Back Leg -->
+                    <path d="M50 65 L40 90" stroke="#0f172a" stroke-width="10" stroke-linecap="round" />
+                    <path d="M50 65 L40 90" stroke="#334155" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+                    
+                    <!-- Body (Aerodynamic Tuck) -->
+                    <path d="M40 65 L60 30 L75 65 Z" fill="#ef4444" /> 
+                    <path d="M40 65 L60 30 L60 65 Z" fill="#b91c1c" /> 
+                    
+                    <!-- Front Leg -->
+                    <path d="M75 65 L85 90" stroke="#0f172a" stroke-width="10" stroke-linecap="round" />
+                    <path d="M75 65 L85 90" stroke="#334155" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+                    
+                    <!-- Head/Helmet -->
+                    <circle cx="60" cy="25" r="12" fill="#f8fafc" />
+                    <!-- Goggles -->
+                    <path d="M52 22 L72 22 L70 28 L54 28 Z" fill="#0f172a" />
+                    <path d="M54 23 L56 23 L56 27 L54 27 Z" fill="#38bdf8" />
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. HUD -->
+    <div id="hud-layer">
+        <div class="hud-top">
+            <!-- Progress -->
+            <div class="progress-track glass-panel">
+                <div class="progress-fill" id="progress-bar"></div>
+            </div>
+            
+            <!-- Stats -->
+            <div class="stats-row glass-panel">
+                <div class="stat-card">
+                    <span class="stat-label">Speed</span>
+                    <span class="stat-value"><span id="speed-val">0</span><span class="stat-unit">km/h</span></span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Distance</span>
+                    <span class="stat-value"><span id="dist-val">0</span><span class="stat-unit">m</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-area">
+            <div class="control-btn" id="btn-left">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="control-btn" id="btn-right">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    /* --- CONFIGURATION --- */
+    const canvas = document.getElementById('slope');
+    const ctx = canvas.getContext('2d');
+    const entitiesLayer = document.getElementById('entities-layer');
+    const sprayLayer = document.getElementById('spray-layer');
+    const speedLinesContainer = document.getElementById('speed-lines');
+    const playerEl = document.getElementById('player');
+    
+    // UI Elements
+    const speedVal = document.getElementById('speed-val');
+    const distVal = document.getElementById('dist-val');
+    const progressBar = document.getElementById('progress-bar');
+    const btnLeft = document.getElementById('btn-left');
+    const btnRight = document.getElementById('btn-right');
+
+    // Game State
+    let width, height;
+    let gameFrame = 0;
+    let speed = 0;
+    let maxSpeed = 180; // Slightly faster
+    let distance = 0;
+    let playerX = 0.5; // 0 to 1
+    let targetX = 0.5;
+    
+    // Constants
+    const HORIZON_Y = 0.35; 
+    const PLAYER_Z = 0.95; // Player depth (fixed)
+    
+    // Lists
+    let obstacles = [];
+    let particles = [];
+    let speedLines = [];
+
+    // Input
+    let input = { left: false, right: false };
+
+    /* --- INITIALIZATION --- */
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        initSpeedLines();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    /* --- SPEED LINES (CSS/JS Hybrid) --- */
+    function initSpeedLines() {
+        speedLinesContainer.innerHTML = '';
+        speedLines = [];
+        const count = 20;
+        for(let i=0; i<count; i++) {
+            const line = document.createElement('div');
+            line.className = 'speed-line';
+            // Random position
+            const left = Math.random() * 100;
+            line.style.left = `${left}%`;
+            // Random length
+            const h = 100 + Math.random() * 200;
+            line.style.height = `${h}px`;
+            speedLinesContainer.appendChild(line);
+            speedLines.push({
+                el: line,
+                y: Math.random() * 100,
+                speed: 0.5 + Math.random() * 1.5
+            });
+        }
+    }
+
+    function updateSpeedLines() {
+        const factor = speed / maxSpeed;
+        speedLines.forEach(line => {
+            line.y += line.speed * factor * 20;
+            if(line.y > 100) {
+                line.y = -50;
+                line.el.style.left = `${Math.random() * 100}%`;
+            }
+            line.el.style.top = `${line.y}%`;
+            // Opacity based on speed
+            line.el.style.opacity = factor * 0.6;
+        });
+    }
+
+    /* --- RENDERING: SLOPE & ATMOSPHERE --- */
+    function drawSlope() {
+        ctx.clearRect(0, 0, width, height);
+        
+        const horizon = height * HORIZON_Y;
+        
+        // 1. ENVIRONMENT: Radial Gradient for Icy Surface
+        const grad = ctx.createRadialGradient(
+            width / 2, horizon, 0, 
+            width / 2, height, height * 1.2
+        );
+        grad.addColorStop(0, '#ffffff');   // Bright Ice Center
+        grad.addColorStop(0.2, '#e0f2fe'); // Light Blue
+        grad.addColorStop(0.6, '#778da9'); // Mid Blue
+        grad.addColorStop(1, '#1c2541');   // Deep Blue Edges
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, horizon, width, height - horizon);
+        
+        // 2. ATMOSPHERE: Grid Lines (Simulated Speed)
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        
+        const lineSpacing = 150;
+        // Time offset based on speed
+        const timeOffset = (Date.now() * speed * 0.0008) % lineSpacing;
+        
+        ctx.beginPath();
+        for (let i = 0; i < 20; i++) {
+            let t = i / 20;
+            // Move lines towards camera
+            let moveFactor = (timeOffset / (height - horizon));
+            t = (t + moveFactor) % 1;
+            
+            // Exponential Y for perspective
+            let y = horizon + Math.pow(t, 2.8) * (height - horizon);
+            
+            // Width expands
+            let w = (width * 0.1) + (t * width * 1.5);
+            let xCenter = width / 2;
+            
+            ctx.moveTo(xCenter - w/2, y);
+            ctx.lineTo(xCenter + w/2, y);
+        }
+        ctx.stroke();
+    }
+
+    /* --- GAMEPLAY LOGIC --- */
+    function updatePhysics() {
+        // Acceleration
+        if (speed < maxSpeed) speed += 0.3;
+        
+        // Movement
+        const moveSpeed = 0.025;
+        if (input.left) targetX -= moveSpeed;
+        if (input.right) targetX += moveSpeed;
+        
+        // Bounds
+        if (targetX < 0.05) targetX = 0.05;
+        if (targetX > 0.95) targetX = 0.95;
+        
+        // Smooth interpolation
+        playerX += (targetX - playerX) * 0.15;
+        
+        // Update Player Visuals
+        playerEl.style.left = `${playerX * 100}%`;
+        
+        // Lean effect
+        const tilt = (targetX - playerX) * 800;
+        const skew = -tilt / 3;
+        // Apply transform to wrapper, keep bobbing class on inner div
+        // Actually, apply to player div, inner div handles bobbing
+        // We need to combine transforms.
+        // Let's apply lean to the playerEl, and bobbing is CSS animation on inner div.
+        // CSS transform override:
+        playerEl.style.transform = `translate(-50%, 0) rotate(${tilt}deg) skewX(${skew}deg)`;
+        
+        // Update HUD
+        speedVal.innerText = Math.floor(speed);
+        distance += speed * 0.05;
+        distVal.innerText = Math.floor(distance);
+        
+        // Progress Loop
+        let progress = (distance % 1000) / 10;
+        progressBar.style.width = `${progress}%`;
+
+        // Spawn Obstacles
+        // Spawn rate increases with speed
+        if (Math.random() < 0.02 + (speed/3000)) {
+            spawnObstacle();
+        }
+
+        // Update Obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let obs = obstacles[i];
+            
+            // Move forward
+            obs.z -= speed * 0.0004;
+            
+            // Collision Check
+            if (obs.z < PLAYER_Z + 0.05 && obs.z > PLAYER_Z - 0.05) {
+                if (Math.abs(obs.x - playerX) < 0.07) {
+                    // HIT!
+                    speed *= 0.6; 
+                    // Shake effect
+                    document.getElementById('game-container').style.transform = `perspective(1000px) translate(${Math.random()*20-10}px, ${Math.random()*20-10}px)`;
+                    setTimeout(() => {
+                         document.getElementById('game-container').style.transform = `perspective(1000px)`;
+                    }, 200);
+                    // Visual feedback
+                    playerEl.style.filter = "brightness(2) sepia(1) hue-rotate(-50deg) saturate(5)";
+                    setTimeout(() => playerEl.style.filter = "drop-shadow(0 15px 10px rgba(0,0,0,0.5))", 100);
+                }
+            }
+
+            // Render
+            if (obs.z > 1.2) {
+                obs.el.remove();
+                obstacles.splice(i, 1);
+            } else {
+                renderObstacle(obs);
+            }
+        }
+        
+        updateParticles();
+        updateSpeedLines();
+    }
+
+    function spawnObstacle() {
+        const type = Math.random() > 0.6 ? 'gate' : 'rock';
+        // Avoid spawning directly on player if possible, but keep it challenging
+        const x = 0.1 + Math.random() * 0.8; 
+        
+        const el = document.createElement('div');
+        el.className = 'entity';
+        
+        if (type === 'gate') {
+            el.innerHTML = `
+                <svg viewBox="0 0 100 100" width="100%" height="100%">
+                    <!-- Posts -->
+                    <line x1="20" y1="100" x2="20" y2="0" stroke="#94a3b8" stroke-width="6" />
+                    <line x1="80" y1="100" x2="80" y2="0" stroke="#94a3b8" stroke-width="6" />
+                    <!-- Bar -->
+                    <rect x="15" y="30" width="70" height="12" fill="#ef4444" rx="4" />
+                    <!-- Flag -->
+                    <path d="M80 30 L100 40 L80 50 Z" fill="#38bdf8" />
+                </svg>
+            `;
+        } else {
+            el.innerHTML = `
+                <svg viewBox="0 0 100 100" width="100%" height="100%">
+                    <!-- Rock Body -->
+                    <path d="M10 100 L30 60 L60 50 L90 100 Z" fill="#475569" />
+                    <path d="M10 100 L30 60 L40 80 Z" fill="#334155" />
+                    <!-- Snow Cap -->
+                    <path d="M30 60 L60 50 L50 65 L35 70 Z" fill="#f1f5f9" />
+                </svg>
+            `;
+        }
+        
+        entitiesLayer.appendChild(el);
+        
+        obstacles.push({
+            type: type,
+            x: x,
+            z: 0, // Start at horizon
+            el: el
+        });
+    }
+
+    function renderObstacle(obs) {
+        // Perspective Math
+        // z=0 is horizon, z=1 is bottom
+        const scale = Math.pow(obs.z, 2.5) * 8; 
+        
+        // Map Z to Screen Y
+        const yPos = HORIZON_Y + (obs.z * (1 - HORIZON_Y));
+        
+        // X Spread
+        const spread = 1 + (obs.z * 3); 
+        const xPos = 0.5 + (obs.x - 0.5) * spread;
+
+        // Dimensions
+        let baseW = obs.type === 'gate' ? 140 : 100;
+        let baseH = obs.type === 'gate' ? 120 : 90;
+
+        // We use translate(-50%, -100%) to anchor bottom center of element to the coordinate
+        // But our SVGs are top-down usually. Let's anchor bottom.
+        // CSS .entity has transform-origin: bottom center.
+        
+        // Calculate pixel offset from center screen
+        const centerX = width / 2;
+        const centerY = height * yPos;
+        
+        // X position relative to center
+        const xOffset = (xPos - 0.5) * width;
+        
+        // Y position relative to center (scale affects height)
+        // We want the object to sit ON the ground at yPos
+        const yOffset = centerY - (centerY * 0.5); // Rough approximation for 3D feel
+        
+        // Apply styles
+        obs.el.style.width = `${baseW * scale}px`;
+        obs.el.style.height = `${baseH * scale}px`;
+        
+        // Positioning: 
+        // We want the bottom of the object to be at yPos.
+        // Top is 50% of screen.
+        // Let's use left/top percentage for simplicity, adjusted by scale.
+        
+        // Better approach: absolute pixel positioning based on perspective projection
+        // X = centerX + (obsX - 0.5) * width * scale_factor
+        // Y = horizon + (1-z)^-1 ... simplified to our current logic:
+        
+        obs.el.style.left = `${xPos * 100}%`;
+        obs.el.style.top = `${yPos * 100}%`;
+        
+        // Adjust transform to scale from bottom
+        obs.el.style.transform = `translate(-50%, -100%) scale(${scale})`;
+        
+        // Depth sorting
+        obs.el.style.zIndex = Math.floor(obs.z * 100);
+        
+        // Fade in
+        obs.el.style.opacity = obs.z < 0.1 ? obs.z * 10 : 1;
+    }
+
+    /* --- PARTICLES (SNOW SPRAY) --- */
+    function createParticle() {
+        if (Math.random() > 0.4) return; 
+        
+        const p = document.createElement('div');
+        p.className = 'particle';
+        
+        const startX = (playerX * width);
+        const startY = (height * 0.82); 
+        
+        p.style.left = `${startX}px`;
+        p.style.top = `${startY}px`;
+        
+        const size = Math.random() * 6 + 2;
+        p.style.width = `${size}px`;
+        p.style.height = `${size}px`;
+        
+        sprayLayer.appendChild(p);
+        
+        particles.push({
+            el: p,
+            x: startX,
+            y: startY,
+            vx: (Math.random() - 0.5) * 15,
+            vy: -Math.random() * 8 - 4,
+            life: 1.0
+        });
+    }
+
+    function updateParticles() {
+        createParticle();
+        
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.life -= 0.03;
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.2; // Gravity
+            
+            p.el.style.left = `${p.x}px`;
+            p.el.style.top = `${p.y}px`;
+            p.el.style.opacity = p.life;
+            p.el.style.transform = `scale(${p.life})`;
+            
+            if (p.life <= 0) {
+                p.el.remove();
+                particles.splice(i, 1);
+            }
+        }
+    }
+
+    /* --- MAIN LOOP --- */
+    function loop() {
+        drawSlope();
+        updatePhysics();
+        requestAnimationFrame(loop);
+    }
+
+    /* --- CONTROLS --- */
+    function setDir(dir, active) {
+        input[dir] = active;
+        const btn = dir === 'left' ? btnLeft : btnRight;
+        if (active) btn.classList.add('active');
+        else btn.classList.remove('active');
+    }
+
+    ['mousedown', 'touchstart'].forEach(evt => {
+        btnLeft.addEventListener(evt, (e) => { e.preventDefault(); setDir('left', true); });
+        btnRight.addEventListener(evt, (e) => { e.preventDefault(); setDir('right', true); });
+    });
+
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(evt => {
+        btnLeft.addEventListener(evt, (e) => { e.preventDefault(); setDir('left', false); });
+        btnRight.addEventListener(evt, (e) => { e.preventDefault(); setDir('right', false); });
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') setDir('left', true);
+        if (e.key === 'ArrowRight') setDir('right', true);
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'ArrowLeft') setDir('left', false);
+        if (e.key === 'ArrowRight') setDir('right', false);
+    });
+
+    // Start
+    loop();
+
+</script>
+</body>
+</html>

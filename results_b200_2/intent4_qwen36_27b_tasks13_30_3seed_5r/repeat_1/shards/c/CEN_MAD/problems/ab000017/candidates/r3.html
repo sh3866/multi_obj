@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Cube | Digital Puzzle</title>
+<style>
+  :root {
+    /* Palette: Professional Dark Mode */
+    --bg-dark: #121214;
+    --bg-surface: #1c1c21;
+    --bg-panel: #2a2a30;
+    --border: #3e3e46;
+    
+    --accent: #00e0c6;
+    --accent-dim: rgba(0, 224, 198, 0.1);
+    --accent-glow: rgba(0, 224, 198, 0.4);
+    
+    --text-main: #ffffff;
+    --text-muted: #8b92a0;
+    --text-dim: #555b68;
+
+    /* Geometry */
+    --radius: 12px;
+    --cube-scale: 1;
+    --face-size: 50px;
+    --gap: 3px;
+    
+    /* Typography */
+    --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "Roboto Mono", Consolas, "Courier New", monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: var(--font-stack);
+    background-color: var(--bg-dark);
+    /* Subtle workbench gradient */
+    background-image: radial-gradient(circle at 50% 50%, #23232a 0%, var(--bg-dark) 80%);
+    color: var(--text-main);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* --- Header: Top Corners --- */
+  .header {
+    width: 100%;
+    padding: 20px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+    pointer-events: none; /* Let clicks pass through to background if needed */
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .logo-icon {
+    width: 28px;
+    height: 28px;
+    color: var(--accent);
+  }
+
+  .logo-text {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-main);
+  }
+
+  /* --- Main Layout: Central Stage --- */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* Vertically center */
+    width: 100%;
+    position: relative;
+  }
+
+  /* --- Stats Bar (Top Left of Stage) --- */
+  .stats-bar {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 32px;
+    background: rgba(28, 28, 33, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.05);
+    padding: 12px 32px;
+    border-radius: 100px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    z-index: 5;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-main);
+    line-height: 1;
+  }
+
+  .stat-value.timer {
+    color: var(--accent);
+    font-size: 24px;
+    text-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  /* --- Center: Cube Stage --- */
+  .stage {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+    position: relative;
+  }
+
+  .cube-container {
+    transform-style: preserve-3d;
+    position: relative;
+    transition: transform 0.1s linear;
+    cursor: grab;
+    /* Critique: Occupy 40% of viewport height */
+    transform: scale(var(--cube-scale)); 
+  }
+
+  .cube-container:active { cursor: grabbing; }
+
+  .cube-scene {
+    width: calc(var(--face-size) * var(--n) + var(--gap) * (var(--n) - 1));
+    height: calc(var(--face-size) * var(--n) + var(--gap) * (var(--n) - 1));
+    position: relative;
+    transform-style: preserve-3d;
+    /* Initial angle */
+    transform: rotateX(-20deg) rotateY(30deg);
+  }
+
+  /* Auto Rotation */
+  @keyframes floatSpin {
+    0% { transform: rotateX(-20deg) rotateY(0deg); }
+    100% { transform: rotateX(-20deg) rotateY(360deg); }
+  }
+  .cube-scene.idle {
+    animation: floatSpin 45s linear infinite;
+  }
+
+  /* Faces */
+  .face {
+    position: absolute;
+    display: grid;
+    grid-template-columns: repeat(var(--n), var(--face-size));
+    grid-template-rows: repeat(var(--n), var(--face-size));
+    gap: var(--gap);
+    background: #111; /* Internal plastic color */
+    padding: var(--gap);
+    border-radius: 6px; 
+    box-shadow: inset 0 0 10px rgba(0,0,0,1);
+    backface-visibility: hidden;
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  }
+
+  /* Stickers: Tactile Materiality */
+  .sticker {
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    position: relative;
+    transition: background-color 0.2s;
+    /* Bevel */
+    box-shadow: inset 1px 1px 2px rgba(255,255,255,0.15), 
+                inset -1px -1px 2px rgba(0,0,0,0.5);
+  }
+
+  /* Glossy Highlight */
+  .sticker::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px; right: 2px; bottom: 2px;
+    border-radius: 3px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 40%);
+    pointer-events: none;
+  }
+
+  /* Colors */
+  .c-white { background: #f2f2f2; }
+  .c-yellow { background: #f1c40f; }
+  .c-red { background: #e74c3c; }
+  .c-orange { background: #d35400; }
+  .c-blue { background: #2980b9; }
+  .c-green { background: #27ae60; }
+  .c-black { background: #222; box-shadow: none; } 
+
+  /* Hint Animation */
+  .sticker.hint-highlight {
+    animation: pulse 1.5s infinite alternate;
+    z-index: 10;
+  }
+  @keyframes pulse {
+    from { filter: brightness(1); }
+    to { filter: brightness(1.5); box-shadow: 0 0 15px var(--accent); }
+  }
+
+  /* Ground Shadow: Anchors the cube */
+  .cube-shadow {
+    position: absolute;
+    top: 60%; /* Below the cube */
+    width: 400px;
+    height: 100px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, transparent 70%);
+    transform: rotateX(90deg);
+    z-index: -1;
+    filter: blur(15px);
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
+  /* --- Bottom Controls: Unified Row --- */
+  .controls-wrapper {
+    position: absolute;
+    bottom: 40px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    z-index: 20;
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: rgba(28, 28, 33, 0.8);
+    backdrop-filter: blur(10px);
+    padding: 12px 24px;
+    border-radius: 100px; /* Pill shape */
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+
+  /* Buttons */
+  .btn {
+    border: none;
+    font-family: var(--font-stack);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 100px;
+    outline: none;
+  }
+
+  .btn:active { transform: scale(0.95); }
+
+  /* Primary: Scramble */
+  .btn-primary {
+    background: var(--bg-dark);
+    border: 2px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 0 15px var(--accent-dim);
+  }
+  .btn-primary:hover {
+    background: var(--accent);
+    color: var(--bg-dark);
+    box-shadow: 0 0 25px var(--accent-glow);
+  }
+
+  /* Secondary: Undo, Hint, Reset */
+  .btn-secondary {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-muted);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+  }
+  .btn-secondary:hover {
+    background: rgba(255,255,255,0.15);
+    color: var(--text-main);
+  }
+  .btn-secondary svg { 
+    width: 20px; 
+    height: 20px; 
+    stroke: currentColor; 
+    fill: none; 
+    stroke-width: 2; 
+    stroke-linecap: round; 
+    stroke-linejoin: round; 
+  }
+
+  /* --- Formula Panel: Bottom Left Compact --- */
+  .formula-panel {
+    position: absolute;
+    bottom: 120px; /* Above controls */
+    left: 32px;
+    width: 260px;
+    background: rgba(18, 18, 20, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    opacity: 0.9;
+    transition: opacity 0.3s;
+  }
+  
+  .formula-panel:hover { opacity: 1; }
+
+  .formula-header {
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .formula-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .formula-content {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .formula-moves {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    max-height: 50px;
+    overflow-y: auto;
+    line-height: 1.5;
+  }
+  
+  /* Custom Scrollbar for formula */
+  .formula-moves::-webkit-scrollbar { width: 4px; }
+  .formula-moves::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* --- Size Selector: Top Right --- */
+  .size-selector {
+    display: flex;
+    background: var(--bg-surface);
+    padding: 4px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    pointer-events: auto;
+  }
+
+  .size-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .size-btn:hover { color: var(--text-main); }
+  
+  .size-btn.active {
+    background: var(--bg-panel);
+    color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .header { padding: 15px 20px; }
+    .stats-bar { 
+      width: 90%; 
+      justify-content: space-around; 
+      top: 10px;
+      padding: 8px 10px;
+    }
+    .stat-label { font-size: 8px; }
+    .stat-value { font-size: 16px; }
+    .stat-value.timer { font-size: 18px; }
+    
+    .size-selector { position: absolute; top: 70px; right: 20px; }
+    
+    .formula-panel { 
+      width: 180px; 
+      bottom: 110px; 
+      left: 20px; 
+      font-size: 10px;
+    }
+    
+    .control-row { gap: 10px; padding: 8px 16px; }
+    .btn-primary { padding: 8px 16px; font-size: 12px; }
+    .btn-secondary { width: 36px; height: 36px; }
+    :root { --face-size: 36px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="3" ry="3"></rect>
+      <line x1="3" y1="9" x2="21" y2="9"></line>
+      <line x1="9" y1="21" x2="9" y2="9"></line>
+      <line x1="15" y1="21" x2="15" y2="9"></line>
+      <line x1="15" y1="15" x2="21" y2="15"></line>
+      <line x1="3" y1="15" x2="9" y2="15"></line>
+    </svg>
+    <div class="logo-text">The Cube</div>
+  </div>
+
+  <!-- Relocated Size Selector -->
+  <div class="size-selector">
+    <button class="size-btn" onclick="changeSize(2)">2×2</button>
+    <button class="size-btn active" onclick="changeSize(3)">3×3</button>
+    <button class="size-btn" onclick="changeSize(4)">4×4</button>
+    <button class="size-btn" onclick="changeSize(5)">5×5</button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Stats Overlay -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-label">Moves</span>
+      <span class="stat-value" id="moveCount">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Time</span>
+      <span class="stat-value timer" id="timer">00:00.00</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Best</span>
+      <!-- Hidden/Muted until active -->
+      <span class="stat-value" id="bestTime" style="opacity: 0; color: var(--text-dim);">--:--</span>
+    </div>
+  </div>
+
+  <!-- Center Stage -->
+  <div class="stage">
+    <div class="cube-container" id="cubeContainer">
+      <div class="cube-scene idle" id="cubeScene"></div>
+    </div>
+    <div class="cube-shadow"></div>
+  </div>
+
+  <!-- Formula Panel (Bottom Left) -->
+  <div class="formula-panel">
+    <div class="formula-header">
+      <span class="formula-title">Scramble Formula</span>
+    </div>
+    <div class="formula-content">
+      <div class="formula-moves" id="formulaMoves">
+        <span style="font-style: italic;">Ready to scramble...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Unified Control Row (Bottom Center) -->
+  <div class="controls-wrapper">
+    <div class="control-row">
+      <button class="btn btn-secondary" id="btnUndo" title="Undo">
+        <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+      </button>
+      
+      <!-- Primary Scramble Button -->
+      <button class="btn btn-primary" id="btnScramble">
+        Scramble
+      </button>
+      
+      <button class="btn btn-secondary" id="btnHint" title="Hint">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </button>
+      
+      <button class="btn btn-secondary" id="btnReset" title="Reset">
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+/**
+ * The Cube - Senior Front-End Implementation
+ * Optimized for visual clarity and performance.
+ */
+
+// --- Configuration & State ---
+const COLORS = {
+  U: 'c-white', D: 'c-yellow', F: 'c-green', B: 'c-blue', R: 'c-red', L: 'c-orange'
+};
+const FACE_NAMES = ['U', 'D', 'F', 'B', 'R', 'L'];
+
+let state = {
+  n: 3,
+  cube: {}, // { U: [0,0...], F: [...] }
+  moves: [], // History of moves for undo
+  scramble: [], // Current scramble sequence
+  timer: {
+    active: false,
+    start: 0,
+    elapsed: 0,
+    interval: null
+  },
+  bestTime: 0
+};
+
+// --- DOM Elements ---
+const els = {
+  scene: document.getElementById('cubeScene'),
+  container: document.getElementById('cubeContainer'),
+  moves: document.getElementById('moveCount'),
+  timer: document.getElementById('timer'),
+  best: document.getElementById('bestTime'),
+  formula: document.getElementById('formulaMoves'),
+  sizeBtns: document.querySelectorAll('.size-btn')
+};
+
+// --- Initialization ---
+function init() {
+  createCubeGeometry(state.n);
+  resetGame();
+  scramble(); // Auto-start scrambled
+  setupInteraction();
+  startTimerLoop();
+}
+
+// --- Core Logic: Cube State ---
+
+function createCubeGeometry(n) {
+  state.n = n;
+  document.documentElement.style.setProperty('--n', n);
+  
+  // Adjust face size for larger cubes
+  const baseSize = 56;
+  const size = Math.max(20, baseSize - (n * 5));
+  document.documentElement.style.setProperty('--face-size', `${size}px`);
+
+  els.scene.innerHTML = '';
+  els.scene.style.setProperty('--n', n);
+
+  // Create 6 Faces
+  FACE_NAMES.forEach(face => {
+    const div = document.createElement('div');
+    div.className = 'face';
+    div.id = `face-${face}`;
+    
+    // 3D Positioning
+    const half = (size * n + 3 * (n - 1)) / 2; // gap is 3px
+    const transform = getFaceTransform(face, half);
+    div.style.transform = transform;
+
+    // Create Stickers
+    for(let i=0; i<n*n; i++) {
+      const sticker = document.createElement('div');
+      sticker.className = 'sticker';
+      sticker.dataset.idx = i;
+      div.appendChild(sticker);
+    }
+    els.scene.appendChild(div);
+  });
+}
+
+function getFaceTransform(face, offset) {
+  // Standard Rubik's Cube Face Orientation
+  const transforms = {
+    F: `translateZ(${offset}px)`,
+    B: `rotateY(180deg) translateZ(${offset}px)`,
+    U: `rotateX(90deg) translateZ(${offset}px)`,
+    D: `rotateX(-90deg) translateZ(${offset}px)`,
+    R: `rotateY(90deg) translateZ(${offset}px)`,
+    L: `rotateY(-90deg) translateZ(${offset}px)`
+  };
+  return transforms[face];
+}
+
+function resetGame() {
+  // Initialize solved state
+  state.cube = {};
+  FACE_NAMES.forEach((face, idx) => {
+    state.cube[face] = Array(state.n * state.n).fill(idx);
+  });
+  
+  state.moves = [];
+  state.scramble = [];
+  stopTimer();
+  state.timer.elapsed = 0;
+  updateTimerDisplay();
+  els.best.style.opacity = '0'; // Hide best time
+  renderCube();
+  updateUI();
+}
+
+// --- Core Logic: Rotations ---
+
+function rotateGrid(grid, n, clockwise = true) {
+  const newGrid = Array(n * n).fill(0);
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const val = grid[r * n + c];
+      let nr, nc;
+      if (clockwise) { nr = c; nc = n - 1 - r; }
+      else { nr = n - 1 - c; nc = r; }
+      newGrid[nr * n + nc] = val;
+    }
+  }
+  return newGrid;
+}
+
+function applyMove(moveStr) {
+  const face = moveStr[0];
+  const mod = moveStr.slice(1); // '', "'", '2'
+  
+  let clockwise = mod !== "'";
+  let times = mod === '2' ? 2 : 1;
+  
+  for(let t=0; t<times; t++) {
+    // 1. Rotate Face
+    state.cube[face] = rotateGrid(state.cube[face], state.n, clockwise);
+    // 2. Rotate Adjacent Edges
+    rotateEdges(face, clockwise);
+  }
+  
+  state.moves.push(moveStr);
+  renderCube();
+  updateUI();
+}
+
+function rotateEdges(face, clockwise) {
+  const n = state.n;
+  const c = state.cube;
+  
+  // Helper to swap arrays
+  const swap = (src, srcStart, srcStep, dst, dstStart, dstStep, count) => {
+    const temp = [];
+    for(let i=0; i<count; i++) temp.push(src[srcStart + i*srcStep]);
+    for(let i=0; i<count; i++) src[srcStart + i*srcStep] = dst[dstStart + i*dstStep];
+    for(let i=0; i<count; i++) dst[dstStart + i*dstStep] = temp[i];
+  };
+
+  // Simplified Logic for visual demo (Standard 3x3+ mapping)
+  if (face === 'U') {
+    // Top Rows: F <- R <- B <- L
+    // Note: B is rotated 180, so its "top" row is index (n-1)*n to n*n-1 in reverse visual
+    if(clockwise) {
+      swap(c.F, 0, 1, c.R, 0, 1, n);
+      swap(c.R, 0, 1, c.B, (n-1)*n + (n-1), -1, n);
+      swap(c.B, (n-1)*n + (n-1), -1, c.L, 0, 1, n);
+      swap(c.L, 0, 1, c.F, 0, 1, n);
+    } else {
+      swap(c.F, 0, 1, c.L, 0, 1, n);
+      swap(c.L, 0, 1, c.B, (n-1)*n + (n-1), -1, n);
+      swap(c.B, (n-1)*n + (n-1), -1, c.R, 0, 1, n);
+      swap(c.R, 0, 1, c.F, 0, 1, n);
+    }
+  }
+  else if (face === 'D') {
+    // Bottom Rows: F <- L <- B <- R
+    if(clockwise) {
+      swap(c.F, (n-1)*n, 1, c.L, (n-1)*n, 1, n);
+      swap(c.L, (n-1)*n, 1, c.B, 0, 1, n); // B bottom row
+      swap(c.B, 0, 1, c.R, (n-1)*n, 1, n);
+      swap(c.R, (n-1)*n, 1, c.F, (n-1)*n, 1, n);
+    } else {
+      swap(c.F, (n-1)*n, 1, c.R, (n-1)*n, 1, n);
+      swap(c.R, (n-1)*n, 1, c.B, 0, 1, n);
+      swap(c.B, 0, 1, c.L, (n-1)*n, 1, n);
+      swap(c.L, (n-1)*n, 1, c.F, (n-1)*n, 1, n);
+    }
+  }
+  else if (face === 'R') {
+    // Right Cols: U <- B <- D <- F
+    if(clockwise) {
+      swap(c.U, n-1, n, c.B, 0, 1, n); // B left col (visually right)
+      swap(c.B, 0, 1, c.D, n-1, n, n);
+      swap(c.D, n-1, n, c.F, n-1, n, n);
+      swap(c.F, n-1, n, c.U, n-1, n, n);
+    } else {
+      swap(c.U, n-1, n, c.F, n-1, n, n);
+      swap(c.F, n-1, n, c.D, n-1, n, n);
+      swap(c.D, n-1, n, c.B, 0, 1, n);
+      swap(c.B, 0, 1, c.U, n-1, n, n);
+    }
+  }
+  else if (face === 'L') {
+    // Left Cols: U <- F <- D <- B
+    if(clockwise) {
+      swap(c.U, 0, n, c.F, 0, n, n);
+      swap(c.F, 0, n, c.D, 0, n, n);
+      swap(c.D, 0, n, c.B, (n-1), n, n); // B right col (visually left)
+      swap(c.B, (n-1), n, c.U, 0, n, n);
+    } else {
+      swap(c.U, 0, n, c.B, (n-1), n, n);
+      swap(c.B, (n-1), n, c.D, 0, n, n);
+      swap(c.D, 0, n, c.F, 0, n, n);
+      swap(c.F, 0, n, c.U, 0, n, n);
+    }
+  }
+  else if (face === 'F') {
+    // Front: U <- R <- D <- L
+    if(clockwise) {
+      swap(c.U, (n-1)*n, 1, c.R, 0, n, n); // R left col
+      swap(c.R, 0, n, c.D, (n-1)*n + (n-1), -1, n); // D bottom row
+      swap(c.D, (n-1)*n + (n-1), -1, c.L, (n-1)*n, 1, n); // L bottom row
+      swap(c.L, (n-1)*n, 1, c.U, (n-1)*n, 1, n);
+    } else {
+      swap(c.U, (n-1)*n, 1, c.L, (n-1)*n, 1, n);
+      swap(c.L, (n-1)*n, 1, c.D, (n-1)*n + (n-1), -1, n);
+      swap(c.D, (n-1)*n + (n-1), -1, c.R, 0, n, n);
+      swap(c.R, 0, n, c.U, (n-1)*n, 1, n);
+    }
+  }
+  else if (face === 'B') {
+    // Back: U <- L <- D <- R
+    if(clockwise) {
+      swap(c.U, 0, 1, c.L, 0, n, n); // L left col
+      swap(c.L, 0, n, c.D, 0, 1, n); // D top row
+      swap(c.D, 0, 1, c.R, (n-1)*n, 1, n); // R bottom row
+      swap(c.R, (n-1)*n, 1, c.U, 0, 1, n);
+    } else {
+      swap(c.U, 0, 1, c.R, (n-1)*n, 1, n);
+      swap(c.R, (n-1)*n, 1, c.D, 0, 1, n);
+      swap(c.D, 0, 1, c.L, 0, n, n);
+      swap(c.L, 0, n, c.U, 0, 1, n);
+    }
+  }
+}
+
+// --- Rendering ---
+
+function renderCube() {
+  FACE_NAMES.forEach(face => {
+    const el = document.getElementById(`face-${face}`);
+    const stickers = el.children;
+    state.cube[face].forEach((colorIdx, i) => {
+      // Remove old classes
+      stickers[i].className = 'sticker';
+      // Add new color class
+      stickers[i].classList.add(COLORS[FACE_NAMES[colorIdx]]);
+    });
+  });
+}
+
+function updateUI() {
+  els.moves.textContent = state.moves.length;
+  
+  // Update Formula
+  if(state.scramble.length > 0) {
+    els.formula.innerHTML = state.scramble.map(m => 
+      `<span style="cursor: pointer; color: var(--text-main);" onclick="playMove('${m}')">${m}</span>`
+    ).join(' ');
+  }
+}
+
+// --- Interaction ---
+
+function setupInteraction() {
+  // Drag to Rotate
+  let isDragging = false;
+  let lastX, lastY;
+  let rotX = -20, rotY = 30;
+
+  const startDrag = (e) => {
+    isDragging = true;
+    els.scene.classList.remove('idle'); // Stop auto-rotate
+    lastX = e.clientX || e.touches[0].clientX;
+    lastY = e.clientY || e.touches[0].clientY;
+  };
+
+  const doDrag = (e) => {
+    if(!isDragging) return;
+    const x = e.clientX || e.touches[0].clientX;
+    const y = e.clientY || e.touches[0].clientY;
+    const dx = x - lastX;
+    const dy = y - lastY;
+    
+    rotY += dx * 0.5;
+    rotX -= dy * 0.5;
+    
+    els.scene.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+    lastX = x;
+    lastY = y;
+  };
+
+  const endDrag = () => { isDragging = false; };
+
+  els.container.addEventListener('mousedown', startDrag);
+  window.addEventListener('mousemove', doDrag);
+  window.addEventListener('mouseup', endDrag);
+  
+  els.container.addEventListener('touchstart', startDrag);
+  window.addEventListener('touchmove', doDrag);
+  window.addEventListener('touchend', endDrag);
+
+  // Buttons
+  document.getElementById('btnScramble').onclick = scramble;
+  document.getElementById('btnUndo').onclick = undo;
+  document.getElementById('btnReset').onclick = resetGame;
+  document.getElementById('btnHint').onclick = showHint;
+}
+
+// --- Game Actions ---
+
+function scramble() {
+  resetGame();
+  stopTimer();
+  
+  const moves = [];
+  const faces = ['U','D','F','B','L','R'];
+  const mods = ['', "'", '2'];
+  const count = state.n * 8; 
+
+  let last = '';
+  for(let i=0; i<count; i++) {
+    let f = faces[Math.floor(Math.random() * faces.length)];
+    while(f === last) f = faces[Math.floor(Math.random() * faces.length)];
+    last = f;
+    const m = f + mods[Math.floor(Math.random() * mods.length)];
+    moves.push(m);
+    applyMove(m);
+  }
+  
+  state.scramble = moves;
+  updateUI();
+  startTimer();
+}
+
+function undo() {
+  if(state.moves.length === 0) return;
+  state.moves.pop();
+  updateUI();
+}
+
+function showHint() {
+  // Highlight a random sticker on the front face
+  const stickers = document.querySelectorAll('#face-F .sticker');
+  stickers.forEach(s => s.classList.remove('hint-highlight'));
+  const rand = stickers[Math.floor(Math.random() * stickers.length)];
+  if(rand) rand.classList.add('hint-highlight');
+}
+
+function changeSize(n) {
+  els.sizeBtns.forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  createCubeGeometry(n);
+  resetGame();
+  scramble();
+}
+
+// --- Timer ---
+
+function startTimer() {
+  state.timer.active = true;
+  state.timer.start = Date.now();
+  state.timer.elapsed = 0;
+  els.best.style.opacity = '1';
+}
+
+function stopTimer() {
+  state.timer.active = false;
+  if(state.timer.elapsed > 0 && state.bestTime === 0) state.bestTime = state.timer.elapsed;
+  updateBestTime();
+}
+
+function startTimerLoop() {
+  setInterval(() => {
+    if(state.timer.active) {
+      state.timer.elapsed = Date.now() - state.timer.start;
+      updateTimerDisplay();
+    }
+  }, 100);
+}
+
+function updateTimerDisplay() {
+  const ms = Math.floor(state.timer.elapsed % 1000 / 10);
+  const s = Math.floor((state.timer.elapsed / 1000) % 60);
+  const m = Math.floor(state.timer.elapsed / 60000);
+  els.timer.textContent = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+}
+
+function updateBestTime() {
+  if(state.bestTime === 0) return;
+  const ms = Math.floor(state.bestTime % 1000 / 10);
+  const s = Math.floor((state.bestTime / 1000) % 60);
+  const m = Math.floor(state.bestTime / 60000);
+  els.best.textContent = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bouncy & Bolt - The Great Spring Adventure</title>
+    <style>
+        :root {
+            /* Palette: Warm, Vibrant, Cartoonish */
+            --c-sky-top: #4FC3F7;
+            --c-sky-bot: #E1F5FE;
+            --c-primary: #FF5722; /* Deep Orange */
+            --c-primary-light: #FF8A65;
+            --c-primary-dark: #D84315;
+            --c-dark: #263238; /* Ink color */
+            --c-white: #FFFFFF;
+            
+            --c-grass: #7CB342;
+            --c-dirt: #8D6E63;
+            --c-dirt-dark: #6D4C41;
+            --c-gold: #FFEB3B;
+            --c-gold-dark: #FBC02D;
+            
+            --font-display: 'Arial Black', 'Impact', sans-serif;
+            --font-ui: 'Verdana', sans-serif;
+            
+            --stroke-w: 4px;
+            --shadow-offset: 6px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-font-smoothing: antialiased; }
+        
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-ui);
+            background: var(--c-sky-top);
+            color: var(--c-dark);
+        }
+
+        /* --- CANVAS LAYER --- */
+        #world-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* --- UI LAYER --- */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+        }
+
+        .interactive { pointer-events: auto; cursor: pointer; }
+
+        /* --- 1. VISUAL HIERARCHY: TITLE & STATS (Top Right) --- */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            position: relative;
+        }
+
+        .game-title {
+            transform: rotate(-2deg);
+            animation: float-title 4s ease-in-out infinite;
+        }
+
+        .game-title h1 {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            line-height: 0.9;
+            color: var(--c-white);
+            -webkit-text-stroke: 3px var(--c-dark);
+            text-shadow: 0px 6px 0px rgba(0,0,0,0.2);
+            letter-spacing: -2px;
+            text-transform: uppercase;
+            margin-left: 5%; /* Offset slightly */
+        }
+
+        .game-title h2 {
+            font-family: var(--font-display);
+            font-size: 1.4rem;
+            color: var(--c-primary);
+            background: var(--c-white);
+            display: inline-block;
+            padding: 6px 20px;
+            border-radius: 50px;
+            margin-top: 10px;
+            box-shadow: 0 4px 0 var(--c-dark);
+            transform: rotate(2deg);
+            border: 3px solid var(--c-dark);
+            margin-left: 5%;
+        }
+
+        /* Top Right Cluster: Stats + World Selector */
+        .top-right-cluster {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            transform: rotate(2deg);
+        }
+
+        .stats-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .stat-badge {
+            background: var(--c-white);
+            border-radius: 30px;
+            padding: 5px 15px 5px 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 0 var(--c-dark);
+            border: 3px solid var(--c-dark);
+            font-weight: 800;
+            font-size: 1.1rem;
+            transition: transform 0.2s;
+        }
+        .stat-badge:hover { transform: translateY(-2px); }
+
+        /* World Selector (Moved from Left to Top Right) */
+        .world-selector {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 15px;
+            border-radius: 15px;
+            border: 3px solid var(--c-dark);
+            box-shadow: 0 4px 0 var(--c-dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .world-label {
+            font-weight: 900;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--c-primary);
+            margin-right: 5px;
+        }
+
+        .world-node {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #ECEFF1;
+            border: 2px solid var(--c-dark);
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .world-node.active { background: var(--c-primary); transform: scale(1.1); box-shadow: 0 2px 0 var(--c-dark); }
+        .world-node.locked { background: #B0BEC5; opacity: 0.6; cursor: default; }
+        .world-node:hover:not(.locked) { transform: scale(1.2); }
+
+        .world-connector {
+            width: 10px; height: 3px; background: var(--c-dark);
+        }
+
+        /* --- 2. BOTTOM AREA: HERO & LAUNCH ZONE --- */
+        .bottom-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            padding-bottom: 20px;
+        }
+
+        /* Left: Empty Space (Canvas View) */
+        .left-spacer { width: 33%; }
+
+        /* Center: Hero (Interactive) */
+        .hero-wrapper {
+            position: relative;
+            width: 160px; height: 200px;
+            z-index: 20;
+            /* Bouncing Animation */
+            animation: hero-bounce 1.5s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+        }
+
+        /* Drawn via CSS for crisp vector look */
+        .hero-spring {
+            position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+            width: 40px; height: 60px;
+            background: repeating-linear-gradient(0deg, var(--c-dark), var(--c-dark) 4px, transparent 4px, transparent 8px);
+            border-radius: 5px;
+            z-index: 1;
+            /* Compression illusion via scaleY in animation */
+        }
+        
+        .hero-body {
+            width: 120px; height: 100px;
+            background: var(--c-primary);
+            border-radius: 60% 60% 50% 50%; /* Organic shape */
+            position: absolute; bottom: 40px; left: 20px;
+            border: 4px solid var(--c-dark);
+            z-index: 2;
+            box-shadow: 0 8px 0 rgba(0,0,0,0.1);
+            overflow: visible;
+        }
+
+        /* Hero Limbs (Stylized) */
+        .arm {
+            width: 30px; height: 50px;
+            background: var(--c-primary);
+            border: 3px solid var(--c-dark);
+            position: absolute;
+            border-radius: 20px;
+            transform-origin: top center;
+        }
+        .arm.left { top: 40px; left: -15px; transform: rotate(30deg); animation: wave 2s infinite; }
+        .arm.right { top: 40px; right: -15px; transform: rotate(-30deg); animation: wave 2s infinite reverse; }
+
+        .foot {
+            width: 40px; height: 25px;
+            background: var(--c-primary);
+            border: 3px solid var(--c-dark);
+            position: absolute; bottom: -10px;
+            border-radius: 10px 10px 20px 20px;
+        }
+        .foot.left { left: 15px; }
+        .foot.right { right: 15px; }
+
+        .hero-face {
+            width: 80px; height: 40px;
+            background: var(--c-white);
+            border-radius: 40px;
+            position: absolute; top: 30px; left: 20px;
+            border: 2px solid var(--c-dark);
+            display: flex; justify-content: center; gap: 10px;
+            align-items: center;
+        }
+
+        .eye {
+            width: 12px; height: 18px;
+            background: var(--c-dark);
+            border-radius: 50%;
+            animation: blink 4s infinite;
+        }
+        .cheek {
+            width: 10px; height: 6px;
+            background: #FF8A80;
+            border-radius: 50%;
+            position: absolute; bottom: 10px;
+        }
+        .cheek.l { left: 5px; }
+        .cheek.r { right: 5px; }
+
+        /* Right: Launch Zone (Button + Controls) */
+        .launch-zone {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 15px;
+            transform: rotate(-2deg);
+        }
+
+        /* Redesigned Start Button: Power-up Block Style */
+        .btn-start {
+            background: var(--c-primary);
+            color: var(--c-white);
+            font-family: var(--font-display);
+            font-size: 2rem;
+            text-transform: uppercase;
+            padding: 15px 40px;
+            border: 4px solid var(--c-dark);
+            border-radius: 15px; /* Blocky rounded */
+            cursor: pointer;
+            box-shadow: 0 8px 0 var(--c-primary-dark), 0 12px 20px rgba(0,0,0,0.2);
+            position: relative;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+            transition: all 0.1s;
+            width: 280px;
+            text-align: center;
+        }
+
+        .btn-start:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 11px 0 var(--c-primary-dark), 0 15px 25px rgba(0,0,0,0.2);
+        }
+
+        .btn-start:active {
+            transform: translateY(8px) scale(0.98);
+            box-shadow: 0 0 0 var(--c-primary-dark);
+        }
+        
+        .btn-icon {
+            position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+            font-size: 1.5rem;
+        }
+
+        /* Controls (Moved to Bottom Right) */
+        .controls-group {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 15px;
+            border-radius: 12px;
+            border: 3px solid var(--c-dark);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 0 var(--c-dark);
+            backdrop-filter: blur(4px);
+        }
+
+        .controls-title {
+            font-family: var(--font-display);
+            font-size: 0.8rem;
+            color: var(--c-primary);
+            margin-right: 5px;
+        }
+
+        .key-row { display: flex; gap: 4px; }
+        
+        .key {
+            width: 32px; height: 32px;
+            background: var(--c-white);
+            border: 2px solid var(--c-dark);
+            border-radius: 6px;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: 800;
+            font-size: 0.9rem;
+            color: var(--c-dark);
+            box-shadow: 0 3px 0 #B0BEC5;
+        }
+        
+        .key.large { width: 80px; background: var(--c-primary-light); color: var(--c-dark); border-color: var(--c-dark); }
+
+        /* --- ANIMATIONS --- */
+        @keyframes hero-bounce {
+            0%, 100% { transform: translateY(0) scaleY(1); }
+            15% { transform: translateY(0) scaleY(0.9); } /* Squash */
+            40% { transform: translateY(-60px) scaleY(1.1); } /* Stretch */
+            50% { transform: translateY(0) scaleY(1); } /* Land */
+        }
+        @keyframes wave { 0%, 100% { transform: rotate(30deg); } 50% { transform: rotate(10deg); } }
+        @keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(0.1); } }
+        @keyframes float-title { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(-2deg); } }
+
+        /* Responsive */
+        @media (max-width: 800px) {
+            .game-title h1 { font-size: 3rem; margin-left: 0; }
+            .game-title h2 { margin-left: 0; }
+            .hero-wrapper { transform: scale(0.7); bottom: -20px; }
+            .btn-start { width: 200px; font-size: 1.5rem; }
+            .top-right-cluster { flex-direction: column-reverse; align-items: flex-end; }
+            .world-selector { flex-direction: row; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL WORLD (CANVAS) -->
+    <canvas id="world-canvas"></canvas>
+
+    <!-- UI OVERLAY -->
+    <div id="ui-layer">
+        
+        <!-- HEADER -->
+        <div class="top-bar">
+            <!-- Left: Title -->
+            <div class="game-title">
+                <h1>Bouncy<br>& Bolt</h1>
+                <h2>The Great Spring Adventure</h2>
+            </div>
+            
+            <!-- Right: Stats & World Map -->
+            <div class="top-right-cluster interactive">
+                <div class="stats-container">
+                    <div class="stat-badge">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="#FBC02D" stroke-width="3" fill="#FFEB3B"/>
+                            <path d="M12 8v8M9 12h6" stroke="#FBC02D" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <span>1,240</span>
+                    </div>
+                    <div class="stat-badge">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#D32F2F" stroke="#B71C1C" stroke-width="2"/>
+                        </svg>
+                        <span>x 5</span>
+                    </div>
+                </div>
+
+                <div class="world-selector">
+                    <span class="world-label">Worlds</span>
+                    <div class="world-node active" title="Spring Valley"></div>
+                    <div class="world-connector"></div>
+                    <div class="world-node locked" title="Sand Springs"></div>
+                    <div class="world-connector"></div>
+                    <div class="world-node locked" title="Cloud Peak"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BOTTOM BAR -->
+        <div class="bottom-bar">
+            
+            <!-- Left Spacer (Keeps Hero Centered-Left) -->
+            <div class="left-spacer"></div>
+
+            <!-- Hero Character -->
+            <div class="hero-wrapper">
+                <div class="hero-body">
+                    <div class="arm left"></div>
+                    <div class="arm right"></div>
+                    <div class="hero-face">
+                        <div class="eye l"></div>
+                        <div class="eye r"></div>
+                        <div class="cheek l"></div>
+                        <div class="cheek r"></div>
+                    </div>
+                    <div class="foot left"></div>
+                    <div class="foot right"></div>
+                </div>
+                <div class="hero-spring"></div>
+            </div>
+
+            <!-- Right: Launch Zone -->
+            <div class="launch-zone">
+                <button class="btn-start interactive" onclick="alert('Level Starting!')">
+                    <span class="btn-icon">⚡</span> START
+                </button>
+
+                <div class="controls-group interactive">
+                    <div class="controls-title">Controls</div>
+                    <div class="key-row">
+                        <div class="key">W</div>
+                    </div>
+                    <div class="key-row">
+                        <div class="key">A</div>
+                        <div class="key">S</div>
+                        <div class="key">D</div>
+                    </div>
+                    <div class="key large">SPACE</div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+<script>
+    /**
+     * CANVAS ENGINE - REDESIGNED
+     * Focus: Parallax, Thick Outlines, Layered Depth
+     */
+    const canvas = document.getElementById('world-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    let frame = 0;
+
+    // Colors for Canvas
+    const C_SKY_TOP = "#4FC3F7";
+    const C_SKY_BOT = "#E1F5FE";
+    const C_MTN_BACK = "#81D4FA";
+    const C_MTN_MID = "#4FC3F7";
+    const C_GRASS = "#7CB342";
+    const C_DIRT = "#8D6E63";
+    const C_DARK = "#263238"; // Outline color
+
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- HELPERS ---
+    function drawRect(x, y, w, h, fill, stroke) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(x, y, w, h);
+        if(stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x, y, w, h);
+        }
+    }
+
+    function drawCircle(x, y, r, fill, stroke) {
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI*2);
+        ctx.fill();
+        if(stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+    }
+
+    // --- SCENE LAYERS ---
+
+    // 1. Distant Mountains (Slowest)
+    function drawBackground() {
+        // Sky Gradient
+        let skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+        skyGrad.addColorStop(0, C_SKY_TOP);
+        skyGrad.addColorStop(1, C_SKY_BOT);
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, width, height);
+
+        // Layer 1: Far Hills
+        ctx.fillStyle = C_MTN_BACK;
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.6);
+        for (let i = 0; i <= width; i+=20) {
+            ctx.lineTo(i, height * 0.6 - Math.sin(i * 0.005 + frame * 0.002) * 60);
+        }
+        ctx.lineTo(width, height); ctx.lineTo(0, height);
+        ctx.fill();
+
+        // Layer 2: Mid Hills
+        ctx.fillStyle = C_MTN_MID;
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.7);
+        for (let i = 0; i <= width; i+=20) {
+            ctx.lineTo(i, height * 0.7 - Math.sin(i * 0.01 + frame * 0.005) * 40);
+        }
+        ctx.lineTo(width, height); ctx.lineTo(0, height);
+        ctx.fill();
+
+        // Clouds
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.strokeStyle = "rgba(255,255,255,0.0)"; // No stroke on clouds
+        let cx = (frame * 0.5) % (width + 200) - 100;
+        drawCloud(cx, 150, 1.5);
+        drawCloud(cx - width * 0.5, 100, 1);
+        drawCloud(cx + width * 0.4, 200, 2);
+    }
+
+    function drawCloud(x, y, s) {
+        ctx.beginPath();
+        ctx.arc(x, y, 40*s, 0, Math.PI*2);
+        ctx.arc(x+40*s, y-20*s, 50*s, 0, Math.PI*2);
+        ctx.arc(x+80*s, y, 40*s, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    // 2. Mid Ground (The Level)
+    function drawMidGround() {
+        const midY = height * 0.75; // Ground level for this layer
+
+        // Draw Ground Body
+        ctx.fillStyle = C_DIRT;
+        ctx.beginPath();
+        ctx.moveTo(0, midY);
+        // Bumpy terrain
+        for(let i=0; i<=width; i+=50) {
+            ctx.lineTo(i + 25, midY + 10);
+            ctx.lineTo(i + 50, midY);
+        }
+        ctx.lineTo(width, height); ctx.lineTo(0, height);
+        ctx.fill();
+        
+        // Grass Top
+        ctx.fillStyle = C_GRASS;
+        ctx.beginPath();
+        ctx.moveTo(0, midY);
+        for(let i=0; i<=width; i+=50) {
+            ctx.lineTo(i + 25, midY + 10);
+            ctx.lineTo(i + 50, midY);
+        }
+        ctx.lineTo(width, midY + 15); ctx.lineTo(0, midY + 15);
+        ctx.fill();
+
+        // Outlines for the ground (Thick Stroke Style)
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(0, midY);
+        for(let i=0; i<=width; i+=50) {
+            ctx.lineTo(i + 25, midY + 10);
+            ctx.lineTo(i + 50, midY);
+        }
+        ctx.stroke();
+
+        // --- GAMEPLAY STORYTELLING ELEMENTS ---
+
+        // Floating Platforms
+        const platY = midY - 120;
+        drawPlatform(width * 0.2, platY, 120, 30);
+        
+        // Question Block
+        drawBlock(width * 0.2 + 60, platY - 50, 40);
+
+        // Coin Trail
+        drawCoin(width * 0.2 + 20, platY - 80);
+        drawCoin(width * 0.2 + 60, platY - 110);
+        drawCoin(width * 0.2 + 100, platY - 80);
+
+        // Enemy (Bouncing Slime)
+        const enemyX = width * 0.5;
+        const enemyY = midY - 30 - (Math.abs(Math.sin(frame * 0.1)) * 20);
+        drawSlime(enemyX, enemyY, 1);
+
+        // Distant Goal
+        drawGoal(width * 0.8, midY);
+    }
+
+    function drawPlatform(x, y, w, h) {
+        drawRect(x, y, w, h, "#5D4037", C_DARK);
+        // Grass top
+        drawRect(x, y, w, 10, C_GRASS, C_DARK);
+    }
+
+    function drawBlock(x, y, s) {
+        drawRect(x, y, s, s, "#FFC107", C_DARK);
+        // Question Mark
+        ctx.fillStyle = C_DARK;
+        ctx.font = "bold 24px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("?", x + s/2, y + s/1.5);
+    }
+
+    function drawCoin(x, y) {
+        const pulse = Math.sin(frame * 0.15) * 3;
+        ctx.fillStyle = "#FFEB3B";
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, 10 + pulse, 0, Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+        // Shine
+        ctx.fillStyle = "rgba(255,255,255,0.6)";
+        ctx.beginPath();
+        ctx.arc(x - 3, y - 3, 3, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    function drawSlime(x, y, s) {
+        ctx.fillStyle = "#E53935";
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, 20*s, Math.PI, 0); 
+        ctx.lineTo(x + 20*s, y + 15*s);
+        ctx.lineTo(x - 20*s, y + 15*s);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Eyes
+        ctx.fillStyle = "#FFF";
+        ctx.beginPath(); ctx.arc(x-7, y-5, 6, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x+7, y-5, 6, 0, Math.PI*2); ctx.fill();
+        // Pupils
+        ctx.fillStyle = C_DARK;
+        ctx.beginPath(); ctx.arc(x-7, y-5, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x+7, y-5, 2, 0, Math.PI*2); ctx.fill();
+    }
+
+    function drawGoal(x, y) {
+        // Pole
+        ctx.fillStyle = "#ECEFF1";
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 3;
+        ctx.fillRect(x, y - 150, 10, 150);
+        ctx.strokeRect(x, y - 150, 10, 150);
+        // Ball
+        ctx.fillStyle = "#FF5722";
+        ctx.beginPath(); ctx.arc(x+5, y-150, 10, 0, Math.PI*2); ctx.fill();
+        ctx.stroke();
+        // Flag
+        ctx.fillStyle = "#FF5722";
+        ctx.beginPath();
+        ctx.moveTo(x+10, y-140);
+        ctx.lineTo(x+60, y-120);
+        ctx.lineTo(x+10, y-100);
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    // 3. Foreground (Depth)
+    function drawForeground() {
+        const foreY = height * 0.92;
+        
+        // Ground
+        ctx.fillStyle = "#FFB74D";
+        ctx.fillRect(0, foreY, width, height - foreY);
+        
+        // Grass Top
+        ctx.fillStyle = "#689F38";
+        ctx.fillRect(0, foreY, width, 20);
+        
+        // Outline
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(0, foreY); ctx.lineTo(width, foreY); ctx.stroke();
+
+        // Foreground Bushes (Obscure bottom edges)
+        drawBush(50, foreY + 20, 60);
+        drawBush(width - 100, foreY + 10, 80);
+        drawBush(width * 0.3, foreY + 10, 40);
+    }
+
+    function drawBush(x, y, size) {
+        ctx.fillStyle = "#558B2F";
+        ctx.strokeStyle = C_DARK;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(x, y, size, Math.PI, 0);
+        ctx.arc(x + size*0.8, y, size*0.8, Math.PI, 0);
+        ctx.arc(x - size*0.8, y, size*0.8, Math.PI, 0);
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    // --- MAIN LOOP ---
+    function loop() {
+        frame++;
+        ctx.clearRect(0, 0, width, height);
+
+        drawBackground();
+        drawMidGround();
+        drawForeground();
+
+        requestAnimationFrame(loop);
+    }
+
+    loop();
+</script>
+</body>
+</html>

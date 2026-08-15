@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            /* Palette */
+            --bg-color: #0b0e14;
+            --surface-color: #111620;
+            --surface-border: #2d3748;
+            --surface-highlight: #4a5568;
+            
+            --text-main: #f7fafc;
+            --text-muted: #a0aec0;
+            --text-dim: #718096;
+            
+            /* Signal Semantics */
+            --col-data: #00d4ff;      /* Cyan */
+            --col-instr: #f6ad55;     /* Amber */
+            --col-ctrl: #68d391;      /* Emerald */
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden; /* Full screen app feel */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            padding: 20px 40px;
+            display: flex;
+            flex-direction: column; /* Stack title and legend vertically */
+            gap: 15px;
+            border-bottom: 1px solid var(--surface-border);
+            background: var(--bg-color);
+            z-index: 10;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+        }
+
+        .header-title .meta {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        /* Legend (Relocated to Top Left) */
+        .legend-box {
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 6px;
+            padding: 8px 16px;
+            display: inline-flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 280px;
+        }
+
+        .legend-title {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+            font-weight: 700;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        /* Legend Line Samples - Matching Diagram Styles */
+        .line-sample {
+            width: 24px;
+            height: 0;
+            border-top: 3px solid transparent; /* Base stroke width */
+        }
+
+        .legend-item[data-type="data"] .line-sample { 
+            border-color: var(--col-data); 
+            border-style: solid; 
+        }
+        .legend-item[data-type="instr"] .line-sample { 
+            border-color: var(--col-instr); 
+            border-style: dashed; 
+            border-width: 3px;
+        }
+        .legend-item[data-type="ctrl"] .line-sample { 
+            border-color: var(--col-ctrl); 
+            border-style: dotted; 
+            border-width: 3px;
+        }
+
+        /* Canvas */
+        main {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Subtle Grid Background */
+            background-image: 
+                radial-gradient(circle at 1px 1px, rgba(45, 55, 72, 0.4) 1px, transparent 0);
+            background-size: 40px 40px;
+            background-position: center center;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            /* Ensure SVG scales correctly */
+            max-width: 1600px; 
+        }
+
+        /* --- SVG Styles --- */
+
+        /* Nodes */
+        .node-box {
+            fill: var(--surface-color);
+            stroke: var(--surface-border);
+            stroke-width: 2px;
+            rx: 8px; /* Slightly sharper corners for tech feel */
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+        }
+
+        .node-label {
+            fill: var(--text-main);
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 14px;
+            text-anchor: middle;
+            letter-spacing: 0.1em;
+            pointer-events: none;
+        }
+
+        .node-sub {
+            fill: var(--text-muted);
+            font-size: 11px;
+            font-weight: 400;
+            text-anchor: middle;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        /* Paths */
+        .link-path {
+            fill: none;
+            stroke-width: 3px; /* Standardized width */
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.8;
+        }
+
+        /* Specific Line Styles matching Legend */
+        .style-data {
+            stroke: var(--col-data);
+        }
+        .style-instr {
+            stroke: var(--col-instr);
+            stroke-dasharray: 8 6; /* Dashed */
+        }
+        .style-ctrl {
+            stroke: var(--col-ctrl);
+            stroke-dasharray: 2 4; /* Dotted */
+        }
+
+        /* Flow Animation */
+        @keyframes flow {
+            0% { stroke-dashoffset: 20; }
+            100% { stroke-dashoffset: 0; }
+        }
+
+        .flow-particle {
+            fill: none;
+            stroke-width: 3px;
+            stroke-dasharray: 1 20; /* Small dot moving */
+            animation: flow 1.5s linear infinite;
+            opacity: 0.9;
+            pointer-events: none;
+        }
+
+        /* Line Labels - High Contrast Pills */
+        .line-label-bg {
+            fill: var(--bg-color); /* Matches page bg to create a cutout effect */
+            stroke: var(--surface-border);
+            stroke-width: 1px;
+            rx: 4px;
+        }
+
+        .line-label {
+            fill: var(--text-main);
+            font-size: 10px;
+            text-anchor: middle;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            pointer-events: none;
+        }
+
+        /* Icons */
+        .icon-shape {
+            stroke-width: 2px;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-top">
+            <div class="header-title">
+                <h1>System Architecture</h1>
+                <div class="meta">Fig 1.0 // Core vs Periphery Data Topology</div>
+            </div>
+        </div>
+        
+        <!-- Relocated Legend -->
+        <div class="legend-box">
+            <div class="legend-title">Signal Flow Legend</div>
+            <div class="legend-row">
+                <div class="legend-item" data-type="data">
+                    <div class="line-sample"></div>
+                    <span>Data Stream</span>
+                </div>
+                <div class="legend-item" data-type="instr">
+                    <div class="line-sample"></div>
+                    <span>Instructions</span>
+                </div>
+                <div class="legend-item" data-type="ctrl">
+                    <div class="line-sample"></div>
+                    <span>Control Signals</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main id="canvas-container"></main>
+
+    <script>
+        const colors = {
+            data: '#00d4ff',
+            instr: '#f6ad55',
+            ctrl: '#68d391',
+            // Component Icons colors (Unified Stroke weight, varied color for semantic grouping)
+            cpu: '#ffffff',
+            gpu: '#9f7aea',
+            mem: '#4fd1c5',
+            stor: '#fc8181',
+            net: '#63b3ed',
+            inp: '#ed8936',
+            out: '#48bb78'
+        };
+
+        // LAYOUT REVISION:
+        // 1. Expanded Canvas height (1000px) to accommodate bottom row.
+        // 2. Normalized Node Scale: All boxes are now roughly same height (140-160px) and width (200-240px).
+        // 3. Grid Structure:
+        //    Row 1: Memory (Left), CPU (Center), GPU (Right)
+        //    Row 2: Input (Left), [Empty Center], Output (Right)
+        //    Row 3: Storage (Left), Network (Right)
+        // This creates a balanced, stable "3-column" look.
+
+        const components = {
+            // Row 1: Core Processing
+            mem:  { x: 180, y: 80,  w: 220, h: 160, label: "MEMORY", sub: "System RAM (DDR5)" },
+            cpu:  { x: 500, y: 80,  w: 220, h: 160, label: "CPU", sub: "Central Processing Unit" },
+            gpu:  { x: 820, y: 80,  w: 220, h: 160, label: "GPU", sub: "Graphics Engine" },
+
+            // Row 2: I/O
+            inp:  { x: 180, y: 320, w: 220, h: 140, label: "INPUT", sub: "Peripherals" },
+            out:  { x: 820, y: 320, w: 220, h: 140, label: "OUTPUT", sub: "Display / Audio" },
+
+            // Row 3: Persistence & External
+            stor: { x: 180, y: 560, w: 220, h: 140, label: "STORAGE", sub: "NVMe SSD Array" },
+            net:  { x: 820, y: 560, w: 220, h: 140, label: "NETWORK", sub: "Interface Card" }
+        };
+
+        const connections = [
+            // INPUT -> CPU (Events)
+            { from: 'inp', to: 'cpu', type: 'ctrl', label: 'Events' },
+            
+            // STORAGE <-> CPU
+            { from: 'stor', to: 'cpu', type: 'data', label: 'Load Data' },
+            { from: 'stor', to: 'cpu', type: 'instr', label: 'Load Exec' },
+            
+            // CPU <-> MEMORY (The Critical Loop)
+            { from: 'cpu', to: 'mem', type: 'data', label: 'Write Back' },
+            { from: 'mem', to: 'cpu', type: 'instr', label: 'Fetch' },
+            
+            // CPU <-> GPU
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Render Cmds' },
+            { from: 'cpu', to: 'gpu', type: 'ctrl', label: 'Sync' },
+            
+            // GPU -> OUTPUT
+            { from: 'gpu', to: 'out', type: 'data', label: 'Framebuf' },
+            
+            // CPU <-> NETWORK
+            { from: 'cpu', to: 'net', type: 'data', label: 'TX' },
+            { from: 'net', to: 'cpu', type: 'data', label: 'RX' },
+        ];
+
+        // Helper to find edge points for orthogonal routing
+        const getEdgePoint = (c1, c2) => {
+            const cx1 = c1.x + c1.w/2;
+            const cy1 = c1.y + c1.h/2;
+            const cx2 = c2.x + c2.w/2;
+            const cy2 = c2.y + c2.h/2;
+            
+            const dx = cx2 - cx1;
+            const dy = cy2 - cy1;
+            
+            let start = { x: cx1, y: cy1 };
+            
+            // Determine which side of the box to exit based on relative position
+            if (Math.abs(dx) > Math.abs(dy)) {
+                // Horizontal dominant
+                start.x = dx > 0 ? c1.x + c1.w : c1.x;
+            } else {
+                // Vertical dominant
+                start.y = dy > 0 ? c1.y + c1.h : c1.y;
+            }
+            return start;
+        };
+
+        const createOrthoPath = (c1, c2) => {
+            const start = getEdgePoint(c1, c2);
+            const end = getEdgePoint(c2, c1);
+            
+            // Midpoint for the elbow
+            const midPoint = {
+                x: (start.x + end.x) / 2,
+                y: (start.y + end.y) / 2
+            };
+
+            // Determine routing priority based on alignment
+            // If boxes overlap in Y range, route horizontally first
+            const overlapY = !(c1.y + c1.h < c2.y || c2.y + c2.h < c1.y);
+            
+            let d = "";
+            if (overlapY) {
+                // Horizontal priority: Start -> (MidX, StartY) -> (MidX, EndY) -> End
+                d = `M ${start.x} ${start.y} L ${midPoint.x} ${start.y} L ${midPoint.x} ${end.y} L ${end.x} ${end.y}`;
+            } else {
+                // Vertical priority: Start -> (StartX, MidY) -> (EndX, MidY) -> End
+                d = `M ${start.x} ${start.y} L ${start.x} ${midPoint.y} L ${end.x} ${midPoint.y} L ${end.x} ${end.y}`;
+            }
+
+            return { d, midX: midPoint.x, midY: midPoint.y };
+        };
+
+        const createSVG = () => {
+            const ns = "http://www.w3.org/2000/svg";
+            // Expanded viewBox to 1200x800 to fit the new layout comfortably
+            const svg = document.createElementNS(ns, "svg");
+            svg.setAttribute("viewBox", "0 0 1200 800");
+
+            // Defs (Arrows)
+            const defs = document.createElementNS(ns, "defs");
+            const createMarker = (id, color) => {
+                const marker = document.createElementNS(ns, "marker");
+                marker.setAttribute("id", id);
+                marker.setAttribute("markerWidth", "10");
+                marker.setAttribute("markerHeight", "10");
+                marker.setAttribute("refX", "9"); // Adjusted to not overlap line end
+                marker.setAttribute("refY", "5");
+                marker.setAttribute("orient", "auto");
+                const polygon = document.createElementNS(ns, "polygon");
+                polygon.setAttribute("points", "0 0, 10 5, 0 10");
+                polygon.setAttribute("fill", color);
+                marker.appendChild(polygon);
+                return marker;
+            };
+            defs.appendChild(createMarker('arrow-data', colors.data));
+            defs.appendChild(createMarker('arrow-instr', colors.instr));
+            defs.appendChild(createMarker('arrow-ctrl', colors.ctrl));
+            svg.appendChild(defs);
+
+            // 1. Draw Connections
+            const linksGroup = document.createElementNS(ns, "g");
+            linksGroup.setAttribute("id", "connections");
+
+            connections.forEach((conn) => {
+                const c1 = components[conn.from];
+                const c2 = components[conn.to];
+                const { d, midX, midY } = createOrthoPath(c1, c2);
+                const color = colors[conn.type];
+                const markerId = `arrow-${conn.type}`;
+                const styleClass = `style-${conn.type}`;
+
+                // Base Path
+                const path = document.createElementNS(ns, "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `link-path ${styleClass}`);
+                path.setAttribute("marker-end", `url(#${markerId})`);
+                linksGroup.appendChild(path);
+
+                // Flow Particle (Animation)
+                const particle = document.createElementNS(ns, "path");
+                particle.setAttribute("d", d);
+                particle.setAttribute("stroke", color);
+                particle.setAttribute("class", "flow-particle");
+                particle.style.animationDelay = `${Math.random() * -2}s`;
+                linksGroup.appendChild(particle);
+
+                // Label with High-Contrast Background Pill
+                // Create group for label to handle background + text
+                const labelGroup = document.createElementNS(ns, "g");
+                labelGroup.setAttribute("transform", `translate(${midX}, ${midY})`);
+                
+                // We need to calculate text width roughly to size the box, 
+                // or just use a fixed size pill since labels are short.
+                const textEl = document.createElementNS(ns, "text");
+                textEl.setAttribute("class", "line-label");
+                textEl.setAttribute("dy", "0.3em"); // Vertical center
+                textEl.textContent = conn.label;
+                
+                // Create background rect (pill)
+                const rectEl = document.createElementNS(ns, "rect");
+                rectEl.setAttribute("class", "line-label-bg");
+                
+                // Append text first to measure (in a real app we'd measure, here we estimate or use SVG textLength)
+                // Simple approach: Add text, then wrap in rect based on standard width
+                // Better approach: Put rect behind, size it manually.
+                const textWidth = conn.label.length * 6.5 + 12; // Approx char width + padding
+                rectEl.setAttribute("x", -textWidth/2);
+                rectEl.setAttribute("y", -9);
+                rectEl.setAttribute("width", textWidth);
+                rectEl.setAttribute("height", 18);
+                
+                labelGroup.appendChild(rectEl);
+                labelGroup.appendChild(textEl);
+                linksGroup.appendChild(labelGroup);
+            });
+            svg.appendChild(linksGroup);
+
+            // 2. Draw Components
+            const nodesGroup = document.createElementNS(ns, "g");
+            
+            Object.keys(components).forEach(key => {
+                const comp = components[key];
+                const g = document.createElementNS(ns, "g");
+                g.setAttribute("id", key);
+                g.setAttribute("transform", `translate(${comp.x}, ${comp.y})`);
+
+                // Box
+                const rect = document.createElementNS(ns, "rect");
+                rect.setAttribute("width", comp.w);
+                rect.setAttribute("height", comp.h);
+                rect.setAttribute("class", "node-box");
+                g.appendChild(rect);
+
+                // Iconography (Unified Stroke Width & Style)
+                const iconG = document.createElementNS(ns, "g");
+                // Center icon in top half of box
+                iconG.setAttribute("transform", `translate(${comp.w/2}, ${comp.h/2 - 20})`);
+                
+                const setStroke = (el) => {
+                    el.setAttribute("stroke", colors[key]);
+                    el.setAttribute("class", "icon-shape");
+                };
+
+                // Draw Icons based on key (Redrawn for consistency)
+                if (key === 'cpu') {
+                    const outer = document.createElementNS(ns, "rect");
+                    outer.setAttribute("x", -22); outer.setAttribute("y", -22);
+                    outer.setAttribute("width", 44); outer.setAttribute("height", 44);
+                    outer.setAttribute("rx", 4);
+                    setStroke(outer);
+                    
+                    const inner = document.createElementNS(ns, "rect");
+                    inner.setAttribute("x", -10); inner.setAttribute("y", -10);
+                    inner.setAttribute("width", 20); inner.setAttribute("height", 20);
+                    setStroke(inner);
+                    
+                    // Pins
+                    const pins = document.createElementNS(ns, "path");
+                    pins.setAttribute("d", "M -22 -10 L -30 -10 M -22 0 L -30 0 M -22 10 L -30 10 M 22 -10 L 30 -10 M 22 0 L 30 0 M 22 10 L 30 10 M -10 -22 L -10 -30 M 0 -22 L 0 -30 M 10 -22 L 10 -30 M -10 22 L -10 30 M 0 22 L 0 30 M 10 22 L 10 30");
+                    setStroke(pins);
+                    iconG.appendChild(pins);
+                    iconG.appendChild(outer);
+                    iconG.appendChild(inner);
+                } 
+                else if (key === 'gpu') {
+                    const tri = document.createElementNS(ns, "polygon");
+                    tri.setAttribute("points", "0,-22 22,16 -22,16");
+                    setStroke(tri);
+                    const fan = document.createElementNS(ns, "path");
+                    fan.setAttribute("d", "M 0 -22 L 0 16 M -11 8 L 11 8");
+                    setStroke(fan);
+                    iconG.appendChild(tri);
+                    iconG.appendChild(fan);
+                }
+                else if (key === 'mem') {
+                    // Sticks
+                    for(let i=0; i<3; i++) {
+                        const r = document.createElementNS(ns, "rect");
+                        r.setAttribute("x", -22); r.setAttribute("y", -12 + (i*12));
+                        r.setAttribute("width", 44); r.setAttribute("height", 6);
+                        r.setAttribute("rx", 1);
+                        setStroke(r);
+                        iconG.appendChild(r);
+                    }
+                }
+                else if (key === 'stor') {
+                    // Cylinder
+                    const top = document.createElementNS(ns, "ellipse");
+                    top.setAttribute("cx", 0); top.setAttribute("cy", -14);
+                    top.setAttribute("rx", 18); top.setAttribute("ry", 6);
+                    setStroke(top);
+                    
+                    const body = document.createElementNS(ns, "path");
+                    body.setAttribute("d", "M -18 -14 L -18 14 A 18 6 0 0 0 18 14 L 18 -14");
+                    setStroke(body);
+                    
+                    const mid = document.createElementNS(ns, "ellipse");
+                    mid.setAttribute("cx", 0); mid.setAttribute("cy", 0);
+                    mid.setAttribute("rx", 18); mid.setAttribute("ry", 6);
+                    setStroke(mid);
+                    
+                    iconG.appendChild(body);
+                    iconG.appendChild(mid);
+                    iconG.appendChild(top);
+                }
+                else if (key === 'inp') {
+                    const kb = document.createElementNS(ns, "rect");
+                    kb.setAttribute("x", -24); kb.setAttribute("y", -16);
+                    kb.setAttribute("width", 48); kb.setAttribute("height", 32);
+                    kb.setAttribute("rx", 4);
+                    setStroke(kb);
+                    const keys = document.createElementNS(ns, "path");
+                    keys.setAttribute("d", "M -14 -6 L 14 -6 M -14 6 L 14 6");
+                    setStroke(keys);
+                    iconG.appendChild(kb);
+                    iconG.appendChild(keys);
+                }
+                else if (key === 'out') {
+                    const scr = document.createElementNS(ns, "rect");
+                    scr.setAttribute("x", -24); scr.setAttribute("y", -20);
+                    scr.setAttribute("width", 48); scr.setAttribute("height", 28);
+                    scr.setAttribute("rx", 2);
+                    setStroke(scr);
+                    const stand = document.createElementNS(ns, "path");
+                    stand.setAttribute("d", "M -8 8 L -8 20 L 8 20 L 8 8");
+                    setStroke(stand);
+                    iconG.appendChild(scr);
+                    iconG.appendChild(stand);
+                }
+                else if (key === 'net') {
+                    const circ = document.createElementNS(ns, "circle");
+                    circ.setAttribute("cx", 0); circ.setAttribute("cy", 0);
+                    circ.setAttribute("r", 20);
+                    setStroke(circ);
+                    const lines = document.createElementNS(ns, "path");
+                    lines.setAttribute("d", "M -20 0 L 20 0 M 0 -20 L 0 20 M -14 -14 L 14 14 M -14 14 L 14 -14");
+                    setStroke(lines);
+                    iconG.appendChild(circ);
+                    iconG.appendChild(lines);
+                }
+                
+                g.appendChild(iconG);
+
+                // Text
+                const textMain = document.createElementNS(ns, "text");
+                textMain.setAttribute("x", comp.w/2);
+                textMain.setAttribute("y", comp.h - 45);
+                textMain.setAttribute("class", "node-label");
+                textMain.textContent = comp.label;
+                g.appendChild(textMain);
+
+                const textSub = document.createElementNS(ns, "text");
+                textSub.setAttribute("x", comp.w/2);
+                textSub.setAttribute("y", comp.h - 25);
+                textSub.setAttribute("class", "node-sub");
+                textSub.textContent = comp.sub;
+                g.appendChild(textSub);
+
+                nodesGroup.appendChild(g);
+            });
+            svg.appendChild(nodesGroup);
+
+            return svg;
+        };
+
+        // Initialize
+        const container = document.getElementById('canvas-container');
+        const svgElement = createSVG();
+        container.appendChild(svgElement);
+    </script>
+</body>
+</html>

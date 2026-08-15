@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            /* Palette: Slate & Neon */
+            --bg-color: #0f172a;
+            --bg-dot: #1e293b;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --border: #334155;
+            --border-highlight: #475569;
+            
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            /* Flow Types */
+            --c-data: #38bdf8;    /* Cyan - Data */
+            --c-instr: #a78bfa;   /* Violet - Instructions */
+            --c-ctrl: #34d399;    /* Emerald - Control */
+            --c-io: #fbbf24;      /* Amber - I/O */
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Header & Legend --- */
+        header {
+            padding: 1.5rem 2.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 20;
+        }
+
+        .header-left h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(to right, #fff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }
+
+        .header-left .subtitle {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-family: 'Courier New', Courier, monospace;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .legend {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.75rem;
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 0.6rem; }
+        
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        /* --- Main Canvas --- */
+        main {
+            flex: 1;
+            position: relative;
+            background-image: radial-gradient(var(--bg-dot) 1px, transparent 1px);
+            background-size: 32px 32px;
+            overflow: hidden;
+        }
+
+        /* SVG Layer */
+        svg#diagram {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* --- Component Nodes --- */
+        .component {
+            position: absolute;
+            width: 160px;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
+            cursor: default;
+        }
+
+        .component:hover {
+            transform: translateY(-4px) scale(1.02);
+            background: var(--surface-hover);
+            border-color: var(--border-highlight);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-highlight);
+        }
+
+        /* Specific Node Styles */
+        .component-icon {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+
+        .component-label {
+            font-weight: 700;
+            font-size: 0.95rem;
+            letter-spacing: 0.02em;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .component-desc {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* CPU Special Styling */
+        #cpu {
+            width: 180px;
+            border-color: var(--text-secondary);
+            background: rgba(30, 41, 59, 0.95);
+            z-index: 15;
+        }
+        #cpu .component-icon {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            font-size: 1.5rem;
+        }
+
+        /* Positioning (Responsive %) */
+        #cpu { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        #gpu { top: 20%; left: 50%; transform: translate(-50%, -50%); }
+        #ram { top: 50%; left: 25%; transform: translate(-50%, -50%); }
+        #storage { top: 80%; left: 50%; transform: translate(-50%, -50%); }
+        #network { top: 50%; left: 75%; transform: translate(-50%, -50%); }
+        #input { top: 20%; left: 22%; transform: translate(-50%, -50%); }
+        #output { top: 80%; left: 78%; transform: translate(-50%, -50%); }
+
+        /* --- Animations --- */
+        @keyframes flow {
+            from { stroke-dashoffset: 24; } /* 12 + 12 */
+            to { stroke-dashoffset: 0; }
+        }
+
+        .flow-line {
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-dasharray: 12 12;
+            opacity: 0.8;
+            animation: flow 1s linear infinite;
+        }
+
+        .flow-fast { animation-duration: 0.6s; stroke-width: 2.5; }
+        .flow-slow { animation-duration: 1.8s; }
+
+        /* --- Dashboard Overlay --- */
+        .dashboard {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 2.5rem;
+            display: flex;
+            gap: 3rem;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 30;
+        }
+
+        .stat { text-align: center; }
+        .stat-value {
+            display: block;
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--c-data);
+            margin-bottom: 0.2rem;
+        }
+        .stat-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-left">
+            <h1>System Architecture</h1>
+            <div class="subtitle">Data Bus & Control Flow Visualization</div>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="dot" style="color: var(--c-data); background: var(--c-data);"></div>
+                <span>Data</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="color: var(--c-instr); background: var(--c-instr);"></div>
+                <span>Instructions</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="color: var(--c-ctrl); background: var(--c-ctrl);"></div>
+                <span>Control</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="color: var(--c-io); background: var(--c-io);"></div>
+                <span>I/O</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <svg id="diagram" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- Glow Filter -->
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+                
+                <!-- Arrowhead -->
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="currentColor" opacity="0.7" />
+                </marker>
+            </defs>
+            <g id="connections"></g>
+        </svg>
+
+        <!-- Nodes -->
+        <div id="gpu" class="component">
+            <div class="component-icon">🎮</div>
+            <div class="component-label">GPU</div>
+            <div class="component-desc">Parallel Processing</div>
+        </div>
+
+        <div id="input" class="component">
+            <div class="component-icon">⌨️</div>
+            <div class="component-label">Input</div>
+            <div class="component-desc">Keyboard / Mouse</div>
+        </div>
+
+        <div id="ram" class="component">
+            <div class="component-icon">📊</div>
+            <div class="component-label">Memory</div>
+            <div class="component-desc">RAM (DDR4/5)</div>
+        </div>
+
+        <div id="cpu" class="component">
+            <div class="component-icon">🧠</div>
+            <div class="component-label">CPU</div>
+            <div class="component-desc">Central Unit</div>
+        </div>
+
+        <div id="network" class="component">
+            <div class="component-icon">🌐</div>
+            <div class="component-label">Network</div>
+            <div class="component-desc">NIC / WiFi</div>
+        </div>
+
+        <div id="storage" class="component">
+            <div class="component-icon">💾</div>
+            <div class="component-label">Storage</div>
+            <div class="component-desc">NVMe SSD</div>
+        </div>
+
+        <div id="output" class="component">
+            <div class="component-icon">🖥️</div>
+            <div class="component-label">Output</div>
+            <div class="component-desc">Display / Audio</div>
+        </div>
+
+        <!-- Dashboard -->
+        <div class="dashboard">
+            <div class="stat">
+                <span class="stat-value" id="cpu-load">12%</span>
+                <span class="stat-label">CPU Load</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="mem-use">4.2GB</span>
+                <span class="stat-label">Mem Used</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="net-io">450Mb/s</span>
+                <span class="stat-label">Net I/O</span>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Configuration
+        const connections = [
+            { from: 'storage', to: 'ram', type: 'data', speed: 'flow-slow', label: 'Load' },
+            { from: 'ram', to: 'cpu', type: 'instruction', speed: 'flow-fast', label: 'Fetch' },
+            { from: 'cpu', to: 'ram', type: 'control', speed: 'flow-slow', label: 'Write' },
+            { from: 'cpu', to: 'gpu', type: 'data', speed: 'flow-fast', label: 'Render' },
+            { from: 'gpu', to: 'output', type: 'io', speed: 'flow-fast', label: 'Display' },
+            { from: 'input', to: 'cpu', type: 'io', speed: 'flow-fast', label: 'Event' },
+            { from: 'network', to: 'cpu', type: 'data', speed: 'flow-slow', label: 'Packet' },
+            { from: 'cpu', to: 'network', type: 'data', speed: 'flow-slow', label: 'Response' },
+            { from: 'cpu', to: 'storage', type: 'control', speed: 'flow-slow', label: 'Save' }
+        ];
+
+        const svg = document.getElementById('diagram');
+        const g = document.getElementById('connections');
+
+        const colors = {
+            'data': '#38bdf8',
+            'instruction': '#a78bfa',
+            'control': '#34d399',
+            'io': '#fbbf24'
+        };
+
+        function getCenter(element) {
+            const rect = element.getBoundingClientRect();
+            const mainRect = document.querySelector('main').getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - mainRect.left,
+                y: rect.top + rect.height / 2 - mainRect.top
+            };
+        }
+
+        function drawConnections() {
+            g.innerHTML = '';
+
+            connections.forEach(conn => {
+                const startEl = document.getElementById(conn.from);
+                const endEl = document.getElementById(conn.to);
+                if (!startEl || !endEl) return;
+
+                const start = getCenter(startEl);
+                const end = getCenter(endEl);
+
+                // Smarter Bezier Logic
+                const midX = (start.x + end.x) / 2;
+                const midY = (start.y + end.y) / 2;
+                
+                // Determine curve direction based on relative position
+                // Avoids "flat" lines between horizontally/vertically aligned nodes
+                let cpX = midX;
+                let cpY = midY;
+                const curveIntensity = 60;
+
+                if (Math.abs(start.x - end.x) > Math.abs(start.y - end.y)) {
+                    // Mostly horizontal relationship, curve vertically
+                    cpY += (start.y < end.y ? curveIntensity : -curveIntensity);
+                } else {
+                    // Mostly vertical relationship, curve horizontally
+                    cpX += (start.x < end.x ? curveIntensity : -curveIntensity);
+                }
+
+                const d = `M ${start.x} ${start.y} Q ${cpX} ${cpY} ${end.x} ${end.y}`;
+                const color = colors[conn.type];
+
+                // 1. Faint Track (Background)
+                const trackPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                trackPath.setAttribute("d", d);
+                trackPath.setAttribute("fill", "none");
+                trackPath.setAttribute("stroke", color);
+                trackPath.setAttribute("stroke-opacity", "0.15");
+                trackPath.setAttribute("stroke-width", "1");
+                g.appendChild(trackPath);
+
+                // 2. Animated Flow
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `flow-line ${conn.speed}`);
+                path.setAttribute("stroke", color);
+                path.setAttribute("filter", "url(#glow)"); // Apply glow
+                path.setAttribute("marker-end", `url(#arrow)`); // Arrowhead
+                // Set arrow color via currentColor trick in CSS/SVG
+                path.style.color = color; 
+                g.appendChild(path);
+            });
+        }
+
+        // Live Stats Simulation
+        setInterval(() => {
+            const cpu = Math.floor(Math.random() * 20) + 10;
+            const mem = (Math.random() * 2 + 3.5).toFixed(1);
+            const net = Math.floor(Math.random() * 300) + 200;
+            
+            document.getElementById('cpu-load').innerText = cpu + '%';
+            document.getElementById('mem-use').innerText = mem + 'GB';
+            document.getElementById('net-io').innerText = net + 'Mb/s';
+        }, 2000);
+
+        // Init
+        window.addEventListener('load', drawConnections);
+        window.addEventListener('resize', drawConnections);
+
+    </script>
+</body>
+</html>

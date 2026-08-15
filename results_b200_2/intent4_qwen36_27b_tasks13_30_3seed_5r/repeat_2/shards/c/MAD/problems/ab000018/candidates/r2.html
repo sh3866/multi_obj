@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road - Perspective Redesign</title>
+    <style>
+        :root {
+            --bg-sky-top: #4FC3F7;
+            --bg-sky-bot: #E1F5FE;
+            --ui-bg: rgba(255, 255, 255, 0.95);
+            --ui-text: #37474F;
+            --accent: #FF7043;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, var(--bg-sky-top), var(--bg-sky-bot));
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        /* --- HUD Layer --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Relocated HUD: Top Left */
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Unified UI Style: Clean Geometric Pills */
+        .score-card {
+            background: var(--ui-bg);
+            padding: 8px 16px;
+            border-radius: 50px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-width: 80px;
+            border: 2px solid rgba(0,0,0,0.05);
+        }
+
+        .score-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #90A4AE;
+            margin-bottom: 2px;
+        }
+
+        .score-val {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--ui-text);
+            line-height: 1;
+        }
+
+        .score-card.best .score-val {
+            color: var(--accent);
+        }
+
+        /* Canvas */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Tutorial Hint */
+        .tutorial-hint {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            font-weight: 700;
+            font-size: 14px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            pointer-events: none;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="hud-container">
+            <div class="score-card">
+                <div class="score-label">Score</div>
+                <div class="score-val" id="score">0</div>
+            </div>
+            <div class="score-card best">
+                <div class="score-label">Best</div>
+                <div class="score-val" id="best">14</div>
+            </div>
+        </div>
+        
+        <div class="tutorial-hint">
+            SWIPE or ARROW KEYS to move
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * CROSSY ROAD - PERSPECTIVE REDESIGN
+         * Pure Canvas 2.5D Engine with Forward-Facing Perspective
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- Configuration ---
+        const CONFIG = {
+            blockSize: 64, // Base unit size
+            lanes: 25,
+            drawDistance: 30,
+            horizonY: 0.35, // Horizon line at 35% of screen height
+            fov: 600, // Field of view for perspective
+            colors: {
+                grassLight: '#8BC34A',
+                grassDark: '#7CB342',
+                road: '#455A64',
+                roadLine: 'rgba(255,255,255,0.4)',
+                water: '#29B6F6',
+                waterDark: '#0288D1',
+                shadow: 'rgba(0,0,0,0.2)'
+            }
+        };
+
+        // --- State ---
+        let camera = { x: 0, y: 0 };
+        let player = { 
+            gridX: 0, 
+            gridY: 0, 
+            worldX: 0, 
+            worldY: 0, 
+            targetX: 0, 
+            targetY: 0,
+            z: 0, // Jump height
+            squish: 1, 
+            rot: 0, 
+            targetRot: 0
+        };
+        let lanes = [];
+        let score = 0;
+        let time = 0;
+        let particles = [];
+
+        // --- Resize Handling ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            camera.x = width / 2;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math Helpers ---
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+
+        // Perspective Projection: 3D World (x, y, z) -> 2D Screen (sx, sy, scale)
+        function project(x, y, z) {
+            // Camera offset
+            const cx = x - camera.x;
+            const cy = y - camera.y;
+            
+            // Perspective scale factor (objects further back get smaller)
+            // We shift 'y' so the horizon is at 0 relative to camera logic for scaling
+            const scale = CONFIG.fov / (CONFIG.fov + cy + 400); 
+            
+            return {
+                x: width/2 + cx * scale,
+                y: (height * CONFIG.horizonY) + (cy + 400) * scale * 0.6, // 0.6 flattens the view slightly
+                scale: scale
+            };
+        }
+
+        // --- Classes ---
+
+        class Particle {
+            constructor(x, y, z, color) {
+                this.x = x; this.y = y; this.z = z;
+                this.vx = rand(-2, 2);
+                this.vy = rand(-2, 2);
+                this.vz = rand(1, 3);
+                this.life = 1.0;
+                this.color = color;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.z += this.vz;
+                this.life -= 0.05;
+            }
+        }
+
+        class Lane {
+            constructor(gridY) {
+                this.gridY = gridY;
+                this.type = this.determineType(gridY);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+                this.decorationsZ = []; // Store random Z offsets for decorations
+
+                if (this.type === 'road') {
+                    const count = Math.floor(rand(1, 3));
+                    const direction = (Math.floor(gridY / 4) % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-15, 15) * CONFIG.blockSize,
+                            speed: rand(3, 7) * direction,
+                            color: ['#F44336', '#2196F3', '#FFEB3B', '#9C27B0', '#607D8B'][Math.floor(Math.random()*5)],
+                            w: rand(35, 55),
+                            h: rand(25, 40),
+                            d: rand(25, 35)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = Math.floor(rand(2, 4));
+                    const direction = (Math.floor(gridY / 3) % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-12, 12) * CONFIG.blockSize,
+                            speed: rand(1, 2.5) * direction,
+                            len: rand(1.2, 2.5)
+                        });
+                    }
+                } else {
+                    // Grass Deco
+                    const count = Math.floor(rand(1, 4));
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            gx: Math.floor(rand(-6, 6)),
+                            type: Math.random() > 0.7 ? 'tree' : 'bush',
+                            scale: rand(0.8, 1.2)
+                        });
+                    }
+                }
+            }
+
+            determineType(y) {
+                if (y < 4) return 'grass';
+                const mod = y % 7;
+                if (mod === 0 || mod === 1) return 'water';
+                if (mod === 2 || mod === 3 || mod === 4) return 'road';
+                return 'grass';
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    // Wrap
+                    const limit = 25 * CONFIG.blockSize;
+                    if (v.speed > 0 && v.x > limit) v.x = -limit;
+                    if (v.speed < 0 && v.x < -limit) v.x = limit;
+                });
+
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    const limit = 20 * CONFIG.blockSize;
+                    if (l.speed > 0 && l.x > limit) l.x = -limit;
+                    if (l.speed < 0 && l.x < -limit) l.x = limit;
+                });
+            }
+        }
+
+        // --- Drawing Functions ---
+
+        // Draw a 3D-ish Cube with Perspective
+        function drawCube(x, y, z, w, h, d, colorTop, colorSide, colorFront) {
+            // Calculate corners relative to center bottom
+            // We use a simplified 3-point perspective approximation
+            
+            // Center bottom
+            const cBot = project(x, y, 0);
+            // Center top
+            const cTop = project(x, y, z + h);
+            
+            // Width/Depth adjustments based on scale
+            const hw = (w/2) * cBot.scale;
+            const hd = (d/2) * cBot.scale;
+            const hTop = (w/2) * cTop.scale; // Width shrinks at top
+            const dTop = (d/2) * cTop.scale;
+
+            // Vertices
+            const botL = { x: cBot.x - hw, y: cBot.y };
+            const botR = { x: cBot.x + hw, y: cBot.y };
+            const botC = { x: cBot.x, y: cBot.y + hd }; // Center front
+            
+            const topL = { x: cTop.x - hTop, y: cTop.y };
+            const topR = { x: cTop.x + hTop, y: cTop.y };
+            const topC = { x: cTop.x, y: cTop.y + dTop };
+
+            // 1. Front Face (The visible front)
+            ctx.fillStyle = colorFront;
+            ctx.beginPath();
+            ctx.moveTo(botL.x, botL.y);
+            ctx.lineTo(botR.x, botR.y);
+            ctx.lineTo(topR.x, topR.y);
+            ctx.lineTo(topL.x, topL.y);
+            ctx.fill();
+
+            // 2. Right Face (Side)
+            ctx.fillStyle = colorSide;
+            ctx.beginPath();
+            ctx.moveTo(botR.x, botR.y);
+            ctx.lineTo(botC.x, botC.y);
+            ctx.lineTo(topC.x, topC.y);
+            ctx.lineTo(topR.x, topR.y);
+            ctx.fill();
+
+            // 3. Left Face (Other Side)
+            ctx.fillStyle = colorSide; // Usually same as right or darker
+            ctx.globalAlpha = 0.8; // Slight transparency for depth
+            ctx.beginPath();
+            ctx.moveTo(botL.x, botL.y);
+            ctx.lineTo(botC.x, botC.y);
+            ctx.lineTo(topC.x, topC.y);
+            ctx.lineTo(topL.x, topL.y);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+
+            // 4. Top Face
+            ctx.fillStyle = colorTop;
+            ctx.beginPath();
+            ctx.moveTo(topL.x, topL.y);
+            ctx.lineTo(topR.x, topR.y);
+            ctx.lineTo(topC.x, topC.y);
+            ctx.fill();
+        }
+
+        function drawTree(x, y, scale) {
+            // Trunk
+            drawCube(x, y, 0, 12*scale, 30*scale, 12*scale, '#795548', '#5D4037', '#4E342E');
+            // Leaves (Two layers)
+            drawCube(x, y, 25*scale, 40*scale, 30*scale, 40*scale, '#66BB6A', '#43A047', '#2E7D32');
+            drawCube(x, y, 45*scale, 30*scale, 25*scale, 30*scale, '#81C784', '#4CAF50', '#388E3C');
+        }
+
+        function drawBush(x, y, scale) {
+            drawCube(x, y, 0, 25*scale, 15*scale, 25*scale, '#AED581', '#9CCC65', '#7CB342');
+        }
+
+        function drawBackground() {
+            // Sky gradient is CSS
+            
+            // Distant Mountains
+            ctx.fillStyle = '#B3E5FC'; // Very light blue mist
+            ctx.beginPath();
+            ctx.moveTo(0, height * CONFIG.horizonY);
+            for(let i=0; i<=width; i+=100) {
+                ctx.lineTo(i, (height * CONFIG.horizonY) - Math.sin(i*0.005)*40 - 20);
+            }
+            ctx.lineTo(width, height * CONFIG.horizonY);
+            ctx.fill();
+
+            // Clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            const cloudY = height * CONFIG.horizonY - 40;
+            const offset = (Date.now() / 50) % width;
+            
+            for(let i=0; i<5; i++) {
+                let cx = (i * 300 + offset) % (width + 200) - 100;
+                ctx.beginPath();
+                ctx.arc(cx, cloudY, 20, 0, Math.PI*2);
+                ctx.arc(cx+20, cloudY-10, 30, 0, Math.PI*2);
+                ctx.arc(cx+40, cloudY, 20, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // --- Main Game Object ---
+
+        const game = {
+            init: () => {
+                // Initial Lanes
+                for(let i=-2; i<CONFIG.drawDistance; i++) {
+                    lanes.push(new Lane(i));
+                }
+                
+                // Input Bindings
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp') game.movePlayer(0, -1);
+                    if(e.key === 'ArrowDown') game.movePlayer(0, 1);
+                    if(e.key === 'ArrowLeft') game.movePlayer(-1, 0);
+                    if(e.key === 'ArrowRight') game.movePlayer(1, 0);
+                });
+
+                // Touch / Swipe Logic
+                let touchStartX = 0;
+                let touchStartY = 0;
+                window.addEventListener('touchstart', e => {
+                    touchStartX = e.changedTouches[0].screenX;
+                    touchStartY = e.changedTouches[0].screenY;
+                }, {passive: false});
+
+                window.addEventListener('touchend', e => {
+                    const touchEndX = e.changedTouches[0].screenX;
+                    const touchEndY = e.changedTouches[0].screenY;
+                    const dx = touchEndX - touchStartX;
+                    const dy = touchEndY - touchStartY;
+
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        if (Math.abs(dx) > 30) game.movePlayer(dx > 0 ? 1 : -1, 0);
+                    } else {
+                        if (Math.abs(dy) > 30) game.movePlayer(0, dy > 0 ? 1 : -1);
+                    }
+                }, {passive: false});
+
+                requestAnimationFrame(game.loop);
+            },
+
+            movePlayer: (dx, dy) => {
+                // Simple debounce
+                if (Math.abs(player.worldX - player.targetX) > 5 || Math.abs(player.worldY - player.targetY) > 5) return;
+
+                const newGX = player.gridX + dx;
+                const newGY = player.gridY + dy;
+
+                player.gridX = newGX;
+                player.gridY = newGY;
+
+                // World coordinates for grid
+                // In perspective, we don't use isometric math, we use linear grid math
+                // x = gridX * size, y = -gridY * size (negative because Y goes up screen)
+                // But for our projection engine:
+                player.targetX = newGX * CONFIG.blockSize;
+                player.targetY = -newGY * CONFIG.blockSize;
+
+                // Animation
+                player.squish = 0.7;
+                
+                // Rotation
+                if (dx > 0) player.targetRot = Math.PI / 2;
+                if (dx < 0) player.targetRot = -Math.PI / 2;
+                if (dy < 0) player.targetRot = 0; // Forward
+                if (dy > 0) player.targetRot = Math.PI; // Back
+
+                if (dy === -1) {
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    // Add new lane
+                    const highestY = lanes[lanes.length-1].gridY;
+                    lanes.push(new Lane(highestY + 1));
+                    lanes.shift(); // Remove old
+                }
+                
+                // Spawn jump dust
+                for(let i=0; i<5; i++) {
+                    particles.push(new Particle(player.worldX, player.worldY, 0, 'rgba(255,255,255,0.5)'));
+                }
+            },
+
+            update: () => {
+                time += 16;
+
+                // Smooth Movement
+                player.worldX = lerp(player.worldX, player.targetX, 0.25);
+                player.worldY = lerp(player.worldY, player.targetY, 0.25);
+                player.squish = lerp(player.squish, 1, 0.1);
+                player.rot = lerp(player.rot, player.targetRot, 0.2);
+
+                // Jump Arc Logic (Sine wave based on distance to target)
+                const dist = Math.sqrt(Math.pow(player.targetX - player.worldX, 2) + Math.pow(player.targetY - player.worldY, 2));
+                player.z = Math.sin(dist * 0.05) * 20; // Simple jump arc
+
+                // Camera Follow
+                // Target camera position is slightly below and behind player
+                const targetCamX = player.worldX * 0.8; // Parallax X
+                const targetCamY = -player.gridY * CONFIG.blockSize * 0.8; // Parallax Y
+
+                camera.x = lerp(camera.x, targetCamX, 0.1);
+                camera.y = lerp(camera.y, targetCamY, 0.1);
+
+                // Update Lanes
+                lanes.forEach(lane => lane.update());
+
+                // Collision / Riding Logic
+                const currentLane = lanes.find(l => l.gridY === player.gridY);
+                if (currentLane && currentLane.type === 'water') {
+                    let onLog = false;
+                    currentLane.logs.forEach(log => {
+                        const logW = log.len * CONFIG.blockSize;
+                        // Check collision
+                        if (player.worldX > log.x - logW/2 && player.worldX < log.x + logW/2) {
+                            onLog = true;
+                            // Move with log
+                            player.worldX += log.speed;
+                            player.targetX = player.worldX;
+                        }
+                    });
+                    if (!onLog) {
+                        // Drown effect (squish flat)
+                        if(player.z < 5) player.squish = 0.2; 
+                    }
+                }
+
+                // Update Particles
+                particles.forEach((p, i) => {
+                    p.update();
+                    if(p.life <= 0) particles.splice(i, 1);
+                });
+            },
+
+            draw: () => {
+                // Clear
+                ctx.clearRect(0, 0, width, height);
+                drawBackground();
+
+                // Collect Drawables
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    // Add Ground
+                    drawables.push({ type: 'lane', obj: l, z: l.gridY });
+                    
+                    // Add Decos
+                    l.decorations.forEach(d => {
+                        drawables.push({ type: 'deco', obj: d, z: l.gridY });
+                    });
+                    
+                    // Add Vehicles
+                    l.vehicles.forEach(v => {
+                        drawables.push({ type: 'vehicle', obj: v, z: l.gridY });
+                    });
+                    
+                    // Add Logs
+                    l.logs.forEach(lg => {
+                        drawables.push({ type: 'log', obj: lg, z: l.gridY });
+                    });
+                });
+
+                drawables.push({ type: 'player', z: player.gridY });
+
+                // Sort: Painter's Algorithm (Back to Front)
+                // In our coord system, High GridY (negative WorldY) is "Back" (Far).
+                // Low GridY (positive WorldY) is "Front" (Close).
+                // We want to draw Far items first.
+                // So we sort by GridY Descending (High to Low).
+                drawables.sort((a, b) => b.z - a.z);
+
+                // Draw Loop
+                drawables.forEach(item => {
+                    if (item.type === 'lane') {
+                        const l = item.obj;
+                        const y = l.gridY;
+                        
+                        // Draw Strip
+                        // Range X: -10 to 10
+                        for(let x = -12; x <= 12; x++) {
+                            const wx = x * CONFIG.blockSize;
+                            const wy = -y * CONFIG.blockSize;
+                            
+                            // Colors
+                            let topCol, sideCol;
+                            if (l.type === 'grass') {
+                                const isAlt = (x + y) % 2 === 0;
+                                topCol = isAlt ? CONFIG.colors.grassLight : CONFIG.colors.grassDark;
+                                sideCol = '#558B2F';
+                            } else if (l.type === 'road') {
+                                topCol = CONFIG.colors.road;
+                                sideCol = '#263238';
+                            } else {
+                                // Water
+                                const wave = Math.sin(time * 0.005 + x + y) * 2;
+                                topCol = CONFIG.colors.water;
+                                sideCol = CONFIG.colors.waterDark;
+                            }
+
+                            drawCube(wx, wy, 0, CONFIG.blockSize, 15, CONFIG.blockSize, topCol, sideCol, sideCol);
+
+                            // Road Markings
+                            if (l.type === 'road' && (x+y)%2===0) {
+                                const p = project(wx, wy, 1);
+                                ctx.fillStyle = CONFIG.colors.roadLine;
+                                ctx.fillRect(p.x - 10*p.scale, p.y - 2*p.scale, 20*p.scale, 4*p.scale);
+                            }
+                        }
+                    }
+
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        const wx = d.gx * CONFIG.blockSize;
+                        const wy = -item.z * CONFIG.blockSize;
+                        if (d.type === 'tree') drawTree(wx, wy, d.scale);
+                        else drawBush(wx, wy, d.scale);
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        const wy = -item.z * CONFIG.blockSize;
+                        // Shadow
+                        const pSh = project(v.x, wy, 0);
+                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                        ctx.beginPath();
+                        ctx.ellipse(pSh.x, pSh.y, 20*pSh.scale, 8*pSh.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+                        
+                        drawCube(v.x, wy, 10, v.w, v.h, v.d, v.color, '#333', '#222');
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        const wy = -item.z * CONFIG.blockSize;
+                        drawCube(l.x, wy, 5, l.len * CONFIG.blockSize, 12, 20, '#8D6E63', '#5D4037', '#4E342E');
+                    }
+
+                    if (item.type === 'player') {
+                        const p = project(player.worldX, player.worldY, 0);
+                        
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        
+                        // Shadow
+                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 15*p.scale, 8*p.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        // Scale for jump height
+                        const jumpScale = 1 + (player.z / 100);
+                        ctx.scale(jumpScale, jumpScale);
+
+                        // Rotation
+                        ctx.rotate(player.rot);
+
+                        // Squish
+                        const scaleY = player.squish;
+                        const scaleX = 1 + (1 - player.squish) * 0.3;
+                        ctx.scale(scaleX, scaleY);
+
+                        // Body
+                        drawCube(0, 0, 15, 28, 28, 28, '#FFF', '#E0E0E0', '#BDBDBD');
+                        
+                        // Head
+                        drawCube(0, 0, 38, 22, 22, 22, '#FFF', '#E0E0E0', '#BDBDBD');
+
+                        // Comb
+                        ctx.fillStyle = '#F44336';
+                        ctx.beginPath();
+                        ctx.arc(0, -22, 6*p.scale, 0, Math.PI*2);
+                        ctx.fill();
+
+                        // Beak
+                        ctx.fillStyle = '#FF9800';
+                        ctx.beginPath();
+                        ctx.moveTo(10, -12);
+                        ctx.lineTo(18, -8);
+                        ctx.lineTo(10, -4);
+                        ctx.fill();
+
+                        // Eyes
+                        ctx.fillStyle = '#000';
+                        ctx.beginPath();
+                        ctx.arc(8, -15, 2*p.scale, 0, Math.PI*2);
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+                });
+                
+                // Draw Particles
+                particles.forEach(p => {
+                    const proj = project(p.x, p.y, p.z);
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.life;
+                    ctx.beginPath();
+                    ctx.arc(proj.x, proj.y, 3 * proj.scale, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        // Start
+        game.init();
+
+    </script>
+</body>
+</html>

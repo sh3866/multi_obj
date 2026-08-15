@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHRONOS RUNNER // PROTOCOL 02</title>
+    <style>
+        :root {
+            /* Palette: Modern-Retro (Midnight Blue & Terracotta) */
+            --bg-dark: #10141C;       /* Deep Midnight */
+            --bg-light: #1A202C;      /* Lighter Midnight for gradients */
+            --accent-primary: #E07A5F;/* Terracotta / Dusty Orange */
+            --accent-secondary: #81B29A; /* Muted Sage for UI elements */
+            --text-main: #F4F1DE;     /* Off-white / Cream */
+            --text-muted: #6B7280;    /* Slate Grey */
+            --ground-color: #0D1117;  /* Almost black */
+            
+            /* Typography */
+            --font-stack: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: var(--font-stack);
+        }
+
+        /* Game Container */
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 1200px;
+            aspect-ratio: 16/9;
+            background: linear-gradient(to bottom, var(--bg-dark), var(--bg-light));
+            overflow: hidden;
+            box-shadow: 0 0 100px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+        }
+
+        /* CRT Scanline & Noise */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 50;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.15) 50%,
+                rgba(0,0,0,0.15)
+            );
+            background-size: 100% 4px;
+            opacity: 0.6;
+        }
+
+        .noise-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 40;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay Layer */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+            z-index: 30;
+        }
+
+        /* HUD Top Right - Grid System */
+        .hud-top {
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-start;
+        }
+
+        .score-board {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 8px 24px;
+            text-align: right;
+            align-items: center;
+            background: rgba(16, 20, 28, 0.6); /* Slight backing for readability */
+            padding: 10px 15px;
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+
+        .label {
+            font-family: var(--font-stack);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            text-align: left;
+        }
+
+        .score-val {
+            font-family: var(--font-stack);
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+
+        .hi-score {
+            color: var(--accent-primary);
+        }
+
+        /* Speed Indicator - Reorganized below score */
+        .speed-panel {
+            grid-column: 1 / -1;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .speed-track {
+            flex-grow: 1;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .speed-fill {
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 10%;
+            background: var(--accent-secondary);
+            transition: width 0.1s linear;
+        }
+
+        .speed-text {
+            font-family: var(--font-stack);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-secondary);
+            width: 30px;
+            text-align: right;
+        }
+
+        /* Call to Action - Positioned relative to Dino */
+        .cta-container {
+            position: absolute;
+            /* Critique Fix: Positioned above Dino (approx 10% left, 70% up) */
+            left: 12%; 
+            top: 60%;
+            transform: translateX(-50%);
+            text-align: center;
+            width: 200px;
+            pointer-events: none;
+            z-index: 35;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+
+        .cta-text {
+            font-family: var(--font-stack);
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--accent-primary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: rgba(16, 20, 28, 0.8);
+            padding: 6px 12px;
+            border: 1px solid var(--accent-primary);
+            display: inline-block;
+            animation: blink 1.5s infinite steps(2, start);
+        }
+
+        .cta-sub {
+            display: block;
+            font-family: var(--font-stack);
+            font-size: 10px;
+            margin-top: 6px;
+            font-weight: 400;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        @keyframes blink {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* Game Over Overlay */
+        .game-over-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(16, 20, 28, 0.85);
+            backdrop-filter: blur(4px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .game-over-title {
+            font-family: var(--font-stack);
+            font-size: 48px;
+            font-weight: 900;
+            color: var(--accent-primary);
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.6) 100%);
+            pointer-events: none;
+            z-index: 20;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="noise-overlay"></div>
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+        <canvas id="gameCanvas"></canvas>
+        
+        <div class="ui-layer">
+            <div class="hud-top">
+                <div class="score-board">
+                    <!-- Row 1: HI Score -->
+                    <span class="label">HI</span>
+                    <span class="score-val hi-score" id="hiScore">00000</span>
+                    <span></span> <!-- Spacer -->
+                    
+                    <!-- Row 2: Current Score -->
+                    <span class="label">SCORE</span>
+                    <span class="score-val" id="scoreVal">00000</span>
+                    <span></span> <!-- Spacer -->
+                    
+                    <!-- Row 3: Speed Indicator -->
+                    <div class="speed-panel">
+                        <span class="label">SPD</span>
+                        <div class="speed-track">
+                            <div class="speed-fill" id="speedBar"></div>
+                        </div>
+                        <span class="speed-text" id="speedVal">10</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CTA anchored to Dino position -->
+            <div class="cta-container" id="startCta">
+                <div class="cta-text">
+                    Jump to Start
+                    <span class="cta-sub">Space / Tap</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="game-over-overlay" id="gameOverScreen">
+            <div class="game-over-title">CRASHED</div>
+            <div class="cta-sub" style="margin-top: 20px; color: #fff; opacity: 0.8;">Tap to Restart</div>
+        </div>
+    </div>
+
+<script>
+    /**
+     * CHRONOS RUNNER
+     * Design Revision: Modern-Retro, Layered World, Cohesive Typography
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI Elements
+    const scoreEl = document.getElementById('scoreVal');
+    const hiScoreEl = document.getElementById('hiScore');
+    const startCta = document.getElementById('startCta');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const speedBar = document.getElementById('speedBar');
+    const speedVal = document.getElementById('speedVal');
+
+    // Game Config
+    let GAME_WIDTH = 1200;
+    let GAME_HEIGHT = 675;
+    // Critique: Ground plane at bottom 15%
+    const GROUND_HEIGHT_RATIO = 0.15; 
+    let GROUND_Y = 0; 
+    
+    const GRAVITY = 0.6;
+    const JUMP_FORCE = -13; // Slightly snappier jump
+    
+    // State
+    let gameRunning = false;
+    let gameOver = false;
+    let frame = 0;
+    let score = 0;
+    let highScore = localStorage.getItem('chronos_hs') || 0;
+    let gameSpeed = 8;
+    let baseSpeed = 8;
+    
+    // Assets
+    hiScoreEl.innerText = Math.floor(highScore).toString().padStart(5, '0');
+
+    // Resize Handler
+    function resize() {
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        GAME_WIDTH = canvas.width;
+        GAME_HEIGHT = canvas.height;
+        GROUND_Y = GAME_HEIGHT * (1 - GROUND_HEIGHT_RATIO);
+        
+        // Update Dino Y if static
+        if (dino) dino.y = GROUND_Y - dino.h;
+        if (!gameRunning && !gameOver) drawStaticScene();
+    }
+    window.addEventListener('resize', resize);
+
+    // --- CLASSES ---
+
+    class Dino {
+        constructor() {
+            this.w = 50;
+            this.h = 50;
+            // Critique: Anchored to left (x=10%)
+            this.x = GAME_WIDTH * 0.10; 
+            this.y = GROUND_Y - this.h;
+            this.dy = 0;
+            this.grounded = true;
+            this.runFrame = 0;
+            // Critique: Warm foreground color
+            this.color = '#E07A5F'; 
+        }
+
+        jump() {
+            if (this.grounded) {
+                this.dy = JUMP_FORCE;
+                this.grounded = false;
+                // Dust particles
+                for(let i=0; i<5; i++) {
+                    particles.push(new Particle(this.x + 10, this.y + this.h, '#F4F1DE'));
+                }
+            }
+        }
+
+        update() {
+            this.dy += GRAVITY;
+            this.y += this.dy;
+
+            if (this.y + this.h > GROUND_Y) {
+                this.y = GROUND_Y - this.h;
+                this.dy = 0;
+                this.grounded = true;
+            }
+
+            if (this.grounded) {
+                this.runFrame += 0.2 + (gameSpeed * 0.02);
+            }
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.fillStyle = this.color;
+            
+            // Crisp Silhouette Construction
+            ctx.beginPath();
+            // Tail
+            ctx.moveTo(0, 35);
+            ctx.lineTo(0, 25);
+            ctx.lineTo(10, 25);
+            // Body
+            ctx.lineTo(10, 15);
+            ctx.lineTo(25, 15);
+            // Neck/Head
+            ctx.lineTo(35, 5);
+            ctx.lineTo(50, 5); // Snout
+            ctx.lineTo(50, 18); // Jaw
+            ctx.lineTo(35, 22); // Neck bottom
+            ctx.lineTo(35, 35); // Leg top
+            // Legs (Animated)
+            if (!this.grounded) {
+                // Jump pose
+                ctx.lineTo(30, 50);
+                ctx.lineTo(20, 50);
+                ctx.lineTo(20, 35);
+            } else {
+                const legOffset = Math.sin(this.runFrame) * 12;
+                ctx.lineTo(35 + legOffset, 50);
+                ctx.lineTo(25 + legOffset, 50);
+                ctx.lineTo(25 + legOffset, 35);
+            }
+            
+            ctx.fill();
+            
+            // Eye (Negative space)
+            ctx.fillStyle = '#10141C'; // Background color
+            ctx.fillRect(38, 8, 4, 4);
+
+            ctx.restore();
+        }
+    }
+
+    class Cactus {
+        constructor() {
+            this.w = 25 + Math.random() * 15;
+            this.h = 45 + Math.random() * 25;
+            this.x = GAME_WIDTH + 50;
+            this.y = GROUND_Y - this.h;
+            this.type = 'cactus';
+            // Critique: Dark silhouette against lighter sky, or distinct color
+            this.color = '#10141C'; // Dark Midnight
+        }
+
+        update() {
+            this.x -= gameSpeed;
+        }
+
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            
+            // Main Stem
+            ctx.fillRect(this.w/3, 0, this.w/1.5, this.h);
+            
+            // Left Arm
+            ctx.fillRect(0, 15, this.w/3, 6);
+            ctx.fillRect(0, 5, 6, 16);
+            
+            // Right Arm
+            ctx.fillRect(this.w - this.w/3, 20, this.w/3, 6);
+            ctx.fillRect(this.w - 6, 10, 6, 16);
+            
+            ctx.restore();
+        }
+    }
+
+    class Bird {
+        constructor() {
+            this.w = 45;
+            this.h = 30;
+            this.x = GAME_WIDTH + 50;
+            // Heights: Low (jumpable), High (visual)
+            const heights = [GROUND_Y - 45, GROUND_Y - 85, GROUND_Y - 125];
+            this.y = heights[Math.floor(Math.random() * heights.length)];
+            this.type = 'bird';
+            this.wingFrame = 0;
+            this.color = '#10141C';
+        }
+
+        update() {
+            this.x -= gameSpeed;
+            this.wingFrame += 0.25;
+        }
+
+        draw() {
+            ctx.fillStyle = this.color;
+            
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            
+            // Body
+            ctx.beginPath();
+            ctx.moveTo(0, 15);
+            ctx.lineTo(20, 10);
+            ctx.lineTo(40, 15);
+            ctx.lineTo(20, 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // Wings
+            const wingY = Math.sin(this.wingFrame) * 15;
+            ctx.beginPath();
+            ctx.moveTo(15, 15);
+            ctx.lineTo(25, 15 - wingY); 
+            ctx.lineTo(35, 15);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.size = Math.random() * 3 + 1;
+            this.speedX = (Math.random() * 2 - 1) - (gameSpeed * 0.5);
+            this.speedY = Math.random() * 2 - 1;
+            this.color = color;
+            this.life = 1.0;
+        }
+        update() {
+            this.x += this.speedX;
+            this.y += this.speedY;
+            this.life -= 0.05;
+        }
+        draw() {
+            ctx.globalAlpha = Math.max(0, this.life);
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    // --- WORLD GENERATION ---
+
+    // Background Mountains (Parallax)
+    let mountains = [];
+    function initMountains() {
+        mountains = [];
+        let currentX = 0;
+        while(currentX < GAME_WIDTH * 2) {
+            const w = 200 + Math.random() * 300;
+            const h = 80 + Math.random() * 150;
+            mountains.push({x: currentX, y: GROUND_Y, w: w, h: h});
+            currentX += w - 50; 
+        }
+    }
+
+    // Ground Texture (pebbles)
+    let groundDetails = [];
+    function initGround() {
+        groundDetails = [];
+        for(let i=0; i<50; i++) {
+            groundDetails.push({
+                x: Math.random() * GAME_WIDTH,
+                y: GROUND_Y + 10 + Math.random() * (GAME_HEIGHT - GROUND_Y - 20),
+                w: 2 + Math.random() * 5,
+                h: 2 + Math.random() * 2
+            });
+        }
+    }
+
+    // --- GAME LOOP ---
+
+    const dino = new Dino();
+    let obstacles = [];
+    let particles = [];
+    let obstacleTimer = 0;
+    let obstacleInterval = 100;
+
+    function spawnObstacle() {
+        const type = Math.random() > 0.6 ? 'bird' : 'cactus';
+        if (type === 'bird') obstacles.push(new Bird());
+        else obstacles.push(new Cactus());
+    }
+
+    function resetGame() {
+        dino.y = GROUND_Y - dino.h;
+        dino.dy = 0;
+        obstacles = [];
+        particles = [];
+        score = 0;
+        gameSpeed = baseSpeed;
+        gameOver = false;
+        gameRunning = true;
+        obstacleTimer = 0;
+        
+        startCta.style.opacity = '0'; // Hide CTA
+        gameOverScreen.style.display = 'none';
+        
+        initMountains();
+        initGround();
+        animate();
+    }
+
+    function checkCollision(rect1, rect2) {
+        // Tighter hitboxes
+        const padding = 8;
+        return (
+            rect1.x + padding < rect2.x + rect2.w - padding &&
+            rect1.x + rect1.w - padding > rect2.x + padding &&
+            rect1.y + padding < rect2.y + rect2.h - padding &&
+            rect1.y + rect1.h - padding > rect2.y + padding
+        );
+    }
+
+    function drawWorld() {
+        // 1. Sky is handled by CSS
+
+        // 2. Sun (Terracotta glow)
+        const sunX = GAME_WIDTH * 0.75;
+        const sunY = GAME_HEIGHT * 0.35;
+        const sunR = 60;
+
+        // Gradient for glow
+        const gradient = ctx.createRadialGradient(sunX, sunY, sunR * 0.2, sunX, sunY, sunR * 4);
+        gradient.addColorStop(0, 'rgba(224, 122, 95, 0.8)'); // Terracotta
+        gradient.addColorStop(0.5, 'rgba(224, 122, 95, 0.2)');
+        gradient.addColorStop(1, 'rgba(224, 122, 95, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Solid Sun Core
+        ctx.fillStyle = '#E07A5F';
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3. Mountains (Parallax - Layered)
+        // Layer 1: Far
+        ctx.fillStyle = 'rgba(26, 32, 44, 0.8)'; 
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y);
+        mountains.forEach(m => {
+            let drawX = m.x - (score * 0.05) % (GAME_WIDTH * 2); 
+            if (drawX < -400) drawX += GAME_WIDTH * 2;
+            
+            ctx.lineTo(drawX, m.y);
+            ctx.lineTo(drawX + m.w/2, m.y - m.h);
+            ctx.lineTo(drawX + m.w, m.y);
+        });
+        ctx.lineTo(GAME_WIDTH, GROUND_Y);
+        ctx.fill();
+
+        // 4. Ground Plane (Bottom 15%)
+        ctx.fillStyle = '#0D1117'; // Dark charcoal
+        ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
+        
+        // Ground Top Line (Subtle Accent)
+        ctx.strokeStyle = '#E07A5F'; 
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y);
+        ctx.lineTo(GAME_WIDTH, GROUND_Y);
+        ctx.stroke();
+
+        // 5. Ground Details (Moving fast)
+        ctx.fillStyle = 'rgba(244, 241, 222, 0.15)'; // Cream low opacity
+        groundDetails.forEach(d => {
+            let drawX = d.x - (score * 2.5) % GAME_WIDTH;
+            if (drawX < -10) drawX += GAME_WIDTH;
+            ctx.fillRect(drawX, d.y, d.w, d.h);
+        });
+    }
+
+    function drawStaticScene() {
+        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        drawWorld();
+        dino.draw();
+        
+        // Draw static obstacles to show depth
+        const staticCactus = new Cactus();
+        staticCactus.x = GAME_WIDTH * 0.7;
+        staticCactus.draw();
+        
+        const staticBird = new Bird();
+        staticBird.x = GAME_WIDTH * 0.85;
+        staticBird.y = GROUND_Y - 80;
+        staticBird.draw();
+    }
+
+    function animate() {
+        if (!gameRunning) return;
+
+        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        frame++;
+
+        // Logic
+        gameSpeed += 0.002; // Slower acceleration for better feel
+        score += gameSpeed * 0.05;
+        
+        // UI Updates
+        scoreEl.innerText = Math.floor(score).toString().padStart(5, '0');
+        const speedNum = Math.floor(gameSpeed * 10);
+        speedVal.innerText = speedNum;
+        
+        // Speed Bar Logic (0-20 range roughly)
+        const speedPct = Math.min(((gameSpeed - 8) / 12) * 100, 100);
+        speedBar.style.width = `${Math.max(5, speedPct)}%`;
+
+        // Draw World
+        drawWorld();
+
+        // Obstacle Spawning
+        obstacleTimer++;
+        if (obstacleTimer > obstacleInterval) {
+            spawnObstacle();
+            obstacleTimer = 0;
+            // Randomize interval
+            obstacleInterval = 60 + Math.random() * 60 - (gameSpeed * 1.5); 
+            if (obstacleInterval < 40) obstacleInterval = 40;
+        }
+
+        // Handle Obstacles
+        obstacles.forEach((obs, index) => {
+            obs.update();
+            obs.draw();
+            
+            // Collision
+            const hitboxDino = {x: dino.x, y: dino.y, w: dino.w, h: dino.h};
+            const hitboxObs = {x: obs.x, y: obs.y, w: obs.w, h: obs.h};
+
+            if (checkCollision(hitboxDino, hitboxObs)) {
+                gameOver = true;
+                gameRunning = false;
+                
+                // High Score
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('chronos_hs', highScore);
+                    hiScoreEl.innerText = Math.floor(highScore).toString().padStart(5, '0');
+                }
+                
+                gameOverScreen.style.display = 'flex';
+            }
+
+            if (obs.x + obs.w < -100) obstacles.splice(index, 1);
+        });
+
+        // Particles
+        particles.forEach((p, index) => {
+            p.update();
+            p.draw();
+            if (p.life <= 0) particles.splice(index, 1);
+        });
+
+        // Dino
+        dino.update();
+        dino.draw();
+
+        if (gameRunning) requestAnimationFrame(animate);
+    }
+
+    // --- INPUTS ---
+    function handleInput(e) {
+        if (e.type === 'keydown' && e.code !== 'Space' && e.code !== 'ArrowUp') return;
+        if (e.type === 'keydown') e.preventDefault(); 
+
+        if (!gameRunning && !gameOver) {
+            resetGame();
+        } else if (gameOver) {
+            resetGame();
+        } else {
+            dino.jump();
+        }
+    }
+
+    window.addEventListener('keydown', handleInput);
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        handleInput(e);
+    }, {passive: false});
+    canvas.addEventListener('mousedown', (e) => {
+        handleInput(e);
+    });
+
+    // Initial Render
+    resize(); // Triggers init and draw
+</script>
+</body>
+</html>

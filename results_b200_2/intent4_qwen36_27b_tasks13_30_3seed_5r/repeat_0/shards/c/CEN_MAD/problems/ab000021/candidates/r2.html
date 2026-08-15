@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Information Flow</title>
+    <style>
+        :root {
+            /* Palette - Professional Dark Mode */
+            --bg-color: #0B1120;
+            --surface-color: #1E293B;
+            --surface-border: #334155;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #64748B;
+
+            /* Signal Colors - High Visibility */
+            --color-data: #38BDF8;      /* Sky Blue */
+            --color-instr: #C084FC;     /* Light Purple */
+            --color-control: #34D399;   /* Emerald Green */
+            
+            /* Dimensions */
+            --node-w: 160px;
+            --node-h: 120px;
+            --cpu-w: 200px;
+            --cpu-h: 160px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Header & Title --- */
+        header {
+            padding: 1.5rem 2rem;
+            background: var(--bg-color);
+            border-bottom: 1px solid var(--surface-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            z-index: 10;
+        }
+
+        .title-block h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+        }
+
+        .title-block p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        /* --- Main Diagram Area --- */
+        main {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            /* Reduced opacity grid for less noise */
+            background-image: 
+                linear-gradient(var(--surface-border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--surface-border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: center center;
+            opacity: 1;
+        }
+
+        /* Faint radial mask to focus center */
+        main::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 20%, var(--bg-color) 90%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* SVG Canvas */
+        svg#connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2; /* Behind nodes, above background */
+            pointer-events: none;
+        }
+
+        /* --- Nodes --- */
+        .node {
+            position: absolute;
+            width: var(--node-w);
+            height: var(--node-h);
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .node:hover {
+            transform: translateY(-2px);
+            border-color: var(--text-secondary);
+            z-index: 6;
+        }
+
+        /* Node Icons (SVG) */
+        .node-icon {
+            width: 32px;
+            height: 32px;
+            margin-bottom: 0.75rem;
+            color: var(--text-secondary);
+            stroke-width: 1.5;
+            stroke: currentColor;
+            fill: none;
+        }
+
+        .node-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+        }
+
+        .node-sub {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* --- Specific Node Styles --- */
+
+        /* CPU: Central, Larger, Distinct Border */
+        #cpu {
+            width: var(--cpu-w);
+            height: var(--cpu-h);
+            border: 2px solid var(--color-data);
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.1);
+        }
+        #cpu .node-label { color: var(--color-data); }
+        #cpu .node-icon { color: var(--color-data); width: 40px; height: 40px; }
+
+        /* I/O Nodes: Distinct visual boundary (Dashed border) */
+        .io-node {
+            border-style: dashed;
+            border-color: var(--text-muted);
+        }
+        .io-node .node-icon { color: var(--text-secondary); }
+
+        /* --- SVG Line Styles --- */
+        
+        /* Base Path */
+        .link-path {
+            fill: none;
+            stroke-width: 2.5px; /* Thicker lines */
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* 1. Data: Blue Solid */
+        .link-data {
+            stroke: var(--color-data);
+            stroke-dasharray: none;
+        }
+
+        /* 2. Instructions: Purple Dashed */
+        .link-instr {
+            stroke: var(--color-instr);
+            stroke-dasharray: 8 4; /* 8px dash, 4px gap */
+        }
+
+        /* 3. Control: Green Dotted */
+        .link-control {
+            stroke: var(--color-control);
+            stroke-dasharray: 2 4; /* 2px dot, 4px gap */
+        }
+
+        /* Animation for flow (optional subtle pulse) */
+        @keyframes flow {
+            to { stroke-dashoffset: -12; }
+        }
+        
+        /* Apply animation only to dashed/dotted lines to show direction */
+        .link-instr { animation: flow 1s linear infinite; }
+        .link-control { animation: flow 1.5s linear infinite; }
+
+        /* --- Legend --- */
+        .legend-container {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid var(--surface-border);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem 1.5rem;
+            border-radius: 99px; /* Pill shape */
+            display: flex;
+            gap: 2rem;
+            z-index: 20;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .legend-line {
+            width: 24px;
+            height: 0;
+            border-top: 2.5px solid; /* Match stroke width */
+        }
+        
+        .l-data { border-color: var(--color-data); }
+        .l-instr { border-top-style: dashed; border-color: var(--color-instr); }
+        .l-control { border-top-style: dotted; border-color: var(--color-control); }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-block">
+            <h1>System Architecture</h1>
+            <p>Information Flow & Component Topology</p>
+        </div>
+    </header>
+
+    <main id="canvas">
+        <!-- SVG Layer for Lines -->
+        <svg id="connections" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- Arrowhead Marker -->
+                <!-- refX adjusted to prevent overlap with node border -->
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+                </marker>
+            </defs>
+        </svg>
+
+        <!-- Nodes -->
+        
+        <!-- Internal Components Band (Horizontal Alignment) -->
+        <!-- Memory -->
+        <div id="memory" class="node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+                <line x1="8" y1="12" x2="16" y2="12" />
+                <line x1="12" y1="8" x2="12" y2="16" />
+            </svg>
+            <span class="node-label">Memory</span>
+            <span class="node-sub">RAM / Cache</span>
+        </div>
+
+        <!-- GPU -->
+        <div id="gpu" class="node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <rect x="2" y="6" width="20" height="12" rx="2" />
+                <path d="M6 18v2M18 18v2" />
+                <path d="M6 6V4M18 6V4" />
+                <rect x="8" y="9" width="8" height="6" />
+            </svg>
+            <span class="node-label">GPU</span>
+            <span class="node-sub">Parallel Proc.</span>
+        </div>
+
+        <!-- Storage -->
+        <div id="storage" class="node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+            </svg>
+            <span class="node-label">Storage</span>
+            <span class="node-sub">NVMe / SSD</span>
+        </div>
+
+        <!-- Central Unit -->
+        <div id="cpu" class="node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <rect x="9" y="9" width="6" height="6" />
+                <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3" />
+            </svg>
+            <span class="node-label">CPU</span>
+            <span class="node-sub">Central Processor</span>
+        </div>
+
+        <!-- Network (Connected to CPU/Mem) -->
+        <div id="network" class="node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <span class="node-label">Network</span>
+            <span class="node-sub">NIC / Link</span>
+        </div>
+
+        <!-- I/O Band (Periphery) -->
+        <div id="input" class="node io-node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <line x1="6" y1="8" x2="6.01" y2="8" />
+                <line x1="10" y1="8" x2="10.01" y2="8" />
+                <line x1="14" y1="8" x2="14.01" y2="8" />
+                <line x1="18" y1="8" x2="18.01" y2="8" />
+                <line x1="6" y1="12" x2="6.01" y2="12" />
+                <line x1="10" y1="12" x2="10.01" y2="12" />
+                <line x1="14" y1="12" x2="14.01" y2="12" />
+                <line x1="18" y1="12" x2="18.01" y2="12" />
+                <line x1="6" y1="16" x2="6.01" y2="16" />
+                <line x1="10" y1="16" x2="10.01" y2="16" />
+                <line x1="14" y1="16" x2="14.01" y2="16" />
+                <line x1="18" y1="16" x2="18.01" y2="16" />
+            </svg>
+            <span class="node-label">Input</span>
+            <span class="node-sub">User Events</span>
+        </div>
+
+        <div id="output" class="node io-node">
+            <svg class="node-icon" viewBox="0 0 24 24">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+            </svg>
+            <span class="node-label">Output</span>
+            <span class="node-sub">Display / Audio</span>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend-container">
+            <div class="legend-item">
+                <div class="legend-line l-data"></div> Data
+            </div>
+            <div class="legend-item">
+                <div class="legend-line l-instr"></div> Instructions
+            </div>
+            <div class="legend-item">
+                <div class="legend-line l-control"></div> Control
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Configuration
+        const connections = [
+            // CPU <-> Internal Band
+            { from: 'memory', to: 'cpu', type: 'instruction' }, // Fetch
+            { from: 'cpu', to: 'memory', type: 'control' },     // Control Signals
+            { from: 'storage', to: 'cpu', type: 'data' },       // Load Data
+            { from: 'cpu', to: 'storage', type: 'control' },    // Write Command
+            { from: 'cpu', to: 'gpu', type: 'data' },           // Render Data
+            { from: 'gpu', to: 'output', type: 'data' },        // Framebuffer
+
+            // Network Connections
+            { from: 'network', to: 'memory', type: 'data' },    // Buffer
+            { from: 'network', to: 'cpu', type: 'control' },    // Interrupt/Status
+
+            // I/O Connections
+            { from: 'input', to: 'cpu', type: 'control' },      // Interrupts
+            { from: 'cpu', to: 'output', type: 'data' }         // Audio/Control
+        ];
+
+        const svg = document.getElementById('connections');
+        const mainContainer = document.getElementById('canvas');
+
+        // Color Map
+        const typeMap = {
+            'data': 'link-data',
+            'instruction': 'link-instr',
+            'control': 'link-control'
+        };
+
+        function getCenter(element) {
+            const rect = element.getBoundingClientRect();
+            const mainRect = mainContainer.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - mainRect.left,
+                y: rect.top + rect.height / 2 - mainRect.top
+            };
+        }
+
+        // Calculate connection points (Edge of box)
+        function getEdgePoint(center, width, height, targetCenter) {
+            const dx = targetCenter.x - center.x;
+            const dy = targetCenter.y - center.y;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            
+            // Determine side (Left, Right, Top, Bottom)
+            // We add a slight buffer (padding)
+            const padding = 4; 
+            
+            if (absDx > absDy) {
+                // Horizontal
+                return {
+                    x: center.x + (dx > 0 ? width/2 + padding : -width/2 - padding),
+                    y: center.y
+                };
+            } else {
+                // Vertical
+                return {
+                    x: center.x,
+                    y: center.y + (dy > 0 ? height/2 + padding : -height/2 - padding)
+                };
+            }
+        }
+
+        function draw() {
+            // Clear existing
+            svg.innerHTML = `
+                <defs>
+                    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+                    </marker>
+                </defs>
+            `;
+
+            connections.forEach(conn => {
+                const startEl = document.getElementById(conn.from);
+                const endEl = document.getElementById(conn.to);
+                if (!startEl || !endEl) return;
+
+                const sRect = startEl.getBoundingClientRect();
+                const eRect = endEl.getBoundingClientRect();
+                const mRect = mainContainer.getBoundingClientRect();
+
+                // Centers relative to main container
+                const sCenter = { x: sRect.left + sRect.width/2 - mRect.left, y: sRect.top + sRect.height/2 - mRect.top };
+                const eCenter = { x: eRect.left + eRect.width/2 - mRect.left, y: eRect.top + eRect.height/2 - mRect.top };
+
+                // Edge points
+                const startPt = getEdgePoint(sCenter, sRect.width, sRect.height, eCenter);
+                const endPt = getEdgePoint(eCenter, eRect.width, eRect.height, sCenter);
+
+                // Bezier Control Points (Orthogonal-ish curves)
+                // Control point distance depends on the gap
+                const dist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+                const curvature = Math.max(50, dist * 0.4); 
+
+                let cp1, cp2;
+                const dx = endPt.x - startPt.x;
+                const dy = endPt.y - startPt.y;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    // Horizontal dominant
+                    cp1 = { x: startPt.x + (dx > 0 ? curvature : -curvature), y: startPt.y };
+                    cp2 = { x: endPt.x - (dx > 0 ? curvature : -curvature), y: endPt.y };
+                } else {
+                    // Vertical dominant
+                    cp1 = { x: startPt.x, y: startPt.y + (dy > 0 ? curvature : -curvature) };
+                    cp2 = { x: endPt.x, y: endPt.y - (dy > 0 ? curvature : -curvature) };
+                }
+
+                const d = `M ${startPt.x} ${startPt.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${endPt.x} ${endPt.y}`;
+
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `link-path ${typeMap[conn.type]}`);
+                path.setAttribute("marker-end", "url(#arrow)");
+                svg.appendChild(path);
+            });
+        }
+
+        // Initial Draw
+        window.addEventListener('load', draw);
+        // Redraw on Resize
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(draw, 100);
+        });
+    </script>
+</body>
+</html>

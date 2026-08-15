@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            --bg-color: #0b1120;
+            --surface-color: #151e32;
+            --border-color: #2d3b55;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            
+            /* Signal Colors */
+            --col-data: #0ea5e9;      /* Sky Blue */
+            --col-instr: #d946ef;     /* Fuchsia */
+            --col-control: #10b981;   /* Emerald */
+            
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Background Grid */
+        body::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Header */
+        header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            background: rgba(11, 17, 32, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            letter-spacing: 0.05em;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.75rem;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: rgba(0,0,0,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .swatch {
+            width: 20px;
+            height: 2px;
+            position: relative;
+            box-shadow: 0 0 6px currentColor;
+        }
+        
+        /* Legend specific styles for line types */
+        .swatch.solid { background: currentColor; }
+        .swatch.dashed { background: repeating-linear-gradient(90deg, currentColor 0, currentColor 4px, transparent 4px, transparent 8px); height: 2px; }
+        .swatch.dotted { background: repeating-linear-gradient(90deg, currentColor 0, currentColor 2px, transparent 2px, transparent 6px); height: 2px; }
+
+        /* Main Diagram Area */
+        main {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1;
+        }
+
+        /* SVG Layer */
+        svg#diagram {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        /* Node Component Styling */
+        .component {
+            position: absolute;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            width: 140px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s ease, border-color 0.3s;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .component:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        /* CPU Specific Styling */
+        #cpu {
+            width: 180px;
+            height: 180px;
+            border: 2px solid var(--border-color);
+            background: radial-gradient(circle at center, #1e293b 0%, #151e32 100%);
+            box-shadow: 0 0 30px rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.5);
+            z-index: 5;
+            border-radius: 12px;
+        }
+
+        #cpu .status-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        .icon-container {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .icon-container svg {
+            width: 100%;
+            height: 100%;
+            fill: none;
+            stroke: var(--text-secondary);
+            stroke-width: 1.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        #cpu .icon-container svg {
+            stroke: var(--text-primary);
+            width: 50px;
+            height: 50px;
+        }
+
+        .component-label {
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+        }
+
+        .component-desc {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        /* Positioning Logic (Radial/Grid Hybrid) */
+        /* Center */
+        #cpu { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        
+        /* Inner Ring (High Bandwidth) */
+        #ram { top: 28%; left: 50%; transform: translate(-50%, -50%); }
+        #gpu { top: 50%; left: 78%; transform: translate(-50%, -50%); }
+        #storage { top: 72%; left: 50%; transform: translate(-50%, -50%); }
+        
+        /* Outer Ring (I/O) */
+        #input { top: 28%; left: 22%; transform: translate(-50%, -50%); }
+        #network { top: 50%; left: 22%; transform: translate(-50%, -50%); }
+        #output { top: 72%; left: 78%; transform: translate(-50%, -50%); }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        @keyframes flow-solid {
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes flow-dashed {
+            to { stroke-dashoffset: -20; }
+        }
+        
+        @keyframes flow-dotted {
+            to { stroke-dashoffset: -10; }
+        }
+
+        /* Connector Styles */
+        .connector-bg {
+            fill: none;
+            stroke: rgba(255,255,255,0.05);
+            stroke-width: 4;
+        }
+
+        .connector-path {
+            fill: none;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Data: Solid, Fast */
+        .type-data {
+            stroke: var(--col-data);
+            stroke-dasharray: 20; /* Small dashes for fast movement */
+            animation: flow-solid 1s linear infinite;
+        }
+
+        /* Control: Dashed, Medium */
+        .type-control {
+            stroke: var(--col-control);
+            stroke-dasharray: 8 6;
+            animation: flow-dashed 2s linear infinite;
+        }
+
+        /* Instructions: Dotted, Slow */
+        .type-instr {
+            stroke: var(--col-instr);
+            stroke-dasharray: 2 4;
+            animation: flow-dotted 3s linear infinite;
+        }
+
+        /* Footer Status */
+        .footer-status {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2rem;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: rgba(11, 17, 32, 0.8);
+            padding: 0.5rem 1.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: var(--col-control);
+            border-radius: 50%;
+            margin-right: 6px;
+            box-shadow: 0 0 5px var(--col-control);
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>System Architecture</h1>
+            <div class="subtitle">CPU-CENTRIC DATA BUS & CONTROL FLOW</div>
+        </div>
+        <div class="legend">
+            <div class="legend-item" style="color: var(--col-data)">
+                <div class="swatch solid"></div> Data
+            </div>
+            <div class="legend-item" style="color: var(--col-instr)">
+                <div class="swatch dotted"></div> Instructions
+            </div>
+            <div class="legend-item" style="color: var(--col-control)">
+                <div class="swatch dashed"></div> Control
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- SVG Layer -->
+        <svg id="diagram" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- Arrow Markers for each type -->
+                <marker id="arrow-data" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="var(--col-data)" />
+                </marker>
+                <marker id="arrow-control" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="var(--col-control)" />
+                </marker>
+                <marker id="arrow-instr" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="var(--col-instr)" />
+                </marker>
+            </defs>
+            <g id="connections"></g>
+        </svg>
+
+        <!-- HTML Nodes -->
+        
+        <!-- CPU -->
+        <div id="cpu" class="component">
+            <div class="status-indicator"></div>
+            <div class="icon-container">
+                <!-- CPU Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                    <rect x="9" y="9" width="6" height="6"></rect>
+                    <line x1="9" y1="1" x2="9" y2="4"></line>
+                    <line x1="15" y1="1" x2="15" y2="4"></line>
+                    <line x1="9" y1="20" x2="9" y2="23"></line>
+                    <line x1="15" y1="20" x2="15" y2="23"></line>
+                    <line x1="20" y1="9" x2="23" y2="9"></line>
+                    <line x1="20" y1="14" x2="23" y2="14"></line>
+                    <line x1="1" y1="9" x2="4" y2="9"></line>
+                    <line x1="1" y1="14" x2="4" y2="14"></line>
+                </svg>
+            </div>
+            <span class="component-label">CPU</span>
+            <span class="component-desc">Core Logic</span>
+        </div>
+
+        <!-- RAM -->
+        <div id="ram" class="component">
+            <div class="icon-container">
+                <!-- RAM Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                    <line x1="6" y1="10" x2="6" y2="14"></line>
+                    <line x1="10" y1="10" x2="10" y2="14"></line>
+                    <line x1="14" y1="10" x2="14" y2="14"></line>
+                    <line x1="18" y1="10" x2="18" y2="14"></line>
+                </svg>
+            </div>
+            <span class="component-label">Memory</span>
+            <span class="component-desc">RAM</span>
+        </div>
+
+        <!-- GPU -->
+        <div id="gpu" class="component">
+            <div class="icon-container">
+                <!-- GPU Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 8v-4"></path>
+                    <path d="M12 20v-4"></path>
+                    <path d="M8 12H4"></path>
+                    <path d="M20 12h-4"></path>
+                </svg>
+            </div>
+            <span class="component-label">GPU</span>
+            <span class="component-desc">Graphics</span>
+        </div>
+
+        <!-- Storage -->
+        <div id="storage" class="component">
+            <div class="icon-container">
+                <!-- Storage Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 15v3"></path>
+                    <path d="M9 9l3-3 3 3"></path>
+                </svg>
+            </div>
+            <span class="component-label">Storage</span>
+            <span class="component-desc">NVMe SSD</span>
+        </div>
+
+        <!-- Input -->
+        <div id="input" class="component">
+            <div class="icon-container">
+                <!-- Input Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                    <line x1="6" y1="10" x2="6" y2="10"></line>
+                    <line x1="10" y1="10" x2="10" y2="10"></line>
+                    <line x1="14" y1="10" x2="14" y2="10"></line>
+                    <line x1="18" y1="10" x2="18" y2="10"></line>
+                    <line x1="6" y1="14" x2="6" y2="14"></line>
+                    <line x1="10" y1="14" x2="10" y2="14"></line>
+                    <line x1="14" y1="14" x2="14" y2="14"></line>
+                    <line x1="18" y1="14" x2="18" y2="14"></line>
+                </svg>
+            </div>
+            <span class="component-label">Input</span>
+            <span class="component-desc">KBD / Mouse</span>
+        </div>
+
+        <!-- Network -->
+        <div id="network" class="component">
+            <div class="icon-container">
+                <!-- Network Icon -->
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+            </div>
+            <span class="component-label">Network</span>
+            <span class="component-desc">NIC</span>
+        </div>
+
+        <!-- Output -->
+        <div id="output" class="component">
+            <div class="icon-container">
+                <!-- Output Icon -->
+                <svg viewBox="0 0 24 24">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                    <line x1="7" y1="8" x2="17" y2="8"></line>
+                </svg>
+            </div>
+            <span class="component-label">Output</span>
+            <span class="component-desc">Display</span>
+        </div>
+
+        <!-- Footer Status (Cleaner, less intrusive) -->
+        <div class="footer-status">
+            <span><span class="status-dot"></span>SYSTEM ONLINE</span>
+            <span style="opacity: 0.5">|</span>
+            <span>CPU: <span id="cpu-val">12%</span></span>
+            <span style="opacity: 0.5">|</span>
+            <span>MEM: <span id="mem-val">4.2GB</span></span>
+        </div>
+    </main>
+
+    <script>
+        // Configuration for connections
+        // Types: 'data' (Solid), 'instruction' (Dotted), 'control' (Dashed)
+        const connections = [
+            // Memory Hierarchy
+            { from: 'ram', to: 'cpu', type: 'instruction', label: 'Fetch' },
+            { from: 'cpu', to: 'ram', type: 'control', label: 'Write' },
+            { from: 'storage', to: 'ram', type: 'data', label: 'Load' },
+            { from: 'cpu', to: 'storage', type: 'control', label: 'Save' },
+            
+            // Processing & Graphics
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Render' },
+            { from: 'gpu', to: 'output', type: 'data', label: 'Display' },
+            
+            // I/O
+            { from: 'input', to: 'cpu', type: 'control', label: 'Event' },
+            { from: 'network', to: 'cpu', type: 'data', label: 'Packet' },
+            { from: 'cpu', to: 'network', type: 'data', label: 'Response' }
+        ];
+
+        const svg = document.getElementById('diagram');
+        const g = document.getElementById('connections');
+
+        function getCenter(element) {
+            const rect = element.getBoundingClientRect();
+            const mainRect = document.querySelector('main').getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - mainRect.left,
+                y: rect.top + rect.height / 2 - mainRect.top
+            };
+        }
+
+        function drawConnections() {
+            // Clear existing paths
+            g.innerHTML = '';
+
+            connections.forEach(conn => {
+                const startEl = document.getElementById(conn.from);
+                const endEl = document.getElementById(conn.to);
+                
+                if (!startEl || !endEl) return;
+
+                const start = getCenter(startEl);
+                const end = getCenter(endEl);
+
+                // Calculate Control Points for Bezier Curves
+                // We want orthogonal-ish routing but with curves
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                
+                // Offset control points based on distance to create smooth S-curves
+                // Using a factor of 0.5 to pull the curve tight, then pushing CPs out
+                const curvature = 0.5;
+                const cp1x = start.x + (dx * curvature);
+                const cp1y = start.y;
+                const cp2x = end.x - (dx * curvature);
+                const cp2y = end.y;
+
+                // If purely vertical or horizontal, adjust CPs to avoid straight lines
+                // This adds a nice "tech" feel where lines don't just shoot straight
+                let d = '';
+                
+                // Logic to determine curve direction based on relative position
+                // This ensures lines don't overlap perfectly if they go between same nodes
+                const isVertical = Math.abs(dx) < Math.abs(dy);
+                
+                if (isVertical) {
+                    d = `M ${start.x} ${start.y} C ${start.x} ${start.y + dy/2}, ${end.x} ${end.y - dy/2}, ${end.x} ${end.y}`;
+                } else {
+                    d = `M ${start.x} ${start.y} C ${start.x + dx/2} ${start.y}, ${end.x - dx/2} ${end.y}, ${end.x} ${end.y}`;
+                }
+
+                // Create Background Track (Faint)
+                const trackPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                trackPath.setAttribute("d", d);
+                trackPath.setAttribute("class", "connector-bg");
+                g.appendChild(trackPath);
+
+                // Create Active Flow Line
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `connector-path type-${conn.type}`);
+                
+                // Add Arrowhead based on type
+                path.setAttribute("marker-end", `url(#arrow-${conn.type})`);
+                
+                g.appendChild(path);
+            });
+        }
+
+        // Handle Resize
+        window.addEventListener('resize', drawConnections);
+        // Initial Draw (use timeout to ensure layout is settled)
+        setTimeout(drawConnections, 50);
+
+        // Simulate Live Stats
+        setInterval(() => {
+            const cpu = Math.floor(Math.random() * 20) + 10;
+            const mem = (Math.random() * 2 + 3.5).toFixed(1);
+            
+            document.getElementById('cpu-val').innerText = cpu + '%';
+            document.getElementById('mem-val').innerText = mem + 'GB';
+        }, 2000);
+
+    </script>
+</body>
+</html>

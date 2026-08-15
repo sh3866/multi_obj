@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Velocity: Sliding Challenge</title>
+<style>
+    :root {
+        --c-ice-light: #e0f7fa;
+        --c-ice-mid: #4fc3f7;
+        --c-ice-deep: #01579b;
+        --c-snow: #ffffff;
+        --c-rock: #263238;
+        --c-ui-bg: rgba(10, 25, 41, 0.65);
+        --c-accent-cyan: #00e5ff;
+        --c-accent-magenta: #ff007f;
+        --c-accent-yellow: #ffea00;
+        --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        --font-display: 'Impact', 'Arial Black', sans-serif;
+    }
+
+    * {
+        box-sizing: border-box;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    body, html {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #000;
+        font-family: var(--font-ui);
+        color: white;
+    }
+
+    /* --- LAYOUT --- */
+    #game-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        /* Subtle CRT/Monitor effect for arcade feel */
+        background: radial-gradient(circle at center, #000 0%, #05101a 100%);
+    }
+
+    .layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    /* --- ENVIRONMENT --- */
+    #mountains {
+        z-index: 1;
+    }
+
+    canvas#slope-canvas {
+        z-index: 2;
+    }
+
+    /* Atmospheric Vignette & Tunnel Vision */
+    #tunnel-overlay {
+        z-index: 3;
+        background: 
+            linear-gradient(to right, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 15%, rgba(0,0,0,0) 85%, rgba(0,0,0,0.8) 100%),
+            radial-gradient(ellipse at center bottom, transparent 50%, rgba(0,0,0,0.9) 100%);
+        pointer-events: none;
+    }
+
+    #entities-layer {
+        z-index: 4;
+    }
+
+    /* --- PLAYER --- */
+    #player {
+        position: absolute;
+        bottom: 12%;
+        left: 50%;
+        width: 280px;
+        height: 280px;
+        transform: translate(-50%, 0);
+        z-index: 5;
+        /* Colored ambient occlusion shadow */
+        filter: drop-shadow(0 20px 10px rgba(0, 100, 150, 0.6));
+        will-change: transform;
+    }
+
+    /* --- HUD (Synth-Alpine Style) --- */
+    #hud-layer {
+        z-index: 10;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    /* Top Bar */
+    .top-bar {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+    }
+
+    /* Progress Bar (Refined) */
+    .progress-container {
+        width: 80%;
+        max-width: 400px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .progress-label {
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: var(--c-accent-cyan);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        text-shadow: 0 0 5px var(--c-accent-cyan);
+    }
+
+    .progress-track {
+        flex-grow: 1;
+        height: 8px;
+        background: rgba(0,0,0,0.6);
+        border-radius: 4px;
+        position: relative;
+        border: 1px solid rgba(255,255,255,0.2);
+        overflow: hidden;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--c-accent-cyan), var(--c-accent-magenta));
+        box-shadow: 0 0 15px var(--c-accent-cyan);
+        position: relative;
+    }
+
+    /* Stats (Unified Card System) */
+    .stats-container {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        width: 100%;
+    }
+
+    .stat-pill {
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px; /* Unified Radius */
+        padding: 8px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        min-width: 110px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        /* Unified Accent Border */
+        border-bottom: 3px solid var(--c-accent-cyan);
+    }
+
+    .stat-pill.dist {
+        border-bottom-color: var(--c-accent-yellow);
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: rgba(255, 255, 255, 0.6);
+        margin-bottom: 2px;
+    }
+
+    .stat-value {
+        font-family: var(--font-display);
+        font-size: 1.6rem; /* Scaled down slightly */
+        font-weight: 900;
+        color: #fff;
+        line-height: 1;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        letter-spacing: 1px;
+    }
+    
+    .stat-unit {
+        font-family: var(--font-ui);
+        font-size: 0.6rem;
+        font-weight: 600;
+        color: #fff;
+        margin-left: 4px;
+        vertical-align: baseline;
+        opacity: 0.8;
+        font-style: normal;
+    }
+
+    /* --- CONTROLS (Tactile, Upward Shifted) --- */
+    .controls-area {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end; /* Align to bottom of padding */
+        width: 100%;
+        /* Moved inward and up */
+        padding: 0 40px 50px 40px; 
+        pointer-events: none;
+    }
+
+    .control-btn {
+        pointer-events: auto;
+        width: 90px;
+        height: 90px;
+        background: rgba(20, 30, 40, 0.6);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        border-radius: 16px; /* Squircle */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+        cursor: pointer;
+        transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Tactile "Pressed" state */
+    .control-btn:active, .control-btn.active {
+        background: rgba(0, 229, 255, 0.15);
+        border-color: var(--c-accent-cyan);
+        transform: translateY(4px) scale(0.96);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.4), 0 0 15px var(--c-accent-cyan);
+    }
+
+    .control-btn svg {
+        width: 40px;
+        height: 40px;
+        fill: rgba(255,255,255,0.9);
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+    }
+    
+    .control-btn.active svg {
+        fill: var(--c-accent-cyan);
+    }
+
+    /* --- ENTITIES (Gates & Rocks) --- */
+    .gate {
+        position: absolute;
+        width: 140px;
+        height: 110px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        z-index: 4;
+        transform-origin: center bottom;
+        pointer-events: none;
+    }
+
+    .gate-pole {
+        width: 10px;
+        height: 100%;
+        background: linear-gradient(to right, #eceff1, #b0bec5);
+        position: absolute;
+        top: 0;
+        border-radius: 4px;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.3);
+    }
+    .gate-pole.left { left: 15px; }
+    .gate-pole.right { right: 15px; }
+
+    .gate-flag {
+        position: absolute;
+        top: 15px;
+        width: 110%;
+        left: -5%;
+        height: 50px;
+        background: var(--c-accent-magenta);
+        clip-path: polygon(0 0, 100% 0, 90% 50%, 100% 100%, 0 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display);
+        font-size: 2.4rem;
+        font-style: italic;
+        color: #fff;
+        text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+        border: 2px solid rgba(255,255,255,0.6);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+    }
+
+    .gate-blue .gate-flag { 
+        background: var(--c-accent-cyan); 
+        color: #002533;
+    }
+
+    .rock-obs {
+        position: absolute;
+        width: 120px;
+        height: 80px;
+        z-index: 4;
+        pointer-events: none;
+        filter: drop-shadow(0 10px 5px rgba(0,0,0,0.4));
+    }
+
+    /* --- FX --- */
+    /* Vignette is now part of tunnel-overlay */
+    
+    .speed-lines {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.5;
+        /* Dynamic Radial Blur effect via gradient */
+        background: repeating-conic-gradient(
+            from 0deg, 
+            transparent 0deg, 
+            rgba(255,255,255,0.03) 1deg, 
+            transparent 2deg
+        );
+        mask-image: radial-gradient(circle at center, transparent 40%, black 100%);
+        -webkit-mask-image: radial-gradient(circle at center, transparent 40%, black 100%);
+        mix-blend-mode: overlay;
+        animation: spin 2s linear infinite;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg) scale(1.5); }
+        to { transform: rotate(360deg) scale(1.5); }
+    }
+
+    .warning-text {
+        position: absolute;
+        top: 40%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.5);
+        font-family: var(--font-display);
+        font-size: 8rem;
+        color: var(--c-accent-magenta);
+        text-shadow: 0 0 40px rgba(255, 0, 127, 0.8), 5px 5px 0 #fff;
+        opacity: 0;
+        z-index: 20;
+        letter-spacing: -3px;
+        transition: opacity 0.1s, transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        pointer-events: none;
+        text-transform: uppercase;
+        font-style: italic;
+    }
+    .warning-text.active {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.2) rotate(-5deg);
+    }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Background Layer (Mountains) -->
+    <div id="mountains" class="layer">
+        <svg width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+            <defs>
+                <!-- Deep Sky Gradient -->
+                <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#000000;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#01579b;stop-opacity:1" />
+                </linearGradient>
+                <!-- Mountain Gradient -->
+                <linearGradient id="mtnGradFront" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#37474f;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#263238;stop-opacity:1" />
+                </linearGradient>
+            </defs>
+            <!-- Sky -->
+            <rect width="100%" height="100%" fill="url(#skyGrad)" />
+            <!-- Distant Peaks -->
+            <path d="M-100 450 L150 200 L450 400 L700 150 L1000 380 L1200 250 L1200 800 L-100 800 Z" fill="#1a237e" opacity="0.6"/>
+            <!-- Mid Peaks (Jagged) -->
+            <path d="M-50 600 L200 350 L500 550 L800 280 L1100 550 L1200 400 L1200 800 L-50 800 Z" fill="url(#mtnGradFront)"/>
+            <!-- Snow Caps -->
+            <path d="M150 200 L100 250 L200 250 Z" fill="#eceff1" opacity="0.9"/>
+            <path d="M700 150 L620 220 L780 220 Z" fill="#eceff1" opacity="0.9"/>
+        </svg>
+    </div>
+
+    <!-- Slope Surface (Canvas) -->
+    <canvas id="slope-canvas" class="layer"></canvas>
+    
+    <!-- Tunnel Overlay -->
+    <div id="tunnel-overlay"></div>
+    <!-- Speed FX -->
+    <div class="speed-lines"></div>
+
+    <!-- Game Entities -->
+    <div id="entities-layer" class="layer"></div>
+
+    <!-- Player Character -->
+    <div id="player">
+        <svg class="rider-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+            <defs>
+                <linearGradient id="boardGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#1a237e" />
+                    <stop offset="50%" style="stop-color:#00e5ff" /> <!-- Cyan board -->
+                    <stop offset="100%" style="stop-color:#1a237e" />
+                </linearGradient>
+                <filter id="glow">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                    <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+            <!-- Shadow (Softer, Blue-tinted) -->
+            <ellipse cx="50" cy="92" rx="45" ry="12" fill="rgba(0, 100, 150, 0.4)" filter="blur(4px)" />
+            
+            <!-- Snowboard -->
+            <path d="M5 80 Q50 72 95 80 L90 90 Q50 82 10 90 Z" fill="url(#boardGrad)" stroke="#fff" stroke-width="1"/>
+            <path d="M5 80 Q50 72 95 80" fill="none" stroke="var(--c-accent-yellow)" stroke-width="2" filter="url(#glow)"/>
+            
+            <!-- Legs (Thicker, Dynamic) -->
+            <path d="M35 55 L25 75" stroke="#102027" stroke-width="14" stroke-linecap="round" />
+            <path d="M65 55 L75 75" stroke="#102027" stroke-width="14" stroke-linecap="round" />
+            
+            <!-- Body Jacket (Bulky, Alpine) -->
+            <path d="M30 55 L50 20 L70 55 Z" fill="#d32f2f" stroke="#b71c1c" stroke-width="2"/>
+            <path d="M35 50 L65 50" stroke="#b71c1c" stroke-width="3"/>
+            
+            <!-- Backpack -->
+            <rect x="38" y="30" width="24" height="22" rx="6" fill="#263238" />
+            
+            <!-- Head/Helmet -->
+            <circle cx="50" cy="18" r="16" fill="var(--c-accent-cyan)" />
+            <path d="M36 16 Q50 6 64 16" fill="#263238" opacity="0.9"/> <!-- Goggles -->
+            <path d="M38 20 Q50 10 62 20" fill="#fff" opacity="0.6"/> <!-- Goggle reflection -->
+            
+            <!-- Scarf blowing (Magenta for contrast) -->
+            <path d="M48 32 Q20 38 5 28" stroke="var(--c-accent-magenta)" stroke-width="9" fill="none" stroke-linecap="round" />
+            <path d="M48 32 Q15 50 0 38" stroke="var(--c-accent-magenta)" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        </svg>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud-layer" class="layer">
+        <div class="top-bar">
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-label">Run Progress</div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="progress-bar"></div>
+                </div>
+            </div>
+            
+            <div class="stats-container">
+                <div class="stat-pill">
+                    <span class="stat-label">Speed</span>
+                    <span class="stat-value" id="speed-val">0 <span class="stat-unit">km/h</span></span>
+                </div>
+                <div class="stat-pill dist">
+                    <span class="stat-label">Distance</span>
+                    <span class="stat-value" id="dist-val">0 <span class="stat-unit">m</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-area">
+            <div class="control-btn" id="btn-left">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="control-btn" id="btn-right">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Warning Text -->
+    <div id="warning" class="warning-text">CRASH!</div>
+</div>
+
+<script>
+    // --- Configuration & State ---
+    const canvas = document.getElementById('slope-canvas');
+    const ctx = canvas.getContext('2d');
+    const entitiesLayer = document.getElementById('entities-layer');
+    const playerEl = document.getElementById('player');
+    const speedVal = document.getElementById('speed-val');
+    const distVal = document.getElementById('dist-val');
+    const progressBar = document.getElementById('progress-bar');
+    const warningEl = document.getElementById('warning');
+    const btnLeft = document.getElementById('btn-left');
+    const btnRight = document.getElementById('btn-right');
+    const gameContainer = document.getElementById('game-container');
+
+    let width, height;
+    let gameFrame = 0;
+    let speed = 0;
+    let targetSpeed = 220; 
+    let distance = 0;
+    let playerX = 0.5; 
+    let targetPlayerX = 0.5;
+    
+    // Perspective Constants
+    const horizonY = 0.35; 
+    const vanishPointX = 0.5;
+    
+    // Game Objects
+    const obstacles = [];
+    const particles = [];
+    
+    // Input State
+    let input = { left: false, right: false };
+
+    // --- Initialization ---
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- Game Logic ---
+
+    function updatePhysics() {
+        // Acceleration (Simulated)
+        if (speed < targetSpeed) speed += 1.2;
+        if (speed > targetSpeed) speed -= 0.5;
+        
+        // Lateral Movement (Snappier)
+        if (input.left) targetPlayerX -= 0.025;
+        if (input.right) targetPlayerX += 0.025;
+        
+        // Boundaries
+        if (targetPlayerX < 0.1) targetPlayerX = 0.1;
+        if (targetPlayerX > 0.9) targetPlayerX = 0.9;
+
+        // Smooth player movement
+        playerX += (targetPlayerX - playerX) * 0.15;
+        
+        // Update DOM
+        playerEl.style.left = `${playerX * 100}%`;
+        
+        // Dynamic Tilt & Bobbing (More intense)
+        const tilt = (targetPlayerX - playerX) * 800; // Stronger lean
+        const bob = Math.sin(Date.now() * 0.025 * (speed/40)) * (speed/40); // Faster bob at speed
+        playerEl.style.transform = `translate(-50%, ${bob}px) rotate(${15 + tilt}deg)`;
+
+        // Update HUD
+        speedVal.innerHTML = Math.floor(speed) + ' <span class="stat-unit">km/h</span>';
+        distance += speed * 0.02;
+        distVal.innerHTML = Math.floor(distance) + ' <span class="stat-unit">m</span>';
+        
+        // Progress loop (1000m per segment)
+        let progress = (distance % 1000) / 10;
+        progressBar.style.width = `${progress}%`;
+
+        // Obstacle Spawning
+        if (Math.random() < 0.04 + (speed/10000)) {
+            spawnObstacle();
+        }
+        
+        // Update Obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let obs = obstacles[i];
+            // Move towards camera (Logarithmic speed feel)
+            obs.z -= (speed * 0.0004) + 0.002; 
+            
+            // Collision Detection
+            if (obs.z < 0.90 && obs.z > 0.82) {
+                let hitWidth = obs.type === 'gate' ? 0.12 : 0.15;
+                if (Math.abs(obs.x - playerX) < hitWidth) {
+                    triggerWarning();
+                    speed = 40; // Speed loss
+                    obs.z = 1.5; // Reset
+                    // Visual shake
+                    gameContainer.style.transform = `translate(${Math.random()*12-6}px, ${Math.random()*12-6}px)`;
+                    setTimeout(() => gameContainer.style.transform = 'none', 200);
+                }
+            }
+
+            if (obs.z > 1.8) {
+                if(obs.el) obs.el.remove();
+                obstacles.splice(i, 1);
+            } else {
+                renderObstacle(obs);
+            }
+        }
+        
+        // Particles
+        if (speed > 20 && Math.random() < 0.9) {
+            spawnParticle();
+        }
+        updateParticles();
+    }
+
+    function spawnObstacle() {
+        const type = Math.random() > 0.4 ? 'gate' : 'rock';
+        // Spread obstacles more
+        const x = 0.2 + Math.random() * 0.6; 
+        const el = document.createElement('div');
+        
+        if (type === 'gate') {
+            el.className = Math.random() > 0.5 ? 'gate gate-blue' : 'gate';
+            const num = Math.floor(Math.random()*99) + 10;
+            el.innerHTML = `
+                <div class="gate-pole left"></div>
+                <div class="gate-pole right"></div>
+                <div class="gate-flag">${num}</div>
+            `;
+        } else {
+            el.className = 'rock-obs';
+            el.innerHTML = `<svg viewBox="0 0 100 70" preserveAspectRatio="none" width="100%" height="100%">
+                <path d="M5 70 L30 15 L55 40 L80 5 L95 70 Z" fill="#37474f" stroke="#1c2428" stroke-width="4"/>
+                <path d="M30 15 L55 40 L80 5" fill="none" stroke="#546e7a" stroke-width="3"/>
+                <path d="M5 70 L30 15 L55 40" fill="#455a64" opacity="0.4"/>
+                <!-- Snow Cap -->
+                <path d="M30 15 L40 25 L25 30 Z" fill="#fff" opacity="0.9"/>
+                <path d="M80 5 L85 15 L75 20 Z" fill="#fff" opacity="0.9"/>
+            </svg>`;
+        }
+        
+        entitiesLayer.appendChild(el);
+        
+        obstacles.push({
+            type: type,
+            x: x,
+            z: 1, // Horizon
+            el: el
+        });
+    }
+
+    function renderObstacle(obs) {
+        // Perspective projection
+        const perspectiveScale = Math.pow(1 - obs.z, 2.2); 
+        
+        const yPos = horizonY + (1 - obs.z) * (1 - horizonY);
+        
+        // X: Center outwards
+        const spread = 2.5 * (1 - obs.z); 
+        const xPos = 0.5 + (obs.x - 0.5) * spread;
+
+        const scale = 0.1 + (perspectiveScale * 2.0);
+
+        const w = obs.type === 'gate' ? 160 : 130;
+        const h = obs.type === 'gate' ? 120 : 80;
+
+        obs.el.style.width = `${w * scale}px`;
+        obs.el.style.height = `${h * scale}px`;
+        obs.el.style.left = `${(xPos - (w * scale / width) / 2) * 100}%`;
+        obs.el.style.top = `${yPos * 100}%`;
+        obs.el.style.transform = `translate(-50%, -50%)`;
+        obs.el.style.opacity = Math.min(1, obs.z * 4); // Fade in
+        obs.el.style.zIndex = Math.floor(obs.z * 100); // Depth sort
+    }
+
+    function triggerWarning() {
+        warningEl.classList.add('active');
+        gameContainer.style.filter = "sepia(1) hue-rotate(-50deg) saturate(3)";
+        setTimeout(() => {
+            warningEl.classList.remove('active');
+            gameContainer.style.filter = "none";
+        }, 400);
+    }
+
+    // --- Rendering (Canvas) ---
+
+    function drawSlope() {
+        ctx.clearRect(0, 0, width, height);
+        
+        const horizon = height * horizonY;
+        
+        // 1. Draw Ice Surface Gradient (High contrast icy look)
+        const grad = ctx.createLinearGradient(0, horizon, 0, height);
+        grad.addColorStop(0, '#e1f5fe');
+        grad.addColorStop(0.4, '#b3e5fc');
+        grad.addColorStop(1, '#4fc3f7');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, horizon, width, height - horizon);
+        
+        // 2. Draw "Ice Cracks" / Grid (Longitudinal) - Simplified
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        
+        const numLines = 12; // Reduced density
+        ctx.beginPath();
+        for (let i = 0; i <= numLines; i++) {
+            let x = (i / numLines) * width;
+            // Curve towards vanish point
+            ctx.moveTo(x, height);
+            ctx.quadraticCurveTo(x + (vanishPointX*width - x)*0.4, height * 0.6, vanishPointX * width, horizon);
+        }
+        ctx.stroke();
+        
+        // 3. Draw Transverse Lines (Moving Speed Lines)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.lineWidth = 4;
+        
+        const lineSpacing = 200;
+        const timeOffset = (Date.now() * speed * 0.0008) % lineSpacing;
+        
+        ctx.beginPath();
+        // Draw lines from horizon to bottom
+        for (let i = 0; i < 30; i++) {
+            let yRatio = Math.pow(i / 30, 2.5); 
+            let baseY = horizon + yRatio * (height - horizon);
+            
+            let moveY = baseY + timeOffset * (1 + yRatio * 3); 
+            let effectiveY = moveY % (height - horizon) + horizon;
+
+            let spreadAtDepth = (effectiveY - horizon) / (height - horizon);
+            let lineWidth = spreadAtDepth * width * 0.9;
+            let startX = (width - lineWidth) / 2;
+            
+            if (effectiveY > horizon && effectiveY < height) {
+                ctx.moveTo(startX, effectiveY);
+                ctx.lineTo(startX + lineWidth, effectiveY);
+            }
+        }
+        ctx.stroke();
+    }
+
+    function spawnParticle() {
+        particles.push({
+            x: (playerX - 0.5) * width * 0.4 + width/2 + (Math.random() - 0.5) * 100,
+            y: height * 0.75, 
+            vx: (Math.random() - 0.5) * 25, 
+            vy: (Math.random() * 15) + 10, 
+            life: 1.0,
+            size: Math.random() * 8 + 4
+        });
+    }
+
+    function updateParticles() {
+        ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy -= 0.8; // Gravity
+            p.life -= 0.04;
+            
+            ctx.globalAlpha = p.life;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
+    // --- Main Loop ---
+
+    function loop() {
+        drawSlope();
+        updatePhysics();
+        requestAnimationFrame(loop);
+    }
+
+    // --- Controls ---
+
+    function handleStart(dir) { 
+        input[dir] = true; 
+        if(dir === 'left') btnLeft.classList.add('active');
+        if(dir === 'right') btnRight.classList.add('active');
+    }
+    function handleEnd(dir) { 
+        input[dir] = false; 
+        if(dir === 'left') btnLeft.classList.remove('active');
+        if(dir === 'right') btnRight.classList.remove('active');
+    }
+
+    // Mouse
+    btnLeft.addEventListener('mousedown', () => handleStart('left'));
+    btnLeft.addEventListener('mouseup', () => handleEnd('left'));
+    btnLeft.addEventListener('mouseleave', () => handleEnd('left'));
+
+    btnRight.addEventListener('mousedown', () => handleStart('right'));
+    btnRight.addEventListener('mouseup', () => handleEnd('right'));
+    btnRight.addEventListener('mouseleave', () => handleEnd('right'));
+
+    // Touch
+    btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); handleStart('left'); });
+    btnLeft.addEventListener('touchend', (e) => { e.preventDefault(); handleEnd('left'); });
+
+    btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); handleStart('right'); });
+    btnRight.addEventListener('touchend', (e) => { e.preventDefault(); handleEnd('right'); });
+
+    // Keyboard
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') handleStart('left');
+        if (e.key === 'ArrowRight') handleStart('right');
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'ArrowLeft') handleEnd('left');
+        if (e.key === 'ArrowRight') handleEnd('right');
+    });
+
+    // Start
+    loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    --wood-dark: #2d1a11;
+    --wood-light: #5d4037;
+    --felt-green: #2e5c45;
+    --felt-highlight: #3e7a5d;
+    --gold: #d4af37;
+    --gold-dim: #8a7020;
+    --text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    --font-stack: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  
+  body, html {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    font-family: var(--font-stack);
+    color: white;
+  }
+
+  /* --- The Room & Table --- */
+  #game-container {
+    position: relative;
+    width: 100vw; height: 100vh;
+    display: flex; flex-direction: column;
+    background: radial-gradient(circle at 50% 30%, #4a3b32 0%, #1a100b 60%, #000 100%);
+  }
+
+  /* The Table Surface */
+  .table-surface {
+    position: absolute;
+    top: 20px; left: 20px; right: 20px; bottom: 20px;
+    background: 
+      /* Felt Texture Noise */
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 4px),
+      radial-gradient(ellipse at center, var(--felt-highlight) 0%, var(--felt-green) 40%, #1a3c2f 100%);
+    border-radius: 40px;
+    box-shadow: 
+      inset 0 0 100px rgba(0,0,0,0.8), /* Inner depth */
+      0 0 0 15px var(--wood-dark), /* Inner Frame */
+      0 0 0 20px var(--wood-light), /* Outer Frame */
+      0 20px 50px rgba(0,0,0,0.9); /* Table Drop Shadow */
+    z-index: 1;
+    overflow: hidden;
+  }
+
+  /* The Table Lamp Glow */
+  .lamp-glow {
+    position: absolute;
+    top: -20%; left: 50%; transform: translateX(-50%);
+    width: 120%; height: 80%;
+    background: radial-gradient(ellipse at center, rgba(255,240,200,0.15) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* --- HUD: Top Bar (Wood/Brass) --- */
+  .top-bar {
+    position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 20px; align-items: center;
+    z-index: 10;
+  }
+
+  .score-plaque {
+    background: linear-gradient(to bottom, #4e342e, #3e2723);
+    border: 2px solid var(--gold-dim);
+    border-radius: 8px;
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 15px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+    min-width: 160px;
+  }
+
+  .score-plaque h3 {
+    margin: 0; font-size: 0.7rem; color: #d7ccc8;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  
+  .score-val {
+    font-size: 1.8rem; font-weight: 700; color: var(--gold);
+    text-shadow: 0 2px 2px rgba(0,0,0,0.6);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #607d8b, #263238);
+    border: 2px solid var(--gold);
+    display: flex; justify-content: center; align-items: center;
+    font-size: 1.2rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  }
+
+  /* --- The Board (SVG) --- */
+  #board-area {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 5;
+    display: flex; justify-content: center; align-items: center;
+  }
+
+  svg#game-board {
+    width: 100%; height: 100%;
+    overflow: visible;
+  }
+
+  /* --- Draw Pile (Boneyard) --- */
+  .boneyard {
+    position: absolute; top: 60px; left: 60px;
+    width: 60px; height: 100px;
+    z-index: 15;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .boneyard:hover { transform: translateY(-5px) scale(1.02); }
+  .boneyard:active { transform: translateY(0) scale(0.98); }
+
+  .tile-back {
+    width: 100%; height: 100%;
+    background: linear-gradient(135deg, #1a237e, #0d47a1);
+    border-radius: 6px;
+    border: 2px solid #fff;
+    position: relative;
+    box-shadow: 2px 2px 0 #000, 4px 4px 8px rgba(0,0,0,0.6);
+  }
+  /* Stack effect */
+  .tile-back::before {
+    content: ''; position: absolute; inset: -3px;
+    border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;
+  }
+  .tile-back::after {
+    content: ''; position: absolute; inset: 5px;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 2px;
+  }
+  
+  .boneyard-label {
+    position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    border: 1px solid var(--gold-dim);
+    padding: 4px 8px; border-radius: 4px;
+    color: #fff; font-size: 0.75rem; font-weight: bold;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* --- Player Hand (Rack) --- */
+  .player-area {
+    position: absolute; bottom: 30px; left: 0; right: 0;
+    height: 160px;
+    display: flex; justify-content: center; align-items: flex-end;
+    z-index: 20;
+    pointer-events: none; /* Pass through empty space */
+  }
+
+  .hand-rack {
+    display: flex; gap: 15px;
+    padding: 20px 40px;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.2));
+    border-radius: 20px 20px 0 0;
+    pointer-events: auto;
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+    transform: perspective(800px) rotateX(10deg);
+    transform-origin: bottom center;
+  }
+
+  .tile {
+    width: 50px; height: 100px;
+    background: #f4f4f0;
+    border-radius: 6px;
+    position: relative;
+    box-shadow: 
+      0 1px 0 #ccc,
+      0 4px 0 #bbb,
+      0 6px 0 #aaa,
+      0 10px 20px rgba(0,0,0,0.5);
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    border: 2px solid transparent; /* For selection highlight */
+  }
+
+  .tile:hover {
+    transform: translateY(-20px) scale(1.1);
+    box-shadow: 
+      0 1px 0 #ccc,
+      0 20px 0 #bbb,
+      0 22px 0 #aaa,
+      0 30px 40px rgba(0,0,0,0.6);
+    z-index: 30;
+  }
+
+  .tile.selected {
+    transform: translateY(-25px) scale(1.15);
+    border-color: var(--gold);
+    box-shadow: 0 0 20px var(--gold), 0 20px 40px rgba(0,0,0,0.6);
+  }
+
+  .tile.disabled {
+    filter: grayscale(1) brightness(0.7);
+    cursor: default;
+  }
+  .tile.disabled:hover { transform: none; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+
+  .tile-half {
+    flex: 1; width: 100%;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+    padding: 4px;
+    position: relative;
+  }
+  .tile-divider {
+    height: 1px; background: #bbb; width: 80%; margin: 0 auto;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8);
+  }
+
+  .pip {
+    background: radial-gradient(circle at 30% 30%, #444, #000);
+    border-radius: 50%;
+    width: 7px; height: 7px;
+    margin: auto;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 1px 1px rgba(255,255,255,0.2);
+  }
+
+  /* --- Endpoints --- */
+  .endpoint-cue {
+    position: absolute;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.3);
+    border: 2px solid rgba(255,255,255,0.2);
+    display: flex; justify-content: center; align-items: center;
+    font-size: 1.2rem; font-weight: 800; color: rgba(255,255,255,0.3);
+    transition: all 0.3s;
+    pointer-events: auto;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  
+  .endpoint-cue.active {
+    background: var(--gold);
+    color: #2d1a11;
+    border-color: #fff;
+    box-shadow: 0 0 15px var(--gold);
+    animation: pulse 2s infinite;
+  }
+  
+  .endpoint-cue.active:hover {
+    transform: scale(1.15);
+    background: #fff;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.7); }
+    70% { box-shadow: 0 0 0 15px rgba(212, 175, 55, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
+  }
+
+  /* --- Toast --- */
+  #toast {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(45, 26, 17, 0.95);
+    border: 2px solid var(--gold);
+    color: white; padding: 15px 30px; border-radius: 8px;
+    pointer-events: none; opacity: 0; transition: all 0.3s;
+    z-index: 100; text-align: center; font-weight: 600;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <div class="table-surface">
+    <div class="lamp-glow"></div>
+    
+    <!-- Top HUD -->
+    <div class="top-bar">
+      <div class="score-plaque">
+        <div class="avatar">🤖</div>
+        <div>
+          <h3>Opponent</h3>
+          <div class="score-val" id="cpu-score">45</div>
+        </div>
+      </div>
+      <div class="score-plaque">
+        <div style="text-align: right;">
+          <h3>You</h3>
+          <div class="score-val" id="player-score">12</div>
+        </div>
+        <div class="avatar" style="background: radial-gradient(circle at 30% 30%, #ef5350, #b71c1c);">👤</div>
+      </div>
+    </div>
+
+    <!-- Draw Pile -->
+    <div class="boneyard" onclick="drawTile()">
+      <div class="tile-back"></div>
+      <div class="boneyard-label" id="boneyard-count">12 Left</div>
+    </div>
+
+    <!-- Main Board -->
+    <div id="board-area">
+      <svg id="game-board" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <filter id="tileShadow" x="-20%" y="-20%" width="150%" height="150%">
+            <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
+          </filter>
+          <filter id="pipShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.4"/>
+          </filter>
+          
+          <!-- 3D Tile Shape -->
+          <g id="tile-base">
+            <!-- Ivory Body -->
+            <rect x="0" y="0" width="40" height="80" rx="4" fill="url(#ivoryGrad)" stroke="#d0d0c8" stroke-width="0.5"/>
+            <!-- Bevel -->
+            <rect x="2" y="2" width="36" height="76" rx="2" fill="none" stroke="white" stroke-opacity="0.8" stroke-width="1"/>
+            <!-- Divider -->
+            <line x1="4" y1="40" x2="36" y2="40" stroke="#aaa" stroke-width="1"/>
+            <!-- Inner Shadow -->
+            <rect x="0" y="0" width="40" height="80" rx="4" fill="none" stroke="#000" stroke-opacity="0.05" stroke-width="2"/>
+          </g>
+          
+          <linearGradient id="ivoryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#fcfcf8;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#e8e8e0;stop-opacity:1" />
+          </linearGradient>
+
+          <!-- Pips -->
+          <g id="pip-1"><circle cx="20" cy="40" r="4.5" fill="#111" filter="url(#pipShadow)"/></g>
+          <g id="pip-2"><circle cx="12" cy="32" r="4.5" fill="#111" filter="url(#pipShadow)"/><circle cx="28" cy="48" r="4.5" fill="#111" filter="url(#pipShadow)"/></g>
+          <g id="pip-3"><use href="#pip-1"/><use href="#pip-2"/></g>
+          <g id="pip-4">
+            <circle cx="12" cy="28" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="28" cy="28" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="12" cy="52" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="28" cy="52" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+          </g>
+          <g id="pip-5"><use href="#pip-4"/><circle cx="20" cy="40" r="4.5" fill="#111" filter="url(#pipShadow)"/></g>
+          <g id="pip-6">
+            <circle cx="12" cy="28" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="28" cy="28" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="12" cy="40" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="28" cy="40" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="12" cy="52" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+            <circle cx="28" cy="52" r="4.5" fill="#111" filter="url(#pipShadow)"/>
+          </g>
+        </defs>
+
+        <g id="chain-layer"></g>
+        
+        <!-- Endpoints -->
+        <g id="endpoints-layer">
+          <g id="end-left" transform="translate(0,0)" style="cursor:pointer; display:none;">
+            <circle cx="0" cy="40" r="22" fill="rgba(212,175,55,0.2)" stroke="#d4af37" stroke-width="2" stroke-dasharray="4,2"/>
+            <text x="0" y="47" text-anchor="middle" fill="#d4af37" font-family="sans-serif" font-weight="bold" font-size="18">?</text>
+          </g>
+          <g id="end-right" transform="translate(0,0)" style="cursor:pointer; display:none;">
+            <circle cx="0" cy="40" r="22" fill="rgba(212,175,55,0.2)" stroke="#d4af37" stroke-width="2" stroke-dasharray="4,2"/>
+            <text x="0" y="47" text-anchor="middle" fill="#d4af37" font-family="sans-serif" font-weight="bold" font-size="18">?</text>
+          </g>
+        </g>
+      </svg>
+      
+      <!-- HTML Overlays for Endpoints (easier interaction) -->
+      <div id="endpoint-left-dom" class="endpoint-cue" style="display:none;"></div>
+      <div id="endpoint-right-dom" class="endpoint-cue" style="display:none;"></div>
+    </div>
+
+    <!-- Player Hand -->
+    <div class="player-area">
+      <div class="hand-rack" id="player-hand"></div>
+    </div>
+  </div>
+
+  <div id="toast">Turn Skipped</div>
+</div>
+
+<script>
+/**
+ * Game State & Logic
+ */
+const TILE_W = 40;
+const TILE_H = 80;
+const GAP = 4;
+const PIP_MAP = { 0: '', 1: 'pip-1', 2: 'pip-2', 3: 'pip-3', 4: 'pip-4', 5: 'pip-5', 6: 'pip-6' };
+
+let boardChain = [];
+let playerHand = [];
+let boneyard = [];
+let leftEndVal = null;
+let rightEndVal = null;
+let selectedTileIdx = -1;
+
+function initGame() {
+  // Generate Boneyard
+  for(let i=0; i<=6; i++) {
+    for(let j=i; j<=6; j++) {
+      boneyard.push({a: i, b: j});
+    }
+  }
+  boneyard.sort(() => Math.random() - 0.5);
+
+  // Deal 7
+  for(let i=0; i<7; i++) playerHand.push(boneyard.pop());
+
+  // Start with [6,6] for visual anchor
+  boardChain.push({ a: 6, b: 6, rotation: 0 }); 
+  leftEndVal = 6;
+  rightEndVal = 6;
+
+  renderHand();
+  renderBoard();
+  updateUI();
+}
+
+// --- Rendering ---
+
+function createTileSVG(a, b, rotation) {
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("filter", "url(#tileShadow)");
+  
+  // Base
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  shape.setAttribute("href", "#tile-base");
+  shape.setAttribute("x", -TILE_W/2);
+  shape.setAttribute("y", -TILE_H/2);
+  g.appendChild(shape);
+
+  // Pips Top (A)
+  if(PIP_MAP[a]) {
+    const pipsA = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsA.setAttribute("href", `#${PIP_MAP[a]}`);
+    pipsA.setAttribute("transform", `translate(0, -20)`); 
+    g.appendChild(pipsA);
+  }
+
+  // Pips Bottom (B)
+  if(PIP_MAP[b]) {
+    const pipsB = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsB.setAttribute("href", `#${PIP_MAP[b]}`);
+    pipsB.setAttribute("transform", `translate(0, 20)`);
+    g.appendChild(pipsB);
+  }
+
+  return g;
+}
+
+function renderBoard() {
+  const container = document.getElementById('chain-layer');
+  container.innerHTML = '';
+  
+  if (boardChain.length === 0) return;
+
+  // Calculate total width
+  let totalW = 0;
+  boardChain.forEach(t => totalW += (t.rotation === 90 ? TILE_H : TILE_W) + GAP);
+  
+  // Center alignment
+  let startX = (1200 - totalW) / 2;
+  const y = 300; // Vertical center
+
+  boardChain.forEach((t, i) => {
+    const el = createTileSVG(t.a, t.b, t.rotation);
+    const w = (t.rotation === 90) ? TILE_H : TILE_W;
+    // Center the tile at the calculated position
+    el.setAttribute("transform", `translate(${startX + w/2}, ${y}) rotate(${t.rotation})`);
+    container.appendChild(el);
+    startX += w + GAP;
+  });
+
+  // Update Endpoints (HTML Overlays)
+  updateEndpoints();
+}
+
+function updateEndpoints() {
+  const leftCue = document.getElementById('endpoint-left-dom');
+  const rightCue = document.getElementById('endpoint-right-dom');
+  
+  // Calculate positions relative to viewport (approximate for this demo based on SVG viewBox scaling)
+  // Ideally we map SVG coords to Screen coords, but for a fixed layout we can estimate or use getBoundingClientRect on the SVG
+  
+  const svgEl = document.getElementById('game-board');
+  const rect = svgEl.getBoundingClientRect();
+  const scaleX = rect.width / 1200;
+  const scaleY = rect.height / 600;
+
+  // Find Left End Coord
+  const first = boardChain[0];
+  const wFirst = (first.rotation === 90) ? TILE_H : TILE_W;
+  // Calculate startX again to find left edge
+  let totalW = 0;
+  boardChain.forEach(t => totalW += (t.rotation === 90 ? TILE_H : TILE_W) + GAP);
+  let startX = (1200 - totalW) / 2;
+  
+  const leftScreenX = rect.left + (startX * scaleX);
+  const centerScreenY = rect.top + (300 * scaleY);
+
+  leftCue.style.display = 'flex';
+  leftCue.style.left = (leftScreenX - 22) + 'px'; // 22 is radius
+  leftCue.style.top = (centerScreenY - 22) + 'px';
+  leftCue.textContent = leftEndVal;
+  leftCue.onclick = () => playTileToSide('left');
+
+  // Find Right End Coord
+  const last = boardChain[boardChain.length-1];
+  const wLast = (last.rotation === 90) ? TILE_H : TILE_W;
+  let tempX = startX;
+  for(let i=0; i<boardChain.length-1; i++) {
+     const t = boardChain[i];
+     tempX += ((t.rotation === 90) ? TILE_H : TILE_W) + GAP;
+  }
+  const rightScreenX = rect.left + (tempX + wLast) * scaleX;
+
+  rightCue.style.display = 'flex';
+  rightCue.style.left = (rightScreenX - 22) + 'px';
+  rightCue.style.top = (centerScreenY - 22) + 'px';
+  rightCue.textContent = rightEndVal;
+  rightCue.onclick = () => playTileToSide('right');
+}
+
+function renderHand() {
+  const rack = document.getElementById('player-hand');
+  rack.innerHTML = '';
+  
+  playerHand.forEach((tile, idx) => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    
+    const valid = (tile.a === leftEndVal || tile.b === leftEndVal || 
+                  tile.a === rightEndVal || tile.b === rightEndVal);
+    
+    if (!valid) el.classList.add('disabled');
+    if (idx === selectedTileIdx) el.classList.add('selected');
+
+    el.innerHTML = `
+      <div class="tile-half">${getPipsHTML(tile.a)}</div>
+      <div class="tile-divider"></div>
+      <div class="tile-half">${getPipsHTML(tile.b)}</div>
+    `;
+    
+    el.onclick = () => selectTile(idx);
+    rack.appendChild(el);
+  });
+}
+
+function getPipsHTML(n) {
+  if(n===0) return '';
+  const positions = {
+    1: [[2,2]], 2: [[1,1], [3,3]], 3: [[1,1], [2,2], [3,3]],
+    4: [[1,1], [3,1], [1,3], [3,3]], 5: [[1,1], [3,1], [2,2], [1,3], [3,3]],
+    6: [[1,1], [3,1], [1,2], [3,2], [1,3], [3,3]]
+  };
+  return positions[n].map(([r,c]) => `<div style="grid-area: ${r} / ${c}"><div class="pip"></div></div>`).join('');
+}
+
+// --- Interaction ---
+
+function selectTile(idx) {
+  if(selectedTileIdx === idx) {
+    selectedTileIdx = -1;
+  } else {
+    const tile = playerHand[idx];
+    if (tile.a !== leftEndVal && tile.b !== leftEndVal && 
+        tile.a !== rightEndVal && tile.b !== rightEndVal) {
+      showToast("Invalid Move");
+      return;
+    }
+    selectedTileIdx = idx;
+    
+    // Highlight endpoints if match found
+    const leftCue = document.getElementById('endpoint-left-dom');
+    const rightCue = document.getElementById('endpoint-right-dom');
+    
+    leftCue.classList.toggle('active', tile.a === leftEndVal || tile.b === leftEndVal);
+    rightCue.classList.toggle('active', tile.a === rightEndVal || tile.b === rightEndVal);
+  }
+  renderHand();
+}
+
+function playTileToSide(side) {
+  if (selectedTileIdx === -1) {
+    showToast("Select a tile first");
+    return;
+  }
+
+  const tile = playerHand[selectedTileIdx];
+  let played = false;
+
+  if (side === 'left') {
+    if (tile.a === leftEndVal) {
+      boardChain.unshift({ a: tile.b, b: tile.a, rotation: 90 }); 
+      leftEndVal = tile.b; played = true;
+    } else if (tile.b === leftEndVal) {
+      boardChain.unshift({ a: tile.a, b: tile.b, rotation: 90 });
+      leftEndVal = tile.a; played = true;
+    }
+  } else if (side === 'right') {
+    if (tile.b === rightEndVal) {
+      boardChain.push({ a: tile.a, b: tile.b, rotation: 90 });
+      rightEndVal = tile.a; played = true;
+    } else if (tile.a === rightEndVal) {
+      boardChain.push({ a: tile.b, b: tile.a, rotation: 90 });
+      rightEndVal = tile.b; played = true;
+    }
+  }
+
+  if (played) {
+    playerHand.splice(selectedTileIdx, 1);
+    selectedTileIdx = -1;
+    renderHand();
+    renderBoard();
+    updateUI();
+    checkWin();
+  } else {
+    showToast("Cannot play there");
+    // Reset selection
+    selectedTileIdx = -1;
+    renderHand();
+  }
+}
+
+function drawTile() {
+  if (boneyard.length > 0) {
+    playerHand.push(boneyard.pop());
+    renderHand();
+    updateUI();
+    showToast("Drawn a tile");
+  } else {
+    showToast("Boneyard Empty");
+  }
+}
+
+function updateUI() {
+  document.getElementById('boneyard-count').textContent = boneyard.length + " Left";
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+
+function checkWin() {
+  if (playerHand.length === 0) showToast("YOU WIN!");
+}
+
+// Handle resize for endpoint positioning
+window.addEventListener('resize', updateEndpoints);
+
+initGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            --bg-color: #0b0e14;
+            --card-bg: #151a23;
+            --border-color: #2d3748;
+            --text-main: #e2e8f0;
+            --text-muted: #718096;
+            
+            /* Semantic Colors */
+            --col-data: #00d4ff;      /* Cyan */
+            --col-instr: #f6ad55;     /* Amber */
+            --col-ctrl: #68d391;      /* Emerald */
+            --col-cpu: #ffffff;       /* White */
+            --col-gpu: #9f7aea;       /* Purple */
+            --col-mem: #4fd1c5;       /* Teal */
+            --col-stor: #fc8181;      /* Red */
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header & Legend Integration */
+        header {
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-color);
+            z-index: 10;
+        }
+
+        .title-block h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-main);
+        }
+
+        .title-block .meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'Courier New', monospace;
+            margin-top: 4px;
+        }
+
+        .legend-container {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        /* Legend Line Styles */
+        .legend-line {
+            width: 30px;
+            height: 0;
+            border-top-width: 2px;
+            border-top-style: solid;
+        }
+        .legend-line.data { border-top-color: var(--col-data); }
+        .legend-line.instr { border-top-color: var(--col-instr); border-top-style: dashed; }
+        .legend-line.ctrl { border-top-color: var(--col-ctrl); border-top-style: dotted; }
+
+        /* Main Canvas */
+        main {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            max-width: 1200px;
+            max-height: 900px;
+        }
+
+        /* SVG Elements */
+        .node-box {
+            fill: var(--card-bg);
+            stroke-width: 2px;
+            rx: 8px;
+            /* Inner shadow for depth */
+            filter: url(#inner-shadow) drop-shadow(0 10px 15px rgba(0,0,0,0.3));
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .node-box:hover {
+            fill: #1e2633;
+        }
+
+        .node-label {
+            fill: var(--text-main);
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 16px;
+            text-anchor: middle;
+            letter-spacing: 1px;
+            user-select: none;
+        }
+
+        .node-sub {
+            fill: var(--text-muted);
+            font-size: 11px;
+            text-anchor: middle;
+            user-select: none;
+        }
+
+        /* Connection Lines */
+        .link-path {
+            fill: none;
+            stroke-width: 2px;
+            opacity: 0.4;
+            transition: opacity 0.3s ease;
+        }
+
+        .link-path.data { stroke: var(--col-data); stroke-dasharray: 0; } /* Solid */
+        .link-path.instr { stroke: var(--col-instr); stroke-dasharray: 6 4; } /* Dashed */
+        .link-path.ctrl { stroke: var(--col-ctrl); stroke-dasharray: 2 4; } /* Dotted */
+
+        .flow-particle {
+            fill: none;
+            stroke-width: 2px;
+            stroke-dasharray: 5 60; /* Particle length and gap */
+            opacity: 0.8;
+            animation: flow 2s linear infinite;
+        }
+
+        /* Label Backgrounds */
+        .label-bg {
+            fill: var(--bg-color);
+            rx: 4px;
+        }
+        
+        .label-text {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            text-anchor: middle;
+            user-select: none;
+        }
+
+        /* Animation */
+        @keyframes flow {
+            to { stroke-dashoffset: -65; }
+        }
+
+        /* Icons */
+        .icon {
+            stroke-width: 2px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            opacity: 0.9;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-block">
+            <h1>System Architecture</h1>
+            <div class="meta">Fig 1.0 // Data & Control Flow Topology</div>
+        </div>
+        <div class="legend-container">
+            <div class="legend-item">
+                <div class="legend-line data"></div>
+                <span>Data</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line instr"></div>
+                <span>Instructions</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line ctrl"></div>
+                <span>Control</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="canvas-container">
+        <!-- SVG injected here by JS -->
+    </main>
+
+    <script>
+        // Configuration
+        const colors = {
+            data: '#00d4ff',
+            instr: '#f6ad55',
+            ctrl: '#68d391',
+            cpu: '#ffffff',
+            gpu: '#9f7aea',
+            mem: '#4fd1c5',
+            stor: '#fc8181',
+            io: '#a0aec0'
+        };
+
+        // Layout Definitions 
+        // Grid: 20px base. 
+        // Center X = 400 (CPU). Y = 350.
+        const components = {
+            cpu: { x: 300, y: 300, w: 200, h: 100, label: "CPU", sub: "Central Processing Unit", color: colors.cpu },
+            gpu: { x: 650, y: 150, w: 160, h: 100, label: "GPU", sub: "Graphics / Compute", color: colors.gpu },
+            mem: { x: 300, y: 100, w: 200, h: 100, label: "RAM", sub: "System Memory", color: colors.mem },
+            stor:{ x: 100, y: 450, w: 140, h: 100, label: "SSD", sub: "Non-Volatile Storage", color: colors.stor },
+            net: { x: 650, y: 450, w: 160, h: 100, label: "NIC", sub: "Network Interface", color: colors.io },
+            inp: { x: 100, y: 150, w: 140, h: 100, label: "INPUT", sub: "Peripherals", color: colors.io },
+            out: { x: 650, y: 300, w: 160, h: 100, label: "OUTPUT", sub: "Display / Audio", color: colors.io }
+        };
+
+        // Connections: From, To, Type, Label
+        const connections = [
+            // CPU <-> RAM
+            { from: 'cpu', to: 'mem', type: 'data', label: 'Load/Store' },
+            { from: 'mem', to: 'cpu', type: 'instr', label: 'Fetch' },
+            { from: 'cpu', to: 'mem', type: 'ctrl', label: 'Bus Ctrl' },
+
+            // CPU <-> GPU
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Command Buffer' },
+            { from: 'gpu', to: 'mem', type: 'data', label: 'VRAM Access' },
+
+            // CPU <-> Storage
+            { from: 'cpu', to: 'stor', type: 'ctrl', label: 'IO Request' },
+            { from: 'stor', to: 'cpu', type: 'data', label: 'Block Data' },
+
+            // CPU <-> Network
+            { from: 'cpu', to: 'net', type: 'data', label: 'Packet TX' },
+            { from: 'net', to: 'cpu', type: 'data', label: 'Packet RX' },
+
+            // Input/Output
+            { from: 'inp', to: 'cpu', type: 'ctrl', label: 'Interrupt' },
+            { from: 'gpu', to: 'out', type: 'data', label: 'Video Signal' },
+        ];
+
+        // Helper to get center
+        const getCenter = (id) => {
+            const c = components[id];
+            return { x: c.x + c.w/2, y: c.y + c.h/2 };
+        };
+
+        // Helper to get edge point (for orthogonal routing)
+        const getEdge = (sourceId, targetId) => {
+            const s = components[sourceId];
+            const t = components[targetId];
+            const sC = getCenter(sourceId);
+            const tC = getCenter(targetId);
+
+            const dx = tC.x - sC.x;
+            const dy = tC.y - sC.y;
+
+            let start = { ...sC };
+            let end = { ...tC };
+
+            // Determine if horizontal or vertical connection is dominant
+            if (Math.abs(dx) > Math.abs(dy)) {
+                // Horizontal
+                start.x = dx > 0 ? s.x + s.w : s.x;
+                end.x = dx > 0 ? t.x : t.x + t.w;
+            } else {
+                // Vertical
+                start.y = dy > 0 ? s.y + s.h : s.y;
+                end.y = dy > 0 ? t.y : t.y + t.h;
+            }
+            return { start, end };
+        };
+
+        // Generate SVG
+        const createSVG = () => {
+            const ns = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(ns, "svg");
+            // ViewBox adjusted to fit layout 1000x600
+            svg.setAttribute("viewBox", "0 0 950 600");
+            svg.setAttribute("width", "100%");
+            svg.setAttribute("height", "100%");
+
+            // Defs
+            const defs = document.createElementNS(ns, "defs");
+            
+            // Inner Shadow Filter
+            const filter = document.createElementNS(ns, "filter");
+            filter.setAttribute("id", "inner-shadow");
+            filter.innerHTML = `
+                <feOffset dx="0" dy="2"/>
+                <feGaussianBlur stdDeviation="2" result="offset-blur"/>
+                <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"/>
+                <feFlood flood-color="black" flood-opacity="0.5" result="color"/>
+                <feComposite operator="in" in="color" in2="inverse" result="shadow"/>
+                <feComposite operator="over" in="shadow" in2="SourceGraphic"/>
+            `;
+            defs.appendChild(filter);
+
+            // Arrow Markers
+            const createMarker = (id, color) => {
+                const marker = document.createElementNS(ns, "marker");
+                marker.setAttribute("id", id);
+                marker.setAttribute("markerWidth", "8");
+                marker.setAttribute("markerHeight", "6");
+                marker.setAttribute("refX", "8");
+                marker.setAttribute("refY", "3");
+                marker.setAttribute("orient", "auto");
+                const polygon = document.createElementNS(ns, "polygon");
+                polygon.setAttribute("points", "0 0, 8 3, 0 6");
+                polygon.setAttribute("fill", color);
+                marker.appendChild(polygon);
+                return marker;
+            };
+
+            defs.appendChild(createMarker('arrow-data', colors.data));
+            defs.appendChild(createMarker('arrow-instr', colors.instr));
+            defs.appendChild(createMarker('arrow-ctrl', colors.ctrl));
+            svg.appendChild(defs);
+
+            // --- LAYER 1: Connections ---
+            const linksGroup = document.createElementNS(ns, "g");
+            linksGroup.setAttribute("id", "links-layer");
+
+            connections.forEach((conn, index) => {
+                const { start, end } = getEdge(conn.from, conn.to);
+                const color = colors[conn.type];
+                const markerId = `arrow-${conn.type}`;
+
+                // Orthogonal Path Logic
+                let d = `M ${start.x} ${start.y}`;
+                
+                // If purely horizontal or vertical, straight line
+                if (start.x === end.x || start.y === end.y) {
+                    d += ` L ${end.x} ${end.y}`;
+                } else {
+                    // Manhattan routing: turn in the middle
+                    const midX = (start.x + end.x) / 2;
+                    d += ` L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`;
+                }
+
+                // Base Path (Track)
+                const path = document.createElementNS(ns, "path");
+                path.setAttribute("d", d);
+                path.setAttribute("stroke", color);
+                path.setAttribute("class", `link-path ${conn.type}`);
+                path.setAttribute("marker-end", `url(#${markerId})`);
+                linksGroup.appendChild(path);
+
+                // Animated Particle
+                const particle = document.createElementNS(ns, "path");
+                particle.setAttribute("d", d);
+                particle.setAttribute("stroke", color);
+                particle.setAttribute("class", "flow-particle");
+                particle.style.animationDelay = `${Math.random() * -2}s`;
+                linksGroup.appendChild(particle);
+
+                // Label with Background Mask
+                const midX = (start.x + end.x) / 2;
+                const midY = (start.y + end.y) / 2;
+                
+                const labelG = document.createElementNS(ns, "g");
+                labelG.setAttribute("transform", `translate(${midX}, ${midY})`);
+
+                // Measure text (approximate for simplicity in static generation)
+                const text = document.createElementNS(ns, "text");
+                text.setAttribute("class", "label-text");
+                text.setAttribute("fill", color);
+                text.setAttribute("y", "-1"); // Optical center adjustment
+                text.textContent = conn.label;
+                
+                // Create background rect dynamically after text is added (or estimate)
+                // Since we can't measure easily in pure JS without DOM rendering first, 
+                // we use a fixed width background for consistency in this diagram style.
+                const bg = document.createElementNS(ns, "rect");
+                bg.setAttribute("class", "label-bg");
+                bg.setAttribute("x", "-40"); 
+                bg.setAttribute("y", "-10");
+                bg.setAttribute("width", "80");
+                bg.setAttribute("height", "16");
+                bg.setAttribute("stroke", color);
+                bg.setAttribute("stroke-width", "1");
+                bg.setAttribute("opacity", "0.8");
+
+                labelG.appendChild(bg);
+                labelG.appendChild(text);
+                linksGroup.appendChild(labelG);
+            });
+            svg.appendChild(linksGroup);
+
+            // --- LAYER 2: Components ---
+            const nodesGroup = document.createElementNS(ns, "g");
+            
+            Object.keys(components).forEach(key => {
+                const comp = components[key];
+                const g = document.createElementNS(ns, "g");
+                g.setAttribute("id", key);
+                g.setAttribute("transform", `translate(${comp.x}, ${comp.y})`);
+
+                // Box
+                const rect = document.createElementNS(ns, "rect");
+                rect.setAttribute("width", comp.w);
+                rect.setAttribute("height", comp.h);
+                rect.setAttribute("class", "node-box");
+                rect.setAttribute("stroke", comp.color);
+                g.appendChild(rect);
+
+                // Icons
+                const iconG = document.createElementNS(ns, "g");
+                iconG.setAttribute("transform", `translate(${comp.w/2}, 30)`);
+                iconG.setAttribute("class", "icon");
+                iconG.setAttribute("stroke", comp.color);
+                
+                // Draw Icons
+                if (key === 'cpu') {
+                    // Processor Grid
+                    const main = document.createElementNS(ns, "rect");
+                    main.setAttribute("x", -15); main.setAttribute("y", -15);
+                    main.setAttribute("width", 30); main.setAttribute("height", 30);
+                    main.setAttribute("rx", 4);
+                    iconG.appendChild(main);
+                    // Pins
+                    const pins = document.createElementNS(ns, "path");
+                    pins.setAttribute("d", "M-10 -15 L-10 -22 M0 -15 L0 -22 M10 -15 L10 -22 M-10 15 L-10 22 M0 15 L0 22 M10 15 L10 22");
+                    iconG.appendChild(pins);
+                } 
+                else if (key === 'gpu') {
+                    // Chip with Fan
+                    const c = document.createElementNS(ns, "rect");
+                    c.setAttribute("x", -18); c.setAttribute("y", -18); c.setAttribute("width", 36); c.setAttribute("height", 36); c.setAttribute("rx", 2);
+                    iconG.appendChild(c);
+                    const f = document.createElementNS(ns, "path");
+                    f.setAttribute("d", "M-10 -10 L10 -10 M-10 0 L10 0 M-10 10 L10 10");
+                    iconG.appendChild(f);
+                } 
+                else if (key === 'mem') {
+                    // Sticks
+                    for(let i=0; i<4; i++) {
+                        const r = document.createElementNS(ns, "rect");
+                        r.setAttribute("x", -22 + i*13); r.setAttribute("y", -10);
+                        r.setAttribute("width", 8); r.setAttribute("height", 20);
+                        r.setAttribute("fill", comp.color);
+                        r.setAttribute("opacity", "0.3");
+                        iconG.appendChild(r);
+                    }
+                } 
+                else if (key === 'stor') {
+                    // SSD Layers
+                    const l1 = document.createElementNS(ns, "path");
+                    l1.setAttribute("d", "M-20 -10 L20 -10 L20 10 L-20 10 Z");
+                    iconG.appendChild(l1);
+                    const l2 = document.createElementNS(ns, "path");
+                    l2.setAttribute("d", "M-15 -5 L15 -5 L15 5 L-15 5 Z");
+                    l2.setAttribute("fill", comp.color);
+                    l2.setAttribute("opacity", "0.5");
+                    iconG.appendChild(l2);
+                }
+                else if (key === 'net') {
+                    // Globe/Nodes
+                    const c = document.createElementNS(ns, "circle");
+                    c.setAttribute("r", 14);
+                    iconG.appendChild(c);
+                    const cross = document.createElementNS(ns, "path");
+                    cross.setAttribute("d", "M-14 0 L14 0 M0 -14 L0 14");
+                    iconG.appendChild(cross);
+                }
+                else if (key === 'inp') {
+                    // Keyboard/Mouse abstract
+                    const k = document.createElementNS(ns, "rect");
+                    k.setAttribute("x", -20); k.setAttribute("y", -12); k.setAttribute("width", 40); k.setAttribute("height", 24); k.setAttribute("rx", 2);
+                    iconG.appendChild(k);
+                    const keys = document.createElementNS(ns, "path");
+                    keys.setAttribute("d", "M-15 -5 L-5 -5 M5 -5 L15 -5 M-15 5 L15 5");
+                    iconG.appendChild(keys);
+                }
+                else if (key === 'out') {
+                    // Monitor
+                    const m = document.createElementNS(ns, "rect");
+                    m.setAttribute("x", -20); m.setAttribute("y", -15); m.setAttribute("width", 40); m.setAttribute("height", 24);
+                    iconG.appendChild(m);
+                    const stand = document.createElementNS(ns, "path");
+                    stand.setAttribute("d", "M-5 9 L-5 15 L5 15 L5 9");
+                    iconG.appendChild(stand);
+                }
+
+                g.appendChild(iconG);
+
+                // Text
+                const textMain = document.createElementNS(ns, "text");
+                textMain.setAttribute("x", comp.w/2);
+                textMain.setAttribute("y", comp.h/2 + 15);
+                textMain.setAttribute("class", "node-label");
+                textMain.textContent = comp.label;
+                g.appendChild(textMain);
+
+                const textSub = document.createElementNS(ns, "text");
+                textSub.setAttribute("x", comp.w/2);
+                textSub.setAttribute("y", comp.h/2 + 32);
+                textSub.setAttribute("class", "node-sub");
+                textSub.textContent = comp.sub;
+                g.appendChild(textSub);
+
+                nodesGroup.appendChild(g);
+            });
+            svg.appendChild(nodesGroup);
+
+            return svg;
+        };
+
+        // Initialize
+        const container = document.getElementById('canvas-container');
+        const svgElement = createSVG();
+        container.appendChild(svgElement);
+
+        // Interaction Logic
+        const nodeGroups = svgElement.querySelectorAll('g[id]');
+        const allLinks = svgElement.querySelectorAll('.link-path, .flow-particle');
+        const allLabels = svgElement.querySelectorAll('.label-bg, .label-text');
+
+        nodeGroups.forEach(node => {
+            node.addEventListener('mouseenter', () => {
+                const nodeId = node.getAttribute('id');
+                
+                // Dim everything
+                allLinks.forEach(el => el.style.opacity = '0.1');
+                allLabels.forEach(el => el.style.opacity = '0.1');
+                
+                // Highlight connected
+                connections.forEach(conn => {
+                    if (conn.from === nodeId || conn.to === nodeId) {
+                        // Find corresponding paths (based on index logic or re-query)
+                        // Since we built them sequentially, we can't easily map index to DOM element without storing it.
+                        // Simple approach: highlight all paths of that type or specific paths if we stored refs.
+                        // Better approach for this demo: Re-highlight by traversing DOM if we added data attributes.
+                        // Let's use the data attribute approach.
+                        const relatedPaths = svgElement.querySelectorAll(`.link-path[data-from="${nodeId}"], .link-path[data-to="${nodeId}"]`);
+                        relatedPaths.forEach(p => {
+                            p.style.opacity = '1';
+                            p.style.strokeWidth = '3px';
+                        });
+                        // Highlight particles
+                        // Note: Particles don't have data attributes in current build, so we rely on visual proximity or just dimming others.
+                    }
+                });
+            });
+            
+            node.addEventListener('mouseleave', () => {
+                allLinks.forEach(el => {
+                    el.style.opacity = ''; // Reset to CSS default
+                    el.style.strokeWidth = '';
+                });
+                allLabels.forEach(el => el.style.opacity = '');
+            });
+        });
+
+        // Add data attributes to paths for interaction logic
+        const linkPaths = svgElement.querySelectorAll('.link-path');
+        connections.forEach((conn, idx) => {
+            if(linkPaths[idx]) {
+                linkPaths[idx].setAttribute('data-from', conn.from);
+                linkPaths[idx].setAttribute('data-to', conn.to);
+            }
+        });
+
+    </script>
+</body>
+</html>

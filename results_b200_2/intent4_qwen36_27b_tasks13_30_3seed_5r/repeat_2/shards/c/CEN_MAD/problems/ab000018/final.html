@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road - Design Revision</title>
+    <style>
+        :root {
+            --ui-font: 'Courier New', Courier, monospace;
+            --ui-color: #ffffff;
+            --ui-accent: #ffeb3b;
+            --ui-shadow: #2c3e50;
+            --btn-bg: rgba(255, 255, 255, 0.15);
+            --btn-border: rgba(255, 255, 255, 0.4);
+            --btn-active: rgba(255, 255, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: var(--ui-font);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD: Top Left Overlay (Critique #1) */
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 20px;
+        }
+
+        .score-box {
+            display: flex;
+            flex-direction: column;
+            text-shadow: 2px 2px 0px var(--ui-shadow);
+        }
+
+        .score-label {
+            font-size: 14px;
+            font-weight: 900;
+            color: var(--ui-color);
+            opacity: 0.9;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+
+        .score-val {
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--ui-color);
+            line-height: 1;
+        }
+
+        .best-val {
+            color: var(--ui-accent);
+        }
+
+        /* Controls: Bottom Left, Flat Geometric (Critique #5) */
+        .controls-area {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            pointer-events: auto;
+            width: 180px;
+            height: 180px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 8px;
+        }
+
+        .btn {
+            background: var(--btn-bg);
+            border: 2px solid var(--btn-border);
+            border-radius: 8px;
+            cursor: pointer;
+            backdrop-filter: blur(2px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn:active, .btn.active {
+            background: var(--btn-active);
+            transform: scale(0.95);
+        }
+
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        /* Flat Arrow Icons */
+        .arrow-icon {
+            width: 0; 
+            height: 0; 
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 18px solid #fff;
+            opacity: 0.9;
+        }
+        .btn-up .arrow-icon { margin-top: 4px; }
+        .btn-down .arrow-icon { transform: rotate(180deg); margin-bottom: 4px; }
+        .btn-left .arrow-icon { transform: rotate(-90deg); margin-left: 4px; }
+        .btn-right .arrow-icon { transform: rotate(90deg); margin-right: 4px; }
+
+        @media (max-width: 600px) {
+            .score-val { font-size: 24px; }
+            .controls-area { bottom: 20px; left: 20px; width: 160px; height: 160px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <!-- HUD: Overlay -->
+        <div class="hud-container">
+            <div class="score-box">
+                <div class="score-label">SCORE</div>
+                <div class="score-val" id="score">0</div>
+            </div>
+            <div class="score-box">
+                <div class="score-label">BEST</div>
+                <div class="score-val best-val" id="best">42</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-area">
+            <div class="btn btn-up" id="btn-up" ontouchstart="handleInput(0, -1, event)" onmousedown="handleInput(0, -1, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-left" id="btn-left" ontouchstart="handleInput(-1, 0, event)" onmousedown="handleInput(-1, 0, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-down" id="btn-down" ontouchstart="handleInput(0, 1, event)" onmousedown="handleInput(0, 1, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-right" id="btn-right" ontouchstart="handleInput(1, 0, event)" onmousedown="handleInput(1, 0, event)">
+                <div class="arrow-icon"></div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- Configuration ---
+        const CONFIG = {
+            fov: 600,
+            blockSize: 50,
+            lanes: 30,
+            horizonY: 0.35,
+            drawDistance: 25,
+            colors: {
+                skyTop: '#4FC3F7',
+                skyBot: '#E1F5FE',
+                grass1: '#8BC34A',
+                grass2: '#7CB342',
+                road: '#546E7A',
+                roadLine: '#CFD8DC',
+                water: '#03A9F4',
+                wood: '#795548',
+                woodDark: '#5D4037',
+                tree: '#43A047',
+                trunk: '#6D4C41',
+                chicken: '#FFF176', // Bright Yellow (Critique #2)
+                shadow: 'rgba(0,0,0,0.25)'
+            }
+        };
+
+        // --- State ---
+        let camera = { x: 0, y: 0, z: 0 };
+        let player = { 
+            x: 0, y: 0, z: 0, 
+            targetY: 0, 
+            squish: 1, 
+            rot: 0, 
+            targetRot: 0 
+        };
+        let lanes = [];
+        let score = 0;
+        let time = 0;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            CONFIG.horizonY = height * 0.35;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math Helpers ---
+        function project(x, y, z) {
+            const cx = x - camera.x;
+            const cy = y - camera.y;
+            const cz = z - camera.z;
+
+            if (cz < 10) return null;
+
+            const scale = CONFIG.fov / cz;
+            
+            return {
+                x: cx * scale + width / 2,
+                y: cy * scale + CONFIG.horizonY,
+                scale: scale
+            };
+        }
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+
+        // --- Classes ---
+
+        class Lane {
+            constructor(zIndex) {
+                this.z = zIndex * CONFIG.blockSize;
+                this.type = this.determineType(zIndex);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+
+                if (this.type === 'road') {
+                    const count = Math.floor(rand(2, 4));
+                    const direction = (Math.floor(zIndex / 2) % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(4, 8) * direction,
+                            // Vibrant car colors
+                            color: ['#F44336', '#2196F3', '#FF9800', '#9C27B0'][Math.floor(Math.random()*4)],
+                            w: rand(70, 90), h: rand(45, 55), d: rand(55, 65)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = Math.floor(rand(2, 3));
+                    const direction = (zIndex % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(1, 3) * direction,
+                            length: rand(150, 300)
+                        });
+                    }
+                } else {
+                    // Grass Details (Critique #6)
+                    const count = Math.floor(rand(5, 12));
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            x: rand(-1400, 1400),
+                            type: Math.random() > 0.6 ? 'tree' : (Math.random() > 0.5 ? 'bush' : 'flower'),
+                            shade: Math.random()
+                        });
+                    }
+                }
+            }
+
+            determineType(z) {
+                if (z < 5) return 'grass';
+                const mod = z % 4;
+                if (mod === 1) return 'road';
+                if (mod === 2) return 'water';
+                return 'grass';
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    if (v.speed > 0 && v.x > 2000) v.x = -2000;
+                    if (v.speed < 0 && v.x < -2000) v.x = 2000;
+                });
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    if (l.speed > 0 && l.x > 2000) l.x = -2000;
+                    if (l.speed < 0 && l.x < -2000) l.x = 2000;
+                });
+            }
+
+            draw() {
+                const laneW = 3000;
+                
+                const p1 = project(-laneW, 0, this.z);
+                const p2 = project(laneW, 0, this.z);
+                const p3 = project(laneW, 0, this.z + CONFIG.blockSize);
+                const p4 = project(-laneW, 0, this.z + CONFIG.blockSize);
+
+                if (!p1 || !p2 || !p3 || !p4) return;
+
+                // Base Color
+                ctx.fillStyle = this.type === 'grass' 
+                    ? (Math.floor(this.z/CONFIG.blockSize) % 2 === 0 ? CONFIG.colors.grass1 : CONFIG.colors.grass2)
+                    : this.type === 'road' ? CONFIG.colors.road : CONFIG.colors.water;
+
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.lineTo(p3.x, p3.y);
+                ctx.lineTo(p4.x, p4.y);
+                ctx.closePath();
+                ctx.fill();
+
+                // Details
+                if (this.type === 'road') {
+                    ctx.strokeStyle = CONFIG.colors.roadLine;
+                    ctx.lineWidth = 4 * p1.scale;
+                    ctx.setLineDash([40 * p1.scale, 40 * p1.scale]);
+                    ctx.beginPath();
+                    const mid1 = project(0, 0, this.z);
+                    const mid2 = project(0, 0, this.z + CONFIG.blockSize);
+                    ctx.moveTo(mid1.x, mid1.y);
+                    ctx.lineTo(mid2.x, mid2.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (this.type === 'water') {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                    ctx.lineWidth = 2 * p1.scale;
+                    for(let i=-1.5; i<=1.5; i+=0.5) {
+                        const s = project(i * 500, 0, this.z);
+                        const e = project(i * 500 + 100, 0, this.z);
+                        ctx.beginPath();
+                        ctx.moveTo(s.x, s.y);
+                        ctx.lineTo(e.x, e.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- Drawing Helpers ---
+
+        // Draw a 3D Cube with lighting
+        function drawCube(x, y, z, w, h, d, color) {
+            const p = project(x, y, z);
+            if(!p) return;
+            const s = p.scale;
+            
+            const hw = w * s / 2;
+            const hh = h * s;
+            const hd = d * s / 2;
+
+            const top = adjustColor(color, 30);
+            const front = color;
+            const side = adjustColor(color, -20);
+
+            // 1. Top Face
+            ctx.fillStyle = top;
+            ctx.beginPath();
+            ctx.moveTo(p.x - hw, p.y - hh);
+            ctx.lineTo(p.x - hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw, p.y - hh);
+            ctx.fill();
+
+            // 2. Front Face
+            ctx.fillStyle = front;
+            ctx.fillRect(p.x - hw, p.y - hh, hw * 2, hh);
+
+            // 3. Right Face
+            ctx.fillStyle = side;
+            ctx.beginPath();
+            ctx.moveTo(p.x + hw, p.y - hh);
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw + hd, p.y - hd);
+            ctx.lineTo(p.x + hw, p.y);
+            ctx.fill();
+        }
+
+        function adjustColor(hex, amount) {
+            let c = hex.substring(1);
+            if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+            const num = parseInt(c, 16);
+            let r = (num >> 16) + amount;
+            let g = (num >> 8 & 0x00FF) + amount;
+            let b = (num & 0x0000FF) + amount;
+            r = Math.min(255, Math.max(0, r));
+            g = Math.min(255, Math.max(0, g));
+            b = Math.min(255, Math.max(0, b));
+            return `rgb(${r},${g},${b})`;
+        }
+
+        // --- Input ---
+        function handleInput(dx, dy, event) {
+            if(event) event.preventDefault();
+            game.movePlayer(dx, dy);
+        }
+
+        // --- Game Logic ---
+
+        const game = {
+            init: () => {
+                for(let i=0; i<CONFIG.drawDistance; i++) {
+                    lanes.push(new Lane(i));
+                }
+                
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp' || e.key === 'w') game.movePlayer(0, -1);
+                    if(e.key === 'ArrowDown' || e.key === 's') game.movePlayer(0, 1);
+                    if(e.key === 'ArrowLeft' || e.key === 'a') game.movePlayer(-1, 0);
+                    if(e.key === 'ArrowRight' || e.key === 'd') game.movePlayer(1, 0);
+                });
+
+                requestAnimationFrame(game.loop);
+            },
+
+            movePlayer: (dx, dy) => {
+                const btnId = dy === -1 ? 'btn-up' : dy === 1 ? 'btn-down' : dx === -1 ? 'btn-left' : 'btn-right';
+                const btn = document.getElementById(btnId);
+                if(btn) {
+                    btn.classList.add('active');
+                    setTimeout(() => btn.classList.remove('active'), 150);
+                }
+
+                if (dy === -1) {
+                    player.z += CONFIG.blockSize;
+                    player.squish = 0.5;
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    camera.z += CONFIG.blockSize;
+                    lanes.push(new Lane(lanes.length));
+                    lanes.shift(); 
+                } 
+                else if (dy === 1) {
+                    if(player.z > 0) {
+                        player.z -= CONFIG.blockSize;
+                        camera.z -= CONFIG.blockSize;
+                        player.squish = 0.7;
+                    }
+                }
+                else if (dx !== 0) {
+                    player.x += dx * CONFIG.blockSize;
+                    if(player.x > 1300) player.x = 1300;
+                    if(player.x < -1300) player.x = -1300;
+                    player.targetRot = dx * 0.5;
+                    player.squish = 0.8;
+                }
+            },
+
+            update: () => {
+                time += 16;
+                player.squish = lerp(player.squish, 1, 0.15);
+                player.rot = lerp(player.rot, player.targetRot, 0.1);
+                player.targetRot = lerp(player.targetRot, 0, 0.05);
+
+                lanes.forEach(lane => lane.update());
+
+                const currentLane = lanes.find(l => Math.abs(l.z - player.z) < 5);
+                if (currentLane && currentLane.type === 'water') {
+                    let onLog = false;
+                    currentLane.logs.forEach(log => {
+                        if (player.x > log.x - log.length/2 && player.x < log.x + log.length/2) {
+                            onLog = true;
+                            player.x += log.speed; 
+                        }
+                    });
+                    if(!onLog) player.y = lerp(player.y, 20, 0.1);
+                    else player.y = 0;
+                } else {
+                    player.y = lerp(player.y, 0, 0.2);
+                }
+            },
+
+            draw: () => {
+                // Sky
+                const grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, CONFIG.colors.skyTop);
+                grad.addColorStop(1, CONFIG.colors.skyBot);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    if (l.z - camera.z > -100 && l.z - camera.z < CONFIG.drawDistance * CONFIG.blockSize) {
+                        drawables.push({ type: 'lane', obj: l, z: l.z });
+                        l.decorations.forEach(d => drawables.push({ type: 'deco', obj: d, z: l.z }));
+                        l.vehicles.forEach(v => drawables.push({ type: 'vehicle', obj: v, z: l.z }));
+                        l.logs.forEach(lg => drawables.push({ type: 'log', obj: lg, z: l.z }));
+                    }
+                });
+
+                drawables.push({ type: 'player', z: player.z });
+                drawables.sort((a, b) => a.z - b.z);
+
+                drawables.forEach(item => {
+                    if (item.type === 'lane') item.obj.draw();
+                    
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        const p = project(d.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, 40*p.scale, 15*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+
+                        if (d.type === 'tree') {
+                            // Distinct trunk and foliage (Critique #6)
+                            drawCube(d.x, 0, item.z, 20, 80, 20, CONFIG.colors.trunk);
+                            drawCube(d.x, 80, item.z, 60, 60, 60, CONFIG.colors.tree);
+                            drawCube(d.x, 120, item.z, 40, 40, 40, CONFIG.colors.tree);
+                        } else if (d.type === 'bush') {
+                            drawCube(d.x, 0, item.z, 30, 25, 30, CONFIG.colors.grass1);
+                        } else {
+                            // Flower
+                            drawCube(d.x, 0, item.z, 2, 15, 2, '#388E3C'); // Stem
+                            drawCube(d.x, 15, item.z, 10, 10, 10, '#FFEB3B'); // Flower
+                        }
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        const p = project(v.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, (v.w/2)*p.scale, (v.w/3)*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+
+                        // Body
+                        drawCube(v.x, 0, item.z, v.w, v.h, v.d, v.color);
+                        // Roof (Windows)
+                        drawCube(v.x, v.h, item.z, v.w*0.8, v.h*0.6, v.d*0.8, '#333');
+                        
+                        // Wheels (Critique #3)
+                        const wheelY = v.h * 0.5;
+                        const wheelZ = 0;
+                        // Front Left
+                        drawCube(v.x - v.w*0.3, wheelY, item.z + v.d*0.3, 10, 15, 10, '#333');
+                        // Front Right
+                        drawCube(v.x + v.w*0.3, wheelY, item.z + v.d*0.3, 10, 15, 10, '#333');
+                        // Back Left
+                        drawCube(v.x - v.w*0.3, wheelY, item.z - v.d*0.3, 10, 15, 10, '#333');
+                        // Back Right
+                        drawCube(v.x + v.w*0.3, wheelY, item.z - v.d*0.3, 10, 15, 10, '#333');
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        const p = project(l.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, (l.length/2)*p.scale, 15*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+                        // Defined Log (Critique #4)
+                        drawCube(l.x, 0, item.z, l.length, 20, 20, CONFIG.colors.wood);
+                        // Wood texture detail
+                        drawCube(l.x, 10, item.z, l.length*0.9, 2, 2, CONFIG.colors.woodDark);
+                    }
+
+                    if (item.type === 'player') {
+                        const p = project(player.x, player.y, player.z);
+                        if(!p) return;
+                        
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        
+                        ctx.fillStyle = CONFIG.colors.shadow;
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 25*p.scale, 12*p.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        const scaleY = player.squish;
+                        const scaleX = 1 + (1 - player.squish) * 0.3;
+                        ctx.scale(scaleX, scaleY);
+                        ctx.rotate(player.rot);
+
+                        const s = p.scale;
+                        
+                        // Legs (Orange)
+                        ctx.fillStyle = '#FF9800';
+                        drawLocalCube(-6*s, -20*s, 0, 6*s, 20*s, 6*s, '#FF9800');
+                        drawLocalCube(2*s, -20*s, 0, 6*s, 20*s, 6*s, '#FF9800');
+
+                        // Body (Bright Yellow - Critique #2)
+                        drawLocalCube(0, -20*s, 0, 35*s, 35*s, 35*s, CONFIG.colors.chicken);
+
+                        // Comb (Red)
+                        drawLocalCube(10*s, -55*s, 0, 10*s, 10*s, 10*s, '#F44336');
+
+                        // Beak
+                        ctx.fillStyle = '#FFEB3B';
+                        ctx.beginPath();
+                        ctx.moveTo(17.5*s, -42*s);
+                        ctx.lineTo(27.5*s, -37*s);
+                        ctx.lineTo(17.5*s, -32*s);
+                        ctx.fill();
+
+                        // Eyes
+                        ctx.fillStyle = '#333';
+                        ctx.beginPath();
+                        ctx.arc(12*s, -48*s, 2*s, 0, Math.PI*2); 
+                        ctx.arc(12*s, -38*s, 2*s, 0, Math.PI*2); 
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        function drawLocalCube(x, y, z, w, h, d, color) {
+            ctx.fillStyle = adjustColor(color, 30);
+            ctx.fillRect(x - w/2, y - h, w, h/2); 
+            ctx.fillStyle = color;
+            ctx.fillRect(x - w/2, y - h, w, h);
+            ctx.fillStyle = adjustColor(color, -20);
+            ctx.fillRect(x + w/2, y - h, d/2, h);
+        }
+
+        game.init();
+
+    </script>
+</body>
+</html>

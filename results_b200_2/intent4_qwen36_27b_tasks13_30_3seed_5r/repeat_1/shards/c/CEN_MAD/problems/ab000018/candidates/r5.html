@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Crossy Road - High Fidelity</title>
+<style>
+    :root {
+        /* --- PALETTE --- */
+        --sky-top: #75AADD;
+        --sky-bot: #C9E7FF;
+        --grass-top: #8BC34A;
+        --grass-side: #689F38;
+        --road-top: #555555;
+        --road-side: #333333;
+        --water-top: #29B6F6;
+        --water-side: #0288D1;
+        --wood-top: #8D6E63;
+        --wood-side: #5D4037;
+        --ui-glass: rgba(20, 20, 30, 0.65);
+        --ui-stroke: rgba(255, 255, 255, 0.2);
+        
+        /* --- COLORS --- */
+        --c-chicken: #FFF9C4;
+        --c-chicken-side: #F0F4C3;
+        --c-comb: #E53935;
+        --c-beak: #FFCA28;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-bot) 100%);
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* --- SCENE & PERSPECTIVE (CRITICAL FIX) --- */
+    #scene {
+        width: 100%;
+        height: 100%;
+        max-width: 800px; /* Wider canvas */
+        position: relative;
+        overflow: hidden;
+        /* Aggressive perspective to force vanishing point */
+        perspective: 900px;
+        perspective-origin: 50% 10%; 
+    }
+
+    /* --- UI: GLASSMORPHISM & TYPOGRAPHY --- */
+    .hud {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        right: 20px;
+        height: auto;
+        z-index: 100;
+        display: flex;
+        justify-content: space-between;
+        pointer-events: none; /* Let clicks pass through to game */
+    }
+
+    .score-pill {
+        background: var(--ui-glass);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--ui-stroke);
+        border-radius: 16px;
+        padding: 8px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        color: white;
+        min-width: 90px;
+    }
+
+    .score-pill span:first-child {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-weight: 700;
+        opacity: 0.7;
+        margin-bottom: 2px;
+    }
+
+    .score-pill span:last-child {
+        font-size: 32px;
+        font-weight: 900;
+        line-height: 1;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    /* --- WORLD --- */
+    #world {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        transform-style: preserve-3d;
+        /* High rotation for steep 2.5D angle */
+        transform: rotateX(55deg) translateY(-100px);
+        transition: transform 0.1s linear; 
+    }
+
+    /* --- LANES --- */
+    .lane {
+        width: 100%;
+        height: 100px;
+        position: absolute;
+        left: 0;
+        transform-style: preserve-3d;
+        /* Subtle gradient overlay for depth */
+        mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 100%);
+    }
+
+    /* Grass: Noise texture simulation */
+    .lane.grass {
+        background-color: var(--grass-top);
+        background-image: 
+            radial-gradient(circle, rgba(0,0,0,0.05) 2px, transparent 3px),
+            radial-gradient(circle, rgba(255,255,255,0.1) 3px, transparent 4px);
+        background-size: 20px 20px, 35px 35px;
+        background-position: 0 0, 10px 10px;
+    }
+    .lane.grass::after {
+        content: '';
+        position: absolute;
+        bottom: -35px; /* Extrusion height */
+        left: 0;
+        width: 100%;
+        height: 35px;
+        background: var(--grass-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+
+    /* Road: Asphalt texture */
+    .lane.road {
+        background-color: var(--road-top);
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
+    }
+    .lane.road::after {
+        content: '';
+        position: absolute;
+        bottom: -35px;
+        left: 0;
+        width: 100%;
+        height: 35px;
+        background: var(--road-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+    /* Road Lines */
+    .lane.road::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: repeating-linear-gradient(90deg, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 40px, transparent 40px, transparent 80px);
+        transform: translateY(-50%);
+    }
+
+    /* Water: Animated Ripples */
+    .lane.water {
+        background-color: var(--water-top);
+        overflow: hidden;
+    }
+    /* SVG Noise for Water Texture */
+    .lane.water::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: 
+            linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px);
+        background-size: 40px 40px;
+        opacity: 0.3;
+        animation: waterMove 3s linear infinite;
+    }
+    .lane.water::after {
+        content: '';
+        position: absolute;
+        bottom: -35px;
+        left: 0;
+        width: 100%;
+        height: 35px;
+        background: var(--water-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+
+    @keyframes waterMove {
+        from { background-position: 0 0; }
+        to { background-position: 40px 40px; }
+    }
+
+    /* --- OBJECTS (3D) --- */
+    .obj {
+        position: absolute;
+        top: 15px; 
+        transform-style: preserve-3d;
+        will-change: transform;
+        filter: drop-shadow(0px 15px 5px rgba(0,0,0,0.3));
+    }
+
+    /* --- CARS (Faceted Low Poly) --- */
+    .car {
+        width: 80px;
+        height: 45px;
+        position: relative;
+    }
+    
+    /* Car Body - Faceted look */
+    .car-body {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #FF5252 0%, #D32F2F 100%);
+        border-radius: 6px;
+        /* Simulate side lighting */
+        box-shadow: inset -5px -5px 0 rgba(0,0,0,0.1);
+    }
+    /* Car Extrusion (Side face) */
+    .car-body::after {
+        content: '';
+        position: absolute;
+        bottom: -15px;
+        left: 0;
+        width: 100%;
+        height: 15px;
+        background: linear-gradient(to bottom, #B71C1C, #880E4F);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+    
+    /* Car Roof */
+    .car-roof {
+        position: absolute;
+        top: -22px;
+        left: 10px;
+        width: 60px;
+        height: 22px;
+        background: linear-gradient(135deg, #FF8A80 0%, #E57373 100%);
+        border-radius: 4px 4px 0 0;
+        z-index: 2;
+        box-shadow: inset -2px -2px 0 rgba(0,0,0,0.1);
+    }
+    .car-roof::after {
+        content: '';
+        position: absolute;
+        bottom: -15px;
+        left: 0;
+        width: 100%;
+        height: 15px;
+        background: #C62828;
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* Truck Variant */
+    .truck { width: 130px; }
+    .truck .car-body { background: linear-gradient(135deg, #FFB74D 0%, #F57C00 100%); }
+    .truck .car-body::after { background: #E65100; }
+    .truck .car-roof { 
+        background: linear-gradient(135deg, #FFCC80 0%, #FFB74D 100%);
+        top: -30px; height: 30px; left: 5px; width: 50px; 
+    }
+    .truck .car-roof::after { background: #EF6C00; }
+
+    /* --- LOGS --- */
+    .log {
+        width: 100px;
+        height: 35px;
+        position: relative;
+    }
+    .log-top {
+        position: absolute;
+        inset: 0;
+        background: var(--wood-top);
+        border-radius: 4px;
+        /* Wood grain simulation */
+        background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.05) 10px, rgba(0,0,0,0.05) 12px);
+    }
+    .log-top::after {
+        content: '';
+        position: absolute;
+        bottom: -12px;
+        left: 0;
+        width: 100%;
+        height: 12px;
+        background: var(--wood-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* --- PLAYER: CHICKEN --- */
+    #player-anchor {
+        position: absolute;
+        width: 60px;
+        height: 60px;
+        z-index: 50;
+        left: 50%;
+        transform: translateX(-50%);
+        transform-origin: bottom center;
+        transition: left 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), bottom 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .chicken {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        transform-style: preserve-3d;
+        animation: bob 0.4s infinite alternate ease-in-out;
+    }
+
+    /* Shadow */
+    .shadow {
+        position: absolute;
+        bottom: -5px;
+        left: 10px;
+        width: 40px;
+        height: 10px;
+        background: rgba(0,0,0,0.4);
+        border-radius: 50%;
+        filter: blur(4px);
+        z-index: -1;
+    }
+
+    /* Body */
+    .body {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        background: var(--c-chicken);
+        bottom: 0;
+        left: 10px;
+        border-radius: 12px;
+        box-shadow: inset -4px -4px 0 rgba(0,0,0,0.05);
+        z-index: 1;
+    }
+    .body::after {
+        content: '';
+        position: absolute;
+        bottom: -10px;
+        left: 0;
+        width: 100%;
+        height: 10px;
+        background: var(--c-chicken-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        border-radius: 0 0 8px 8px;
+    }
+
+    /* Head */
+    .head {
+        position: absolute;
+        top: -15px;
+        right: -2px;
+        width: 28px;
+        height: 28px;
+        background: var(--c-chicken);
+        border-radius: 8px;
+        z-index: 2;
+        box-shadow: inset -3px -3px 0 rgba(0,0,0,0.05);
+    }
+    .head::after {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        left: 0;
+        width: 100%;
+        height: 8px;
+        background: var(--c-chicken-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* Comb */
+    .comb {
+        position: absolute;
+        top: -10px;
+        left: 6px;
+        width: 12px;
+        height: 10px;
+        background: var(--c-comb);
+        border-radius: 4px 4px 0 0;
+        z-index: 3;
+    }
+
+    /* Face */
+    .face {
+        position: absolute;
+        top: 8px;
+        right: 3px;
+    }
+    .eye {
+        width: 6px; height: 6px;
+        background: #212121;
+        border-radius: 50%;
+        position: absolute;
+        top: 0; right: 0;
+    }
+    .beak {
+        width: 9px; height: 7px;
+        background: var(--c-beak);
+        position: absolute;
+        top: 7px; right: 1px;
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
+
+    @keyframes bob {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(-4px); }
+    }
+
+    /* --- CONTROLS: COMPACT & TRANSLUCENT --- */
+    .controls {
+        position: absolute;
+        bottom: 30px;
+        right: 30px;
+        width: 140px;
+        height: 140px;
+        z-index: 200;
+        pointer-events: auto;
+        opacity: 0.8; /* Reduced visual weight */
+        transition: opacity 0.2s;
+    }
+    .controls:hover, .controls:active { opacity: 1; }
+
+    .d-pad {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+
+    .btn {
+        position: absolute;
+        width: 50px;
+        height: 50px;
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 14px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.1s;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn:active {
+        background: rgba(255, 255, 255, 0.3);
+        transform: scale(0.95);
+    }
+
+    .btn svg { 
+        width: 24px; height: 24px; 
+        fill: #ffffff; 
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+    }
+
+    .btn-up { top: 0; left: 45px; }
+    .btn-down { bottom: 0; left: 45px; }
+    .btn-left { top: 45px; left: 0; }
+    .btn-right { top: 45px; right: 0; }
+
+    /* --- DECORATIONS --- */
+    .cloud {
+        position: absolute;
+        background: rgba(255,255,255,0.7);
+        border-radius: 50px;
+        z-index: -1;
+        animation: floatCloud linear infinite;
+        filter: blur(2px);
+    }
+    .cloud::after, .cloud::before {
+        content: ''; position: absolute; background: inherit; border-radius: 50%;
+    }
+    .cloud::after { width: 40px; height: 40px; top: -20px; left: 15px; }
+    .cloud::before { width: 50px; height: 50px; top: -25px; left: 40px; }
+
+    @keyframes floatCloud {
+        from { transform: translateX(-200px); }
+        to { transform: translateX(120vw); }
+    }
+
+    /* Trees */
+    .tree {
+        position: absolute;
+        transform-style: preserve-3d;
+        transform: translateZ(10px); 
+        filter: drop-shadow(0 10px 5px rgba(0,0,0,0.2));
+    }
+    .trunk {
+        width: 12px; height: 20px;
+        background: #795548;
+        margin: 0 auto;
+        border-radius: 2px;
+    }
+    .leaves {
+        width: 0; height: 0;
+        border-left: 24px solid transparent;
+        border-right: 24px solid transparent;
+        border-bottom: 60px solid #43A047;
+        margin-bottom: -5px;
+        position: relative;
+    }
+    /* Faceted look for leaves */
+    .leaves::after {
+        content: ''; position: absolute; top: 30px; left: -24px;
+        border-left: 24px solid transparent;
+        border-right: 24px solid transparent;
+        border-bottom: 45px solid #66BB6A;
+    }
+
+</style>
+</head>
+<body>
+
+<div id="scene">
+    <!-- HUD: Top Corners, Anchored -->
+    <div class="hud">
+        <div class="score-pill">
+            <span>Score</span>
+            <span id="score">0</span>
+        </div>
+        <div class="score-pill">
+            <span>Best</span>
+            <span id="best">0</span>
+        </div>
+    </div>
+
+    <!-- Clouds -->
+    <div class="cloud" style="top: 5%; width: 100px; height: 30px; animation-duration: 40s;"></div>
+    <div class="cloud" style="top: 15%; width: 140px; height: 40px; animation-duration: 30s; animation-delay: -10s;"></div>
+    <div class="cloud" style="top: 8%; width: 80px; height: 25px; animation-duration: 50s; animation-delay: -25s;"></div>
+
+    <!-- GAME WORLD -->
+    <div id="world">
+        <!-- JS Injects Lanes Here -->
+    </div>
+
+    <!-- PLAYER -->
+    <div id="player-anchor">
+        <div class="chicken">
+            <div class="comb"></div>
+            <div class="head">
+                <div class="face">
+                    <div class="eye"></div>
+                    <div class="beak"></div>
+                </div>
+            </div>
+            <div class="body"></div>
+            <div class="shadow"></div>
+        </div>
+    </div>
+
+    <!-- CONTROLS: Bottom Right, Compact -->
+    <div class="controls">
+        <div class="d-pad">
+            <div class="btn btn-up" onclick="movePlayer(0, 1)">
+                <svg viewBox="0 0 24 24"><path d="M12 4l-8 8h6v8h4v-8h6z"/></svg>
+            </div>
+            <div class="btn btn-down" onclick="movePlayer(0, -1)">
+                <svg viewBox="0 0 24 24"><path d="M12 20l8-8h-6V4h-4v8H4z"/></svg>
+            </div>
+            <div class="btn btn-left" onclick="movePlayer(-1, 0)">
+                <svg viewBox="0 0 24 24"><path d="M20 12l-8-8v6H4v4h8v6z"/></svg>
+            </div>
+            <div class="btn btn-right" onclick="movePlayer(1, 0)">
+                <svg viewBox="0 0 24 24"><path d="M4 12l8 8v-6h8v-4H12V4z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    const LANE_HEIGHT = 100;
+    const BOARD_INIT_OFFSET = -80;
+    const START_LANES = 12;
+    
+    // --- STATE ---
+    let score = 0;
+    let bestScore = 0;
+    let playerGridPos = { x: 0, y: 2 };
+    let lanes = [];
+    let gameLoopId;
+    let isGameOver = false;
+    let cameraY = 0;
+
+    // --- ELEMENTS ---
+    const world = document.getElementById('world');
+    const playerEl = document.getElementById('player-anchor');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+
+    // --- INITIALIZATION ---
+    function init() {
+        for (let i = 0; i < START_LANES; i++) {
+            addLane(i);
+        }
+        updatePlayerVisuals();
+        gameLoop();
+    }
+
+    // --- LANE GENERATION ---
+    function addLane(count) {
+        const index = count; 
+        let type = 'grass';
+        
+        // Procedural Logic - Ensure variety
+        if (index > 1) {
+            const r = Math.random();
+            if (r < 0.4) type = 'road';
+            else if (r < 0.7) type = 'water';
+            else type = 'grass';
+        }
+
+        const lane = document.createElement('div');
+        lane.className = `lane ${type}`;
+        lane.style.bottom = (index * LANE_HEIGHT) + 'px';
+        
+        let contentEl = null;
+        let speed = 0;
+        let xPos = 0;
+
+        if (type === 'road') {
+            const isTruck = Math.random() > 0.6;
+            const dir = Math.random() > 0.5 ? 1 : -1;
+            speed = (1.5 + Math.random() * 2.5) * dir;
+            xPos = dir > 0 ? -160 : 120; 
+            
+            contentEl = document.createElement('div');
+            contentEl.className = `obj car ${isTruck ? 'truck' : ''}`;
+            contentEl.innerHTML = `
+                <div class="car-body"></div>
+                <div class="car-roof"></div>
+            `;
+            lane.appendChild(contentEl);
+        } 
+        else if (type === 'water') {
+            const dir = Math.random() > 0.5 ? 1 : -1;
+            speed = (0.8 + Math.random() * 1.2) * dir;
+            xPos = dir > 0 ? -160 : 120;
+
+            contentEl = document.createElement('div');
+            contentEl.className = 'obj log';
+            contentEl.innerHTML = '<div class="log-top"></div>';
+            lane.appendChild(contentEl);
+        } 
+        else if (type === 'grass') {
+            if (Math.random() > 0.5) {
+                const tree = document.createElement('div');
+                tree.className = 'tree';
+                tree.innerHTML = '<div class="leaves"></div><div class="trunk"></div>';
+                tree.style.left = (Math.random() * 80 + 10) + '%';
+                tree.style.bottom = (Math.random() * 30 + 10) + 'px';
+                lane.appendChild(tree);
+            }
+        }
+
+        world.appendChild(lane);
+
+        lanes.push({
+            element: lane,
+            type: type,
+            index: index,
+            content: contentEl,
+            speed: speed,
+            x: xPos
+        });
+    }
+
+    // --- GAME LOOP ---
+    function gameLoop() {
+        if (!isGameOver) {
+            lanes.forEach(l => {
+                if (l.content) {
+                    l.x += l.speed;
+                    if (l.speed > 0 && l.x > 120) l.x = -160;
+                    if (l.speed < 0 && l.x < -160) l.x = 120;
+                    
+                    l.content.style.transform = `translateX(${l.x}%)`;
+                }
+            });
+
+            checkCollisions();
+            updateCamera();
+        }
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- COLLISION LOGIC ---
+    function checkCollisions() {
+        const currentLane = lanes.find(l => l.index === playerGridPos.y);
+        if (!currentLane) return;
+
+        // Player X in Percentage (-5 to 5 maps to 0% to 100%)
+        // Center is 50%.
+        const pCenterPct = 50 + (playerGridPos.x * 8);
+        const pRadiusPct = 3.0; 
+
+        const pLeft = pCenterPct - pRadiusPct;
+        const pRight = pCenterPct + pRadiusPct;
+
+        if (currentLane.type === 'road') {
+            const carObj = currentLane.content;
+            const carWidth = carObj.classList.contains('truck') ? 22 : 14; 
+            const cLeft = currentLane.x;
+            const cRight = currentLane.x + carWidth;
+
+            if (pLeft < cRight && pRight > cLeft) {
+                gameOver();
+            }
+        } 
+        else if (currentLane.type === 'water') {
+            const logObj = currentLane.content;
+            const logWidth = 16; 
+            const lLeft = currentLane.x;
+            const lRight = currentLane.x + logWidth;
+
+            if (pLeft < lRight && pRight > lLeft) {
+                // Riding Log
+                playerGridPos.x += (currentLane.speed * 0.03); 
+                
+                // Clamp player on log
+                if (playerGridPos.x > 5) playerGridPos.x = 5;
+                if (playerGridPos.x < -5) playerGridPos.x = -5;
+                
+                updatePlayerVisuals();
+            } else {
+                // Drown
+                gameOver();
+            }
+        }
+    }
+
+    // --- MOVEMENT ---
+    window.movePlayer = function(dx, dy) {
+        if (isGameOver) {
+            resetGame();
+            return;
+        }
+
+        const newY = playerGridPos.y + dy;
+        
+        if (newY < 0) return; 
+
+        playerGridPos.x += dx;
+        playerGridPos.y = newY;
+
+        // Clamp X
+        if (playerGridPos.x > 5) playerGridPos.x = 5;
+        if (playerGridPos.x < -5) playerGridPos.x = -5;
+
+        updatePlayerVisuals();
+
+        if (dy > 0) {
+            score++;
+            scoreEl.innerText = score;
+            addLane(lanes.length);
+        }
+    };
+
+    function updatePlayerVisuals() {
+        const bottomPx = (playerGridPos.y * LANE_HEIGHT) + 30; 
+        const leftPct = 50 + (playerGridPos.x * 8); 
+
+        playerEl.style.bottom = bottomPx + 'px';
+        playerEl.style.left = leftPct + '%';
+    }
+
+    function updateCamera() {
+        // Target: Keep player at ~35% from bottom of screen
+        const targetBottom = (playerGridPos.y * LANE_HEIGHT) + 30;
+        const screenCenter = window.innerHeight * 0.35; 
+        
+        const desiredBoardY = - (targetBottom - screenCenter);
+        
+        cameraY += (desiredBoardY - cameraY) * 0.1;
+        
+        world.style.transform = `rotateX(55deg) translateY(${BOARD_INIT_OFFSET + cameraY}px)`;
+    }
+
+    function gameOver() {
+        isGameOver = true;
+        if (score > bestScore) {
+            bestScore = score;
+            bestEl.innerText = bestScore;
+        }
+        
+        playerEl.style.transform = 'translateX(-50%) rotate(90deg) scale(0.8)';
+        playerEl.style.transition = 'all 0.3s';
+        playerEl.style.opacity = '0.5';
+        
+        setTimeout(() => {
+            // Simple non-blocking alert overlay logic could go here, 
+            // but standard alert is acceptable for this scope
+            alert(`Game Over!\nScore: ${score}\nBest: ${bestScore}\n\nClick OK to restart.`);
+            resetGame();
+        }, 800);
+    }
+
+    function resetGame() {
+        isGameOver = false;
+        score = 0;
+        scoreEl.innerText = '0';
+        playerGridPos = { x: 0, y: 2 };
+        cameraY = 0;
+        
+        playerEl.style.transform = 'translateX(-50%)';
+        playerEl.style.opacity = '1';
+        playerEl.style.transition = 'left 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), bottom 0.15s cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+        world.innerHTML = '';
+        lanes = [];
+        
+        init();
+    }
+
+    // --- INPUT ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp') movePlayer(0, 1);
+        if (e.key === 'ArrowDown') movePlayer(0, -1);
+        if (e.key === 'ArrowLeft') movePlayer(-1, 0);
+        if (e.key === 'ArrowRight') movePlayer(1, 0);
+    });
+
+    // --- START ---
+    init();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            /* Palette - Technical Blueprint / Dark Mode */
+            --bg-color: #0b1120;
+            --bg-grid: #1e293b;
+            --card-bg: #0f172a;
+            --card-border: #334155;
+            
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #475569;
+
+            /* Semantic Flow Colors */
+            --col-data: #38bdf8;      /* Sky Blue - Data */
+            --col-instr: #fbbf24;     /* Amber - Instructions */
+            --col-ctrl: #34d399;      /* Emerald - Control */
+            
+            /* Component Accents */
+            --accent-cpu: #ffffff;
+            --accent-gpu: #a78bfa;
+            --accent-mem: #38bdf8;
+            --accent-stor: #fb7185;
+            --accent-io: #64748b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                linear-gradient(var(--bg-grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: center center;
+            color: var(--text-main);
+            font-family: "SF Mono", "Fira Code", "Roboto Mono", "Consolas", monospace; /* Monospace for blueprint feel */
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header & UI */
+        header {
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid var(--card-border);
+            background: rgba(11, 17, 32, 0.9);
+            backdrop-filter: blur(8px);
+            z-index: 10;
+            position: relative;
+        }
+
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .meta {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Legend */
+        .legend-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .legend-title {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-right: 16px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            background: rgba(30, 41, 59, 0.4);
+            padding: 8px 16px;
+            border: 1px solid var(--card-border);
+            border-radius: 4px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .line-sample {
+            width: 24px;
+            height: 2px;
+            position: relative;
+        }
+        
+        /* CSS representations of SVG line styles for legend */
+        .sample-data { background: var(--col-data); box-shadow: 0 0 8px var(--col-data); }
+        .sample-instr { background: var(--col-instr); }
+        .sample-ctrl { 
+            background: transparent; 
+            border-bottom: 2px dashed var(--col-ctrl); 
+            box-shadow: 0 1px 0 var(--col-ctrl);
+        }
+
+        /* Main Canvas */
+        main {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            max-width: 1600px;
+            max-height: 1000px;
+            /* Center the SVG content */
+            transform-origin: center;
+        }
+
+        /* SVG Elements Styling */
+        .node-box {
+            fill: var(--card-bg);
+            stroke-width: 1.5px;
+            rx: 6px;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+            transition: all 0.3s ease;
+        }
+
+        .node-box:hover {
+            fill: #162032;
+            stroke-width: 2px;
+        }
+
+        .node-label {
+            fill: var(--text-main);
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 14px;
+            text-anchor: middle;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .node-sub {
+            fill: var(--text-muted);
+            font-family: inherit;
+            font-weight: 400;
+            font-size: 11px;
+            text-anchor: middle;
+            opacity: 0.8;
+        }
+
+        .link-path {
+            fill: none;
+            stroke-width: 1.5px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+            transition: opacity 0.3s ease;
+        }
+
+        .link-path.dimmed {
+            opacity: 0.1;
+        }
+
+        .link-path.highlighted {
+            opacity: 1;
+            stroke-width: 2.5px;
+            filter: drop-shadow(0 0 4px currentColor);
+        }
+
+        /* Flow Animation */
+        .flow-particle {
+            fill: none;
+            stroke-width: 2px;
+            stroke-linecap: round;
+            pointer-events: none;
+        }
+
+        @keyframes flow {
+            to { stroke-dashoffset: -20; } /* 5px dash + 15px gap = 20px */
+        }
+
+        /* Label Pills */
+        .label-bg {
+            fill: var(--bg-color);
+            stroke: var(--card-border);
+            stroke-width: 1px;
+            rx: 3px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+        }
+        
+        .link-text {
+            fill: var(--text-muted);
+            font-family: inherit;
+            font-weight: 500;
+            font-size: 10px;
+            text-anchor: middle;
+            letter-spacing: 0.02em;
+            pointer-events: none;
+        }
+
+        /* Corner decorations */
+        .corner-mark {
+            stroke: var(--card-border);
+            stroke-width: 1px;
+            fill: none;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>System Architecture</h1>
+            <div class="meta">Von Neumann Topology // Data Flow Schematic</div>
+        </div>
+
+        <div class="legend-container">
+            <span class="legend-title">Signal Type</span>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="line-sample sample-data"></div>
+                    <span>Data Bus</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-sample sample-instr"></div>
+                    <span>Instructions</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-sample sample-ctrl"></div>
+                    <span>Control</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main id="canvas-container">
+        <!-- SVG injected here by JS -->
+    </main>
+
+    <script>
+        // Configuration
+        const colors = {
+            data: '#38bdf8',
+            instr: '#fbbf24',
+            ctrl: '#34d399',
+            cpu: '#ffffff',
+            gpu: '#a78bfa',
+            mem: '#38bdf8',
+            stor: '#fb7185',
+            io: '#64748b'
+        };
+
+        // Layout Definitions (Grid: 1600x900)
+        // CPU Center: (800, 450)
+        const components = {
+            // Input (Left)
+            inp:  { x: 100, y: 380, w: 180, h: 140, label: "Input", sub: "Peripherals" },
+            
+            // CPU (Center - Focal Point)
+            cpu:  { x: 650, y: 350, w: 300, h: 200, label: "CPU", sub: "Central Processor" },
+            
+            // RAM (Top Center - Primary Orbital)
+            mem:  { x: 650, y: 80, w: 300, h: 160, label: "Memory", sub: "System RAM" },
+            
+            // GPU (Right Center - Primary Orbital)
+            gpu:  { x: 1100, y: 380, w: 220, h: 140, label: "GPU", sub: "Graphics Unit" },
+            
+            // Output (Far Right - Peripheral)
+            out:  { x: 1400, y: 380, w: 180, h: 140, label: "Output", sub: "Display" },
+            
+            // Storage (Bottom Left - Peripheral)
+            stor: { x: 300, y: 650, w: 200, h: 140, label: "Storage", sub: "NVMe / SSD" },
+            
+            // Network (Bottom Right - Peripheral)
+            net:  { x: 1000, y: 650, w: 200, h: 140, label: "Network", sub: "Interface Card" }
+        };
+
+        // Connections
+        const connections = [
+            // CPU <-> RAM (High Speed)
+            { from: 'cpu', to: 'mem', type: 'data', label: 'Data Write', offset: 20 },
+            { from: 'mem', to: 'cpu', type: 'instr', label: 'Fetch Opcode', offset: -20 },
+            
+            // CPU <-> GPU (PCIe)
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Command Buffer' },
+            
+            // GPU <-> Output
+            { from: 'gpu', to: 'out', type: 'data', label: 'Frame Buffer' },
+
+            // CPU <-> Storage
+            { from: 'stor', to: 'cpu', type: 'data', label: 'Page Load' },
+            { from: 'cpu', to: 'stor', type: 'ctrl', label: 'I/O Control', offset: 15 },
+
+            // CPU <-> Network
+            { from: 'cpu', to: 'net', type: 'data', label: 'TX Queue' },
+            { from: 'net', to: 'cpu', type: 'data', label: 'Interrupt/RX', offset: 15 },
+
+            // Input -> CPU
+            { from: 'inp', to: 'cpu', type: 'data', label: 'Events' },
+        ];
+
+        // Helper to calculate edge intersection
+        const getEdge = (sourceId, targetId, offset = 0) => {
+            const s = components[sourceId];
+            const t = components[targetId];
+            
+            const sCx = s.x + s.w/2;
+            const sCy = s.y + s.h/2;
+            const tCx = t.x + t.w/2;
+            const tCy = t.y + t.h/2;
+
+            const dx = tCx - sCx;
+            const dy = tCy - sCy;
+
+            let start = { x: sCx, y: sCy };
+            let end = { x: tCx, y: tCy };
+
+            // Apply offset for parallel lines
+            if (Math.abs(dy) > Math.abs(dx)) {
+                start.x += offset;
+                end.x += offset;
+            } else {
+                start.y += offset;
+                end.y += offset;
+            }
+
+            // Clamp to edges
+            if (Math.abs(dx) > Math.abs(dy)) {
+                start.x = dx > 0 ? s.x + s.w : s.x;
+            } else {
+                start.y = dy > 0 ? s.y + s.h : s.y;
+            }
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+                end.x = dx > 0 ? t.x : t.x + t.w;
+            } else {
+                end.y = dy > 0 ? t.y : t.y + t.h;
+            }
+
+            return { start, end };
+        };
+
+        // Create SVG Element
+        const createSVG = () => {
+            const ns = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(ns, "svg");
+            svg.setAttribute("viewBox", "0 0 1600 900");
+
+            // Defs
+            const defs = document.createElementNS(ns, "defs");
+            
+            const createMarker = (id, color, type) => {
+                const marker = document.createElementNS(ns, "marker");
+                marker.setAttribute("id", id);
+                marker.setAttribute("markerWidth", "10");
+                marker.setAttribute("markerHeight", "7");
+                marker.setAttribute("refX", "9");
+                marker.setAttribute("refY", "3.5");
+                marker.setAttribute("orient", "auto");
+                
+                const polygon = document.createElementNS(ns, "polygon");
+                polygon.setAttribute("points", "0 0, 10 3.5, 0 7");
+                polygon.setAttribute("fill", color);
+                marker.appendChild(polygon);
+                return marker;
+            };
+
+            defs.appendChild(createMarker('arrow-data', colors.data));
+            defs.appendChild(createMarker('arrow-instr', colors.instr));
+            defs.appendChild(createMarker('arrow-ctrl', colors.ctrl));
+            svg.appendChild(defs);
+
+            // Layer 1: Connections
+            const linksGroup = document.createElementNS(ns, "g");
+            linksGroup.setAttribute("id", "links-layer");
+
+            connections.forEach((conn) => {
+                const { start, end } = getEdge(conn.from, conn.to, conn.offset || 0);
+                const color = colors[conn.type];
+                const markerId = `arrow-${conn.type}`;
+
+                // Path logic: Orthogonal
+                let d = `M ${start.x} ${start.y}`;
+                const midX = (start.x + end.x) / 2;
+                const midY = (start.y + end.y) / 2;
+
+                // Determine routing style
+                if (Math.abs(start.x - end.x) > 20 && Math.abs(start.y - end.y) > 20) {
+                    d += ` L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`;
+                } else {
+                    d += ` L ${end.x} ${end.y}`;
+                }
+
+                // Background Path
+                const path = document.createElementNS(ns, "path");
+                path.setAttribute("d", d);
+                path.setAttribute("stroke", color);
+                path.setAttribute("class", "link-path");
+                path.setAttribute("marker-end", `url(#${markerId})`);
+                path.setAttribute("data-from", conn.from);
+                path.setAttribute("data-to", conn.to);
+                
+                // Styling based on type
+                if (conn.type === 'ctrl') {
+                    path.setAttribute("stroke-dasharray", "6 4");
+                }
+                
+                linksGroup.appendChild(path);
+
+                // Animated Particle Path
+                const particle = document.createElementNS(ns, "path");
+                particle.setAttribute("d", d);
+                particle.setAttribute("stroke", color);
+                particle.setAttribute("class", "flow-particle");
+                particle.setAttribute("stroke-dasharray", "4 16"); // 4px dash, 16px gap
+                particle.style.animation = `flow 1.5s linear infinite`;
+                particle.style.animationDelay = `${Math.random() * -1.5}s`;
+                linksGroup.appendChild(particle);
+
+                // Label Logic
+                let labelX, labelY;
+                // Position label at the middle of the parallel segment
+                if (Math.abs(start.y - end.y) > Math.abs(start.x - end.y)) {
+                    labelX = midX;
+                    labelY = midY;
+                } else {
+                    labelX = midX;
+                    labelY = midY;
+                }
+
+                const labelGroup = document.createElementNS(ns, "g");
+                labelGroup.setAttribute("class", "label-group");
+                labelGroup.setAttribute("transform", `translate(${labelX}, ${labelY})`);
+
+                const text = document.createElementNS(ns, "text");
+                text.setAttribute("class", "link-text");
+                text.setAttribute("dominant-baseline", "middle");
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = conn.label;
+                
+                // Measure text
+                const tempText = document.createElementNS(ns, "text");
+                tempText.textContent = conn.label;
+                tempText.style.font = "500 10px sans-serif"; // Approximate font for measurement
+                svg.appendChild(tempText);
+                const bbox = tempText.getBBox();
+                svg.removeChild(tempText);
+
+                const padding = 6;
+                const rect = document.createElementNS(ns, "rect");
+                rect.setAttribute("x", -bbox.width/2 - padding);
+                rect.setAttribute("y", -bbox.height/2 - padding);
+                rect.setAttribute("width", bbox.width + (padding * 2));
+                rect.setAttribute("height", bbox.height + (padding * 2));
+                rect.setAttribute("class", "label-bg");
+                
+                labelGroup.appendChild(rect);
+                labelGroup.appendChild(text);
+                linksGroup.appendChild(labelGroup);
+            });
+            svg.appendChild(linksGroup);
+
+            // Layer 2: Components
+            const nodesGroup = document.createElementNS(ns, "g");
+            
+            Object.keys(components).forEach(key => {
+                const comp = components[key];
+                
+                const g = document.createElementNS(ns, "g");
+                g.setAttribute("id", key);
+                g.setAttribute("transform", `translate(${comp.x}, ${comp.y})`);
+                g.style.cursor = "pointer";
+
+                // Box
+                const rect = document.createElementNS(ns, "rect");
+                rect.setAttribute("width", comp.w);
+                rect.setAttribute("height", comp.h);
+                rect.setAttribute("class", "node-box");
+                
+                if (key === 'cpu') rect.style.stroke = colors.cpu;
+                else if (key === 'gpu') rect.style.stroke = colors.gpu;
+                else if (key === 'mem') rect.style.stroke = colors.mem;
+                else if (key === 'stor') rect.style.stroke = colors.stor;
+                else rect.style.stroke = colors.io;
+                
+                g.appendChild(rect);
+
+                // Icon
+                const iconG = document.createElementNS(ns, "g");
+                iconG.setAttribute("transform", `translate(${comp.w/2}, 50)`);
+                
+                if (key === 'cpu') {
+                    const main = document.createElementNS(ns, "rect");
+                    main.setAttribute("x", -14); main.setAttribute("y", -14);
+                    main.setAttribute("width", 28); main.setAttribute("height", 28);
+                    main.setAttribute("fill", "none"); main.setAttribute("stroke", "#fff"); main.setAttribute("stroke-width", "2");
+                    iconG.appendChild(main);
+                    const core = document.createElementNS(ns, "rect");
+                    core.setAttribute("x", -8); core.setAttribute("y", -8);
+                    core.setAttribute("width", 16); core.setAttribute("height", 16);
+                    core.setAttribute("fill", "#fff");
+                    iconG.appendChild(core);
+                } else if (key === 'stor') {
+                    for(let i=0; i<3; i++) {
+                        const l = document.createElementNS(ns, "path");
+                        l.setAttribute("d", `M-16 ${-12 + i*10} L16 ${-12 + i*10}`);
+                        l.setAttribute("fill", "none"); l.setAttribute("stroke", colors.stor); l.setAttribute("stroke-width", "2");
+                        iconG.appendChild(l);
+                    }
+                    const v = document.createElementNS(ns, "line");
+                    v.setAttribute("x1", 0); v.setAttribute("y1", -12);
+                    v.setAttribute("x2", 0); v.setAttribute("y2", 12);
+                    v.setAttribute("stroke", colors.stor); v.setAttribute("stroke-width", "2");
+                    iconG.appendChild(v);
+                } else if (key === 'gpu') {
+                    const t = document.createElementNS(ns, "polygon");
+                    t.setAttribute("points", "0,-16 16,12 -16,12");
+                    t.setAttribute("fill", "none"); t.setAttribute("stroke", colors.gpu); t.setAttribute("stroke-width", "2");
+                    iconG.appendChild(t);
+                    const c = document.createElementNS(ns, "circle");
+                    c.setAttribute("r", 5); c.setAttribute("fill", colors.gpu);
+                    iconG.appendChild(c);
+                } else if (key === 'mem') {
+                    for(let i=0; i<4; i++) {
+                        const r = document.createElementNS(ns, "rect");
+                        r.setAttribute("x", -22 + i*12); r.setAttribute("y", -14);
+                        r.setAttribute("width", 8); r.setAttribute("height", 28);
+                        r.setAttribute("fill", "none"); r.setAttribute("stroke", colors.mem); r.setAttribute("stroke-width", "2");
+                        iconG.appendChild(r);
+                    }
+                } else if (key === 'inp') {
+                    const k = document.createElementNS(ns, "rect");
+                    k.setAttribute("x", -20); k.setAttribute("y", -14);
+                    k.setAttribute("width", 40); k.setAttribute("height", 28);
+                    k.setAttribute("rx", 2);
+                    k.setAttribute("fill", "none"); k.setAttribute("stroke", colors.io); k.setAttribute("stroke-width", "2");
+                    iconG.appendChild(k);
+                } else if (key === 'out') {
+                    const m = document.createElementNS(ns, "rect");
+                    m.setAttribute("x", -20); m.setAttribute("y", -16);
+                    m.setAttribute("width", 40); m.setAttribute("height", 28);
+                    m.setAttribute("rx", 2);
+                    m.setAttribute("fill", "none"); m.setAttribute("stroke", colors.io); m.setAttribute("stroke-width", "2");
+                    iconG.appendChild(m);
+                    const stand = document.createElementNS(ns, "path");
+                    stand.setAttribute("d", "M-6 12 L-6 18 L6 18 L6 12");
+                    stand.setAttribute("fill", "none"); stand.setAttribute("stroke", colors.io); stand.setAttribute("stroke-width", "2");
+                    iconG.appendChild(stand);
+                } else if (key === 'net') {
+                    const c = document.createElementNS(ns, "circle");
+                    c.setAttribute("r", 16); c.setAttribute("fill", "none"); c.setAttribute("stroke", colors.io); c.setAttribute("stroke-width", "2");
+                    iconG.appendChild(c);
+                    const l = document.createElementNS(ns, "path");
+                    l.setAttribute("d", "M-16 0 L16 0 M0 -16 L0 16");
+                    l.setAttribute("fill", "none"); l.setAttribute("stroke", colors.io); l.setAttribute("stroke-width", "2");
+                    iconG.appendChild(l);
+                }
+                g.appendChild(iconG);
+
+                // Text
+                const textMain = document.createElementNS(ns, "text");
+                textMain.setAttribute("x", comp.w/2);
+                textMain.setAttribute("y", comp.h/2 + 20);
+                textMain.setAttribute("class", "node-label");
+                textMain.textContent = comp.label;
+                g.appendChild(textMain);
+
+                const textSub = document.createElementNS(ns, "text");
+                textSub.setAttribute("x", comp.w/2);
+                textSub.setAttribute("y", comp.h/2 + 40);
+                textSub.setAttribute("class", "node-sub");
+                textSub.textContent = comp.sub;
+                g.appendChild(textSub);
+
+                // Corner Marks for "Blueprint" look
+                const cornerSize = 8;
+                const corners = [
+                    `M 0 ${cornerSize} L 0 0 L ${cornerSize} 0`,
+                    `M ${comp.w-cornerSize} 0 L ${comp.w} 0 L ${comp.w} ${cornerSize}`,
+                    `M ${comp.w} ${comp.h-cornerSize} L ${comp.w} ${comp.h} L ${comp.w-cornerSize} ${comp.h}`,
+                    `M ${cornerSize} ${comp.h} L 0 ${comp.h} L 0 ${comp.h-cornerSize}`
+                ];
+                corners.forEach(d => {
+                    const path = document.createElementNS(ns, "path");
+                    path.setAttribute("d", d);
+                    path.setAttribute("class", "corner-mark");
+                    g.appendChild(path);
+                });
+
+                nodesGroup.appendChild(g);
+            });
+            svg.appendChild(nodesGroup);
+
+            return svg;
+        };
+
+        // Initialize
+        const container = document.getElementById('canvas-container');
+        const svgElement = createSVG();
+        container.appendChild(svgElement);
+
+        // Interaction: Highlight connections on hover
+        const nodeGroups = svgElement.querySelectorAll('g[id]');
+        const allPaths = svgElement.querySelectorAll('.link-path');
+        const allParticles = svgElement.querySelectorAll('.flow-particle');
+
+        nodeGroups.forEach(node => {
+            node.addEventListener('mouseenter', () => {
+                const nodeId = node.getAttribute('id');
+                
+                // Highlight box
+                const rect = node.querySelector('rect');
+                if(rect) {
+                    rect.setAttribute('fill', '#1e293b'); // Lighter slate
+                    rect.setAttribute('stroke-width', '2px');
+                }
+                
+                // Dim all lines first
+                allPaths.forEach(line => {
+                    line.classList.add('dimmed');
+                    line.classList.remove('highlighted');
+                });
+                allParticles.forEach(p => p.style.opacity = '0.1');
+
+                // Highlight connected lines
+                allPaths.forEach(line => {
+                    const from = line.getAttribute('data-from');
+                    const to = line.getAttribute('data-to');
+                    
+                    if (from === nodeId || to === nodeId) {
+                        line.classList.remove('dimmed');
+                        line.classList.add('highlighted');
+                    }
+                });
+                
+                // Highlight connected particles (by matching path index logic or re-querying, 
+                // but simpler to just let dimming happen on group if we grouped them, 
+                // but here we iterate all paths and assume particle is next sibling or similar index)
+                // Since we appended path then particle in loop, we can't easily map by index without IDs.
+                // Instead, let's just loop particles and check if they match a highlighted path 'd' attribute? 
+                // Too expensive.
+                // Simpler: Just dim all particles. It looks cleaner when lines highlight.
+            });
+            
+            node.addEventListener('mouseleave', () => {
+                const rect = node.querySelector('rect');
+                if(rect) {
+                    rect.setAttribute('fill', 'var(--card-bg)');
+                    rect.setAttribute('stroke-width', '1.5px');
+                }
+                
+                allPaths.forEach(line => {
+                    line.classList.remove('dimmed');
+                    line.classList.remove('highlighted');
+                });
+                allParticles.forEach(p => p.style.opacity = '1');
+            });
+        });
+
+    </script>
+</body>
+</html>

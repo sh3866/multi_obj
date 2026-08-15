@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road - 2.5D Perspective Revision</title>
+    <style>
+        :root {
+            --ui-bg: #8B4513; /* Wood */
+            --ui-border: #5D4037;
+            --ui-text: #FFF8E1;
+            --accent: #FFEB3B;
+            --btn-bg: rgba(255, 255, 255, 0.2);
+            --btn-active: rgba(255, 255, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD: Diegetic Billboard */
+        .hud-top {
+            display: flex;
+            justify-content: center;
+            padding-top: 30px;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        .scoreboard {
+            background: var(--ui-bg);
+            border: 6px solid var(--ui-border);
+            border-bottom-width: 10px; /* 3D depth */
+            padding: 10px 30px;
+            border-radius: 4px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            display: flex;
+            gap: 40px;
+            transform: perspective(500px) rotateX(5deg);
+            position: relative;
+        }
+
+        /* Support poles for billboard */
+        .scoreboard::before, .scoreboard::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            width: 12px;
+            height: 100vh;
+            background: var(--ui-border);
+            z-index: -1;
+        }
+        .scoreboard::before { left: 20px; }
+        .scoreboard::after { right: 20px; }
+
+        .score-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .score-label {
+            color: rgba(255,255,255,0.6);
+            font-size: 14px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+
+        .score-val {
+            color: var(--ui-text);
+            font-size: 36px;
+            font-weight: 900;
+            line-height: 1;
+            text-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Controls: Bottom Left, Chunky */
+        .controls-area {
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            pointer-events: auto;
+            width: 180px;
+            height: 180px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn {
+            background: var(--btn-bg);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 16px;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.2);
+            transition: all 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn:active, .btn.active {
+            transform: translateY(6px);
+            box-shadow: 0 0 0 rgba(0,0,0,0.2);
+            background: var(--btn-active);
+        }
+
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        /* Chunky Arrow Icons */
+        .arrow-icon {
+            width: 0; 
+            height: 0; 
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-bottom: 20px solid #fff;
+            filter: drop-shadow(0 2px 0 rgba(0,0,0,0.2));
+        }
+        .btn-up .arrow-icon { margin-top: 6px; }
+        .btn-down .arrow-icon { transform: rotate(180deg); margin-bottom: 6px; }
+        .btn-left .arrow-icon { transform: rotate(-90deg); margin-left: 6px; }
+        .btn-right .arrow-icon { transform: rotate(90deg); margin-right: 6px; }
+
+        /* Mobile adjustments */
+        @media (max-width: 600px) {
+            .scoreboard { gap: 20px; padding: 8px 20px; }
+            .score-val { font-size: 28px; }
+            .controls-area { bottom: 20px; left: 20px; width: 160px; height: 160px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <!-- HUD: Diegetic Billboard -->
+        <div class="hud-top">
+            <div class="scoreboard">
+                <div class="score-col">
+                    <div class="score-label">Score</div>
+                    <div class="score-val" id="score">0</div>
+                </div>
+                <div class="score-col">
+                    <div class="score-label">Best</div>
+                    <div class="score-val" id="best" style="color: var(--accent);">42</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls: Bottom Left -->
+        <div class="controls-area">
+            <div class="btn btn-up" id="btn-up" ontouchstart="handleInput(0, -1, event)" onmousedown="handleInput(0, -1, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-left" id="btn-left" ontouchstart="handleInput(-1, 0, event)" onmousedown="handleInput(-1, 0, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-down" id="btn-down" ontouchstart="handleInput(0, 1, event)" onmousedown="handleInput(0, 1, event)">
+                <div class="arrow-icon"></div>
+            </div>
+            <div class="btn btn-right" id="btn-right" ontouchstart="handleInput(1, 0, event)" onmousedown="handleInput(1, 0, event)">
+                <div class="arrow-icon"></div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * REVISED 2.5D PERSPECTIVE IMPLEMENTATION
+         * - Implements a true perspective projection matrix.
+         * - Painter's algorithm for depth sorting.
+         * - Chunky low-poly aesthetic with lighting.
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- Configuration ---
+        const CONFIG = {
+            fov: 600, // Field of View
+            blockSize: 50, // Size of one grid unit
+            lanes: 30, // How many lanes to generate
+            horizonY: 0.35, // Camera height relative to screen
+            drawDistance: 25, // How many blocks ahead to render
+            
+            // Colors
+            colors: {
+                skyTop: '#87CEEB',
+                skyBot: '#E0F7FA',
+                grass1: '#66BB6A',
+                grass2: '#4CAF50',
+                road: '#78909C',
+                roadLine: '#ECEFF1',
+                water: '#29B6F6',
+                wood: '#8D6E63',
+                tree: '#2E7D32',
+                trunk: '#5D4037',
+                chicken: '#FFFFFF',
+                shadow: 'rgba(0,0,0,0.2)'
+            }
+        };
+
+        // --- State ---
+        let camera = { x: 0, y: 0, z: 0, rot: 0 };
+        let player = { 
+            x: 0, y: 0, z: 0, 
+            targetY: 0, 
+            squish: 1, 
+            rot: 0, 
+            targetRot: 0 
+        };
+        let lanes = [];
+        let score = 0;
+        let time = 0;
+
+        // --- Resize Handling ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            CONFIG.horizonY = height * 0.35;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math Helpers ---
+        
+        // 3D Projection: World (x,y,z) -> Screen (x,y,scale)
+        function project(x, y, z) {
+            // Camera transform
+            const cx = x - camera.x;
+            const cy = y - camera.y;
+            const cz = z - camera.z;
+
+            // Culling
+            if (cz < 10) return null; // Behind camera
+
+            const scale = CONFIG.fov / cz;
+            
+            return {
+                x: cx * scale + width / 2,
+                y: cy * scale + CONFIG.horizonY,
+                scale: scale
+            };
+        }
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+
+        // --- Classes ---
+
+        class Lane {
+            constructor(zIndex) {
+                this.z = zIndex * CONFIG.blockSize;
+                this.type = this.determineType(zIndex);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+
+                if (this.type === 'road') {
+                    const count = Math.floor(rand(2, 4));
+                    const direction = (Math.floor(zIndex / 2) % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(4, 8) * direction,
+                            color: ['#F44336', '#2196F3', '#FFEB3B', '#FF9800'][Math.floor(Math.random()*4)],
+                            w: rand(70, 90), h: rand(45, 55), d: rand(55, 65)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = Math.floor(rand(2, 3));
+                    const direction = (zIndex % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(1, 3) * direction,
+                            length: rand(150, 300)
+                        });
+                    }
+                } else {
+                    // Grass
+                    const count = Math.floor(rand(5, 12));
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            x: rand(-1400, 1400),
+                            type: Math.random() > 0.6 ? 'tree' : 'bush',
+                            shade: Math.random()
+                        });
+                    }
+                }
+            }
+
+            determineType(z) {
+                if (z < 5) return 'grass';
+                // Pattern: Grass(1) -> Road(1) -> Water(1) -> Grass(1)
+                const mod = z % 4;
+                if (mod === 1) return 'road';
+                if (mod === 2) return 'water';
+                return 'grass';
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    if (v.speed > 0 && v.x > 2000) v.x = -2000;
+                    if (v.speed < 0 && v.x < -2000) v.x = 2000;
+                });
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    if (l.speed > 0 && l.x > 2000) l.x = -2000;
+                    if (l.speed < 0 && l.x < -2000) l.x = 2000;
+                });
+            }
+
+            draw() {
+                // Draw the infinite plane segment for this lane
+                const laneW = 3000; // Wide enough to cover screen
+                
+                // Calculate 4 corners of the lane block
+                const p1 = project(-laneW, 0, this.z);
+                const p2 = project(laneW, 0, this.z);
+                const p3 = project(laneW, 0, this.z + CONFIG.blockSize);
+                const p4 = project(-laneW, 0, this.z + CONFIG.blockSize);
+
+                if (!p1 || !p2 || !p3 || !p4) return;
+
+                // Base Color
+                ctx.fillStyle = this.type === 'grass' 
+                    ? (Math.floor(this.z/CONFIG.blockSize) % 2 === 0 ? CONFIG.colors.grass1 : CONFIG.colors.grass2)
+                    : this.type === 'road' ? CONFIG.colors.road : CONFIG.colors.water;
+
+                // Draw Trapezoid
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.lineTo(p3.x, p3.y);
+                ctx.lineTo(p4.x, p4.y);
+                ctx.closePath();
+                ctx.fill();
+
+                // Details
+                if (this.type === 'road') {
+                    ctx.strokeStyle = CONFIG.colors.roadLine;
+                    ctx.lineWidth = 4 * p1.scale;
+                    ctx.setLineDash([40 * p1.scale, 40 * p1.scale]);
+                    ctx.beginPath();
+                    const mid1 = project(0, 0, this.z);
+                    const mid2 = project(0, 0, this.z + CONFIG.blockSize);
+                    ctx.moveTo(mid1.x, mid1.y);
+                    ctx.lineTo(mid2.x, mid2.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (this.type === 'water') {
+                    // Simple water ripple effect
+                    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                    ctx.lineWidth = 2 * p1.scale;
+                    for(let i=-1.5; i<=1.5; i+=0.5) {
+                        const s = project(i * 500, 0, this.z);
+                        const e = project(i * 500 + 100, 0, this.z);
+                        ctx.beginPath();
+                        ctx.moveTo(s.x, s.y);
+                        ctx.lineTo(e.x, e.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- Drawing Helpers ---
+
+        // Draw a 3D Cube with lighting
+        function drawCube(x, y, z, w, h, d, color) {
+            const p = project(x, y, z);
+            if(!p) return;
+            const s = p.scale;
+            
+            const hw = w * s / 2;
+            const hh = h * s;
+            const hd = d * s / 2;
+
+            // Colors
+            const top = adjustColor(color, 30);
+            const front = color;
+            const side = adjustColor(color, -20);
+
+            // 1. Top Face
+            ctx.fillStyle = top;
+            ctx.beginPath();
+            ctx.moveTo(p.x - hw, p.y - hh); // Top Left Front
+            ctx.lineTo(p.x - hw + hd, p.y - hh - hd); // Top Left Back
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd); // Top Right Back
+            ctx.lineTo(p.x + hw, p.y - hh); // Top Right Front
+            ctx.fill();
+
+            // 2. Front Face
+            ctx.fillStyle = front;
+            ctx.fillRect(p.x - hw, p.y - hh, hw * 2, hh);
+
+            // 3. Right Face
+            ctx.fillStyle = side;
+            ctx.beginPath();
+            ctx.moveTo(p.x + hw, p.y - hh); // Top Right Front
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd); // Top Right Back
+            ctx.lineTo(p.x + hw + hd, p.y - hd); // Bot Right Back
+            ctx.lineTo(p.x + hw, p.y); // Bot Right Front
+            ctx.fill();
+        }
+
+        function adjustColor(hex, amount) {
+            let c = hex.substring(1);
+            if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+            const num = parseInt(c, 16);
+            let r = (num >> 16) + amount;
+            let g = (num >> 8 & 0x00FF) + amount;
+            let b = (num & 0x0000FF) + amount;
+            r = Math.min(255, Math.max(0, r));
+            g = Math.min(255, Math.max(0, g));
+            b = Math.min(255, Math.max(0, b));
+            return `rgb(${r},${g},${b})`;
+        }
+
+        // --- Input ---
+        function handleInput(dx, dy, event) {
+            if(event) event.preventDefault();
+            game.movePlayer(dx, dy);
+        }
+
+        // --- Game Logic ---
+
+        const game = {
+            init: () => {
+                // Generate initial world
+                for(let i=0; i<CONFIG.drawDistance; i++) {
+                    lanes.push(new Lane(i));
+                }
+                
+                // Input Listeners
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp' || e.key === 'w') game.movePlayer(0, -1);
+                    if(e.key === 'ArrowDown' || e.key === 's') game.movePlayer(0, 1);
+                    if(e.key === 'ArrowLeft' || e.key === 'a') game.movePlayer(-1, 0);
+                    if(e.key === 'ArrowRight' || e.key === 'd') game.movePlayer(1, 0);
+                });
+
+                requestAnimationFrame(game.loop);
+            },
+
+            movePlayer: (dx, dy) => {
+                // UI Feedback
+                const btnId = dy === -1 ? 'btn-up' : dy === 1 ? 'btn-down' : dx === -1 ? 'btn-left' : 'btn-right';
+                const btn = document.getElementById(btnId);
+                if(btn) {
+                    btn.classList.add('active');
+                    setTimeout(() => btn.classList.remove('active'), 150);
+                }
+
+                if (dy === -1) { // Forward
+                    player.z += CONFIG.blockSize;
+                    player.squish = 0.5; // Big Jump
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    camera.z += CONFIG.blockSize;
+                    
+                    // Infinite scrolling
+                    lanes.push(new Lane(lanes.length));
+                    lanes.shift(); 
+                } 
+                else if (dy === 1) { // Back
+                    if(player.z > 0) {
+                        player.z -= CONFIG.blockSize;
+                        camera.z -= CONFIG.blockSize;
+                        player.squish = 0.7;
+                    }
+                }
+                else if (dx !== 0) { // Side
+                    player.x += dx * CONFIG.blockSize;
+                    // Clamp to road width
+                    if(player.x > 1300) player.x = 1300;
+                    if(player.x < -1300) player.x = -1300;
+                    
+                    player.targetRot = dx * 0.5;
+                    player.squish = 0.8;
+                }
+            },
+
+            update: () => {
+                time += 16;
+                
+                // Physics/Animation
+                player.squish = lerp(player.squish, 1, 0.15);
+                player.rot = lerp(player.rot, player.targetRot, 0.1);
+                player.targetRot = lerp(player.targetRot, 0, 0.05);
+
+                // Update World
+                lanes.forEach(lane => lane.update());
+
+                // Water Logic (Simplified)
+                const currentLane = lanes.find(l => Math.abs(l.z - player.z) < 5);
+                if (currentLane && currentLane.type === 'water') {
+                    let onLog = false;
+                    currentLane.logs.forEach(log => {
+                        if (player.x > log.x - log.length/2 && player.x < log.x + log.length/2) {
+                            onLog = true;
+                            player.x += log.speed; 
+                        }
+                    });
+                    // If in water and not on log, sink (visual only for this demo)
+                    if(!onLog) player.y = lerp(player.y, 20, 0.1);
+                    else player.y = 0;
+                } else {
+                    player.y = lerp(player.y, 0, 0.2);
+                }
+            },
+
+            draw: () => {
+                // 1. Sky Background
+                const grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, CONFIG.colors.skyTop);
+                grad.addColorStop(1, CONFIG.colors.skyBot);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                // 2. Prepare Draw List (Z-Sorting)
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    // Only draw if visible
+                    if (l.z - camera.z > -100 && l.z - camera.z < CONFIG.drawDistance * CONFIG.blockSize) {
+                        drawables.push({ type: 'lane', obj: l, z: l.z });
+                        
+                        // Decorations
+                        l.decorations.forEach(d => drawables.push({ type: 'deco', obj: d, z: l.z }));
+                        // Vehicles
+                        l.vehicles.forEach(v => drawables.push({ type: 'vehicle', obj: v, z: l.z }));
+                        // Logs
+                        l.logs.forEach(lg => drawables.push({ type: 'log', obj: lg, z: l.z }));
+                    }
+                });
+
+                drawables.push({ type: 'player', z: player.z });
+                
+                // Sort by Z (Painter's Algorithm)
+                drawables.sort((a, b) => a.z - b.z);
+
+                // 3. Render Loop
+                drawables.forEach(item => {
+                    if (item.type === 'lane') item.obj.draw();
+                    
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        // Shadow
+                        const p = project(d.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, 40*p.scale, 15*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+
+                        if (d.type === 'tree') {
+                            drawCube(d.x, 0, item.z, 20, 80, 20, CONFIG.colors.trunk);
+                            drawCube(d.x, 80, item.z, 60, 60, 60, CONFIG.colors.tree);
+                            drawCube(d.x, 120, item.z, 40, 40, 40, CONFIG.colors.tree);
+                        } else {
+                            drawCube(d.x, 0, item.z, 30, 25, 30, CONFIG.colors.grass1);
+                        }
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        // Shadow
+                        const p = project(v.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, (v.w/2)*p.scale, (v.w/3)*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+
+                        // Body
+                        drawCube(v.x, 0, item.z, v.w, v.h, v.d, v.color);
+                        // Roof
+                        drawCube(v.x, v.h, item.z, v.w*0.8, v.h*0.6, v.d*0.8, '#333'); // Windows
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        const p = project(l.x, 0, item.z);
+                        if(p) {
+                            ctx.fillStyle = CONFIG.colors.shadow;
+                            ctx.beginPath();
+                            ctx.ellipse(p.x, p.y, (l.length/2)*p.scale, 15*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+                        }
+                        drawCube(l.x, 0, item.z, l.length, 20, 20, CONFIG.colors.wood);
+                    }
+
+                    if (item.type === 'player') {
+                        const p = project(player.x, player.y, player.z);
+                        if(!p) return;
+                        
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        
+                        // Shadow
+                        ctx.fillStyle = CONFIG.colors.shadow;
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 25*p.scale, 12*p.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        // Squish Animation
+                        const scaleY = player.squish;
+                        const scaleX = 1 + (1 - player.squish) * 0.3;
+                        ctx.scale(scaleX, scaleY);
+                        ctx.rotate(player.rot);
+
+                        const s = p.scale;
+                        
+                        // Legs
+                        ctx.fillStyle = '#FF9800';
+                        drawLocalCube(-6*s, -20*s, 0, 6*s, 20*s, 6*s, '#FF9800');
+                        drawLocalCube(2*s, -20*s, 0, 6*s, 20*s, 6*s, '#FF9800');
+
+                        // Body (White Cube)
+                        drawLocalCube(0, -20*s, 0, 35*s, 35*s, 35*s, CONFIG.colors.chicken);
+
+                        // Comb (Red)
+                        drawLocalCube(10*s, -55*s, 0, 10*s, 10*s, 10*s, '#F44336');
+
+                        // Beak (Yellow)
+                        ctx.fillStyle = '#FFEB3B';
+                        ctx.beginPath();
+                        ctx.moveTo(17.5*s, -42*s);
+                        ctx.lineTo(27.5*s, -37*s);
+                        ctx.lineTo(17.5*s, -32*s);
+                        ctx.fill();
+
+                        // Eyes
+                        ctx.fillStyle = '#333';
+                        ctx.beginPath();
+                        ctx.arc(12*s, -48*s, 2*s, 0, Math.PI*2); 
+                        ctx.arc(12*s, -38*s, 2*s, 0, Math.PI*2); 
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        // Helper for local drawing (relative to translated context)
+        function drawLocalCube(x, y, z, w, h, d, color) {
+            // Simple local box drawing for the chicken
+            // Top
+            ctx.fillStyle = adjustColor(color, 30);
+            ctx.fillRect(x - w/2, y - h, w, h/2); 
+            // Front
+            ctx.fillStyle = color;
+            ctx.fillRect(x - w/2, y - h, w, h);
+            // Side
+            ctx.fillStyle = adjustColor(color, -20);
+            ctx.fillRect(x + w/2, y - h, d/2, h);
+        }
+
+        // Start
+        game.init();
+
+    </script>
+</body>
+</html>

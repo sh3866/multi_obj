@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Cube — Professional Puzzle Interface</title>
+<style>
+  :root {
+    /* Palette - Matte Carbon & Studio Lighting */
+    --bg-deep: #0f1014;
+    --bg-panel-glass: rgba(30, 32, 40, 0.75);
+    --bg-panel-border: rgba(255, 255, 255, 0.08);
+    
+    /* Accents - Professional & Tactile */
+    --accent-action: #3b82f6; /* Vibrant Blue */
+    --accent-action-hover: #2563eb;
+    --accent-danger: #ef4444;
+    
+    /* Text */
+    --text-main: #ffffff;
+    --text-muted: #9ca3af;
+    --text-dim: #4b5563;
+    
+    /* Cube Stickers - High Saturation */
+    --c-white: #ffffff;
+    --c-yellow: #facc15;
+    --c-red: #ef4444;
+    --c-orange: #f97316;
+    --c-green: #22c55e;
+    --c-blue: #3b82f6;
+    --c-plastic: #111111; 
+
+    /* Dimensions */
+    --cube-size: 60px;
+    --cube-gap: 4px;
+  }
+
+  * { box-sizing: border-box; user-select: none; outline: none; -webkit-font-smoothing: antialiased; }
+  
+  body {
+    margin: 0;
+    background-color: var(--bg-deep);
+    /* Grain Texture Overlay */
+    background-image: 
+      radial-gradient(circle at 50% 30%, #2a2d3a 0%, var(--bg-deep) 80%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* --- Layout Hierarchy: Status -> Cube -> Controls --- */
+
+  /* 1. Top Center: Status Bar */
+  .status-bar {
+    position: absolute;
+    top: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    z-index: 20;
+    
+    background: var(--bg-panel-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--bg-panel-border);
+    padding: 12px 32px;
+    border-radius: 100px; /* Pill Shape */
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  }
+
+  .status-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80px;
+  }
+
+  .status-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .status-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums; /* Key for Timer */
+    line-height: 1;
+    letter-spacing: -0.5px;
+  }
+
+  .divider {
+    width: 1px;
+    height: 30px;
+    background: rgba(255,255,255,0.1);
+  }
+
+  /* 2. Center: The Cube Scene */
+  main {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+    overflow: hidden;
+  }
+
+  .scene {
+    width: calc(var(--cube-size) * 3 + var(--cube-gap) * 2);
+    height: calc(var(--cube-size) * 3 + var(--cube-gap) * 2);
+    transform-style: preserve-3d;
+    /* Isometric-ish View */
+    transform: rotateX(-25deg) rotateY(-35deg);
+    transition: transform 0.1s linear;
+    cursor: grab;
+    position: relative;
+  }
+  
+  .scene:active { cursor: grabbing; }
+
+  .cube-assembly {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+  }
+
+  /* Ground Shadow */
+  .shadow-plane {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotateX(90deg) translateZ(-150px);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .cubie {
+    position: absolute;
+    width: var(--cube-size);
+    height: var(--cube-size);
+    transform-style: preserve-3d;
+    transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2); /* Snappy */
+  }
+
+  .face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: var(--c-plastic);
+    border-radius: 4px;
+    /* Inset Depth for Plastic Feel */
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.9);
+    backface-visibility: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Sticker Styling */
+  .sticker {
+    width: 86%;
+    height: 86%;
+    border-radius: 16%; /* Rounded Square */
+    /* Matte Grain Texture */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+    /* 3D Bevel Effect */
+    box-shadow: 
+      inset 2px 2px 5px rgba(255,255,255,0.4), 
+      inset -2px -2px 5px rgba(0,0,0,0.2),
+      0 1px 2px rgba(0,0,0,0.5);
+    z-index: 1;
+    /* Subtle border to separate from plastic body */
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+
+  /* Face Positions */
+  .face.front  { transform: translateZ(calc(var(--cube-size)/2)); }
+  .face.back   { transform: rotateY(180deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.right  { transform: rotateY(90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.left   { transform: rotateY(-90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.top    { transform: rotateX(90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-size)/2)); }
+
+  /* Colors */
+  .f-U .sticker { background-color: var(--c-white); }
+  .f-D .sticker { background-color: var(--c-yellow); }
+  .f-F .sticker { background-color: var(--c-green); }
+  .f-B .sticker { background-color: var(--c-blue); }
+  .f-R .sticker { background-color: var(--c-red); }
+  .f-L .sticker { background-color: var(--c-orange); }
+  
+  .f-inner { background: var(--c-plastic); border: none; box-shadow: none; }
+
+  /* 3. Bottom: Controls Dock */
+  .controls-dock {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 30;
+    width: 90%;
+    max-width: 800px;
+  }
+
+  /* Top Row of Dock: Size & Info */
+  .dock-row-top {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .dock-panel {
+    background: var(--bg-panel-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--bg-panel-border);
+    border-radius: 16px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+
+  /* Size Selector */
+  .size-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: all 0.2s;
+  }
+
+  .size-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+  
+  .size-btn.active {
+    background: rgba(255,255,255,0.1);
+    color: var(--text-main);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  /* Formula / Tip Panel (Compact) */
+  .formula-panel {
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 180px;
+  }
+
+  .formula-label {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+
+  .formula-text {
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    font-weight: 500;
+  }
+
+  /* Bottom Row of Dock: Actions */
+  .dock-row-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn-action {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-main);
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.2); /* Tactile Depth */
+  }
+
+  .btn-action:hover {
+    background: rgba(255,255,255,0.12);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 rgba(0,0,0,0.2);
+  }
+
+  .btn-action:active {
+    transform: translateY(2px);
+    box-shadow: 0 0 0 rgba(0,0,0,0.2);
+  }
+
+  /* Primary Action (Scramble) */
+  .btn-primary {
+    background: var(--accent-action);
+    border-color: var(--accent-action);
+    box-shadow: 0 4px 0 #1d4ed8; /* Darker shade of blue */
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-action-hover);
+    box-shadow: 0 6px 0 #1d4ed8;
+  }
+
+  .btn-primary:active {
+    box-shadow: 0 0 0 #1d4ed8;
+  }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .controls-dock { bottom: 20px; flex-direction: column; gap: 12px; }
+    .dock-row-top { width: 100%; justify-content: center; }
+    .formula-panel { display: none; } /* Hide formula on small screens to save space */
+    .dock-row-actions { flex-wrap: wrap; justify-content: center; }
+    .status-bar { width: 90%; justify-content: center; gap: 20px; padding: 10px 20px; }
+    :root { --cube-size: 45px; }
+  }
+
+</style>
+</head>
+<body>
+
+<!-- 1. Status Bar (Center Top) -->
+<div class="status-bar">
+  <div class="status-item">
+    <div class="status-label">Time</div>
+    <div class="status-value" id="timer">00:00</div>
+  </div>
+  <div class="divider"></div>
+  <div class="status-item">
+    <div class="status-label">Moves</div>
+    <div class="status-value" id="move-count">0</div>
+  </div>
+</div>
+
+<main>
+  <!-- 2. Centerpiece: 3D Scene -->
+  <div class="scene" id="scene">
+    <div class="shadow-plane"></div>
+    <div class="cube-assembly" id="cube"></div>
+  </div>
+</main>
+
+<!-- 3. Controls Dock (Center Bottom) -->
+<div class="controls-dock">
+  
+  <!-- Top Row: Sizes & Info -->
+  <div class="dock-row-top">
+    <div class="dock-panel">
+      <button class="size-btn" onclick="initCube(2)">2x2</button>
+      <button class="size-btn active" onclick="initCube(3)">3x3</button>
+      <button class="size-btn" onclick="initCube(4)">4x4</button>
+      <button class="size-btn" onclick="initCube(5)">5x5</button>
+    </div>
+
+    <div class="dock-panel formula-panel">
+      <div class="formula-label">Next Move</div>
+      <div class="formula-text" id="formula-display">READY</div>
+    </div>
+  </div>
+
+  <!-- Bottom Row: Actions -->
+  <div class="dock-row-actions">
+    <button class="btn-action" onclick="undoMove()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+      Undo
+    </button>
+    
+    <button class="btn-action" onclick="resetTimer()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+      Reset
+    </button>
+
+    <button class="btn-action btn-primary" onclick="scrambleCube()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 8h.01"></path><path d="M8 8h.01"></path><path d="M8 16h.01"></path><path d="M16 16h.01"></path><path d="M12 12h.01"></path></svg>
+      Scramble
+    </button>
+
+    <button class="btn-action" onclick="showHint()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      Hint
+    </button>
+  </div>
+
+</div>
+
+<script>
+  // --- Constants & State ---
+  const COLORS = {
+    U: 'f-U', D: 'f-D', F: 'f-F', B: 'f-B', R: 'f-R', L: 'f-L', X: 'f-inner'
+  };
+  
+  const TIPS = [
+    "Find the White Cross.",
+    "Solve the Corners.",
+    "Second Layer Edges.",
+    "Yellow Cross.",
+    "Orient Last Layer.",
+    "Permute Last Layer."
+  ];
+
+  let N = 3; // Dimension
+  let cubies = [];
+  let moveHistory = [];
+  let isAnimating = false;
+  
+  // Timer State
+  let startTime = null;
+  let timerInterval = null;
+
+  // View Rotation State
+  let rotX = -25;
+  let rotY = -35;
+  let isDragging = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+
+  // --- DOM Elements ---
+  const cubeEl = document.getElementById('cube');
+  const sceneEl = document.getElementById('scene');
+  const moveCountEl = document.getElementById('move-count');
+  const timerEl = document.getElementById('timer');
+  const formulaDisplay = document.getElementById('formula-display');
+
+  // --- Initialization ---
+
+  function initCube(size) {
+    N = size;
+    cubies = [];
+    cubeEl.innerHTML = '';
+    moveHistory = [];
+    moveCountEl.innerText = '0';
+    resetTimer();
+    
+    // UI Updates
+    formulaDisplay.innerText = 'READY';
+
+    // Update buttons
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+    const btns = document.querySelectorAll('.size-btn');
+    btns.forEach(b => { if(b.innerText === size + 'x' + size) b.classList.add('active'); });
+
+    // Create Cubies
+    const offset = (N - 1) / 2;
+    for (let x = 0; x < N; x++) {
+      for (let y = 0; y < N; y++) {
+        for (let z = 0; z < N; z++) {
+          createCubie(x, y, z, offset);
+        }
+      }
+    }
+    
+    // Reset View
+    rotX = -25;
+    rotY = -35;
+    updateSceneRotation();
+  }
+
+  function createCubie(x, y, z, offset) {
+    const el = document.createElement('div');
+    el.className = 'cubie';
+    
+    let faceHTML = '';
+    
+    // Front (z=N-1) -> Green
+    if (z === N-1) faceHTML += `<div class="face front"><div class="sticker ${COLORS.F}"></div></div>`;
+    // Back (z=0) -> Blue
+    else if (z === 0) faceHTML += `<div class="face back"><div class="sticker ${COLORS.B}"></div></div>`;
+    else faceHTML += `<div class="face front f-inner"></div><div class="face back f-inner"></div>`;
+
+    // Right (x=N-1) -> Red
+    if (x === N-1) faceHTML += `<div class="face right"><div class="sticker ${COLORS.R}"></div></div>`;
+    // Left (x=0) -> Orange
+    else if (x === 0) faceHTML += `<div class="face left"><div class="sticker ${COLORS.L}"></div></div>`;
+    else faceHTML += `<div class="face right f-inner"></div><div class="face left f-inner"></div>`;
+
+    // Top (y=0) -> White
+    if (y === 0) faceHTML += `<div class="face top"><div class="sticker ${COLORS.U}"></div></div>`;
+    // Bottom (y=N-1) -> Yellow
+    else if (y === N-1) faceHTML += `<div class="face bottom"><div class="sticker ${COLORS.D}"></div></div>`;
+    else faceHTML += `<div class="face top f-inner"></div><div class="face bottom f-inner"></div>`;
+
+    el.innerHTML = faceHTML;
+
+    // Position
+    const sizePx = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-size'));
+    const gapPx = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-gap'));
+    const step = sizePx + gapPx;
+
+    const px = (x - offset) * step;
+    const py = (y - offset) * step;
+    const pz = (z - offset) * step;
+    
+    const cubieData = {
+      el: el,
+      coords: {x, y, z},
+      rotation: ''
+    };
+
+    el.style.transform = `translate3d(${px}px, ${py}px, ${pz}px)`;
+    
+    cubies.push(cubieData);
+    cubeEl.appendChild(el);
+  }
+
+  // --- Interaction: View Rotation ---
+
+  sceneEl.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - lastMouseX;
+    const deltaY = e.clientY - lastMouseY;
+    
+    rotY += deltaX * 0.5;
+    rotX -= deltaY * 0.5;
+    
+    rotX = Math.max(-90, Math.min(90, rotX));
+    
+    updateSceneRotation();
+    
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  });
+
+  window.addEventListener('mouseup', () => { isDragging = false; });
+  
+  // Touch support
+  sceneEl.addEventListener('touchstart', (e) => {
+    isDragging = true;
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+  }, {passive: true});
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.touches[0].clientX - lastMouseX;
+    const deltaY = e.touches[0].clientY - lastMouseY;
+    
+    rotY += deltaX * 0.5;
+    rotX -= deltaY * 0.5;
+    
+    rotX = Math.max(-90, Math.min(90, rotX));
+    
+    updateSceneRotation();
+    
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+  }, {passive: true});
+
+  window.addEventListener('touchend', () => { isDragging = false; });
+
+  function updateSceneRotation() {
+    sceneEl.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+  }
+
+  // --- Logic: Rotation System ---
+  
+  function rotateSlice(axis, index, direction) {
+    if (isAnimating) return;
+    isAnimating = true;
+
+    const sliceCubies = cubies.filter(c => c.coords[axis] === index);
+    
+    const pivot = document.createElement('div');
+    pivot.style.position = 'absolute';
+    pivot.style.transformStyle = 'preserve-3d';
+    pivot.style.width = '100%';
+    pivot.style.height = '100%';
+    cubeEl.appendChild(pivot);
+
+    sliceCubies.forEach(c => {
+      pivot.appendChild(c.el);
+    });
+
+    const deg = 90 * direction;
+    let rotateStr = '';
+    if (axis === 'x') rotateStr = `rotateX(${deg}deg)`;
+    if (axis === 'y') rotateStr = `rotateY(${deg}deg)`;
+    if (axis === 'z') rotateStr = `rotateZ(${deg}deg)`;
+
+    pivot.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    pivot.style.transform = rotateStr;
+
+    setTimeout(() => {
+      sliceCubies.forEach(c => {
+        let oldY = c.coords.y;
+        let oldZ = c.coords.z;
+        let oldX = c.coords.x;
+
+        // Coordinate update logic
+        if (axis === 'x') {
+           if (direction === 1) { c.coords.y = oldZ; c.coords.z = (N-1) - oldY; } 
+           else { c.coords.z = oldY; c.coords.y = (N-1) - oldZ; }
+        } else if (axis === 'y') {
+           if (direction === 1) { c.coords.x = (N-1) - oldZ; c.coords.z = oldX; } 
+           else { c.coords.z = (N-1) - oldX; c.coords.x = oldZ; }
+        } else if (axis === 'z') {
+           if (direction === 1) { c.coords.x = oldY; c.coords.y = (N-1) - oldX; } 
+           else { c.coords.y = oldX; c.coords.x = (N-1) - oldY; }
+        }
+
+        // Update CSS Transform
+        const offset = (N - 1) / 2;
+        const sizePx = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-size'));
+        const gapPx = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-gap'));
+        const step = sizePx + gapPx;
+
+        const px = (c.coords.x - offset) * step;
+        const py = (c.coords.y - offset) * step;
+        const pz = (c.coords.z - offset) * step;
+        
+        c.rotation = rotateStr + ' ' + c.rotation;
+        const finalTransform = c.rotation + ` translate3d(${px}px, ${py}px, ${pz}px)`;
+        c.el.style.transform = finalTransform;
+        
+        cubeEl.appendChild(c.el);
+      });
+      
+      pivot.remove();
+      isAnimating = false;
+    }, 300);
+  }
+
+  // --- Game Controls ---
+
+  function scrambleCube() {
+    if (isAnimating) return;
+    resetTimer();
+    startTimer();
+    moveHistory = [];
+    moveCountEl.innerText = '0';
+    
+    const moves = 20;
+    let count = 0;
+    
+    const interval = setInterval(() => {
+      if (count >= moves) {
+        clearInterval(interval);
+        formulaDisplay.innerText = 'SCRAMBLE DONE';
+        return;
+      }
+      
+      const axes = ['x', 'y', 'z'];
+      const axis = axes[Math.floor(Math.random() * 3)];
+      const index = Math.floor(Math.random() * N);
+      const dir = Math.random() > 0.5 ? 1 : -1;
+      
+      performMove(axis, index, dir, false); // Don't log during scramble
+      count++;
+    }, 150);
+  }
+
+  function performMove(axis, index, dir, record = true) {
+    rotateSlice(axis, index, dir);
+    
+    if (record) {
+      moveHistory.push({axis, index, dir});
+      moveCountEl.innerText = moveHistory.length;
+      
+      // Update Formula Display
+      let notation = axis.toUpperCase();
+      if (N > 3) notation += (index + 1);
+      if (dir === -1) notation += "'";
+      
+      formulaDisplay.innerText = notation;
+    }
+  }
+
+  function undoMove() {
+    if (isAnimating || moveHistory.length === 0) return;
+    const last = moveHistory.pop();
+    moveCountEl.innerText = moveHistory.length;
+    
+    if (moveHistory.length === 0) {
+      formulaDisplay.innerText = 'SOLVED?';
+    } else {
+      formulaDisplay.innerText = 'UNDO';
+    }
+    
+    performMove(last.axis, last.index, last.dir * -1, false);
+  }
+
+  function showHint() {
+    const randomTip = TIPS[Math.floor(Math.random() * TIPS.length)];
+    formulaDisplay.innerText = randomTip;
+  }
+
+  function resetTimer() {
+    clearInterval(timerInterval);
+    timerEl.innerText = "00:00";
+    startTime = null;
+  }
+
+  function startTimer() {
+    if (startTime) return;
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+      const delta = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(delta / 60).toString().padStart(2, '0');
+      const s = (delta % 60).toString().padStart(2, '0');
+      timerEl.innerText = `${m}:${s}`;
+    }, 1000);
+  }
+
+  // --- Start ---
+  initCube(3);
+
+</script>
+</body>
+</html>

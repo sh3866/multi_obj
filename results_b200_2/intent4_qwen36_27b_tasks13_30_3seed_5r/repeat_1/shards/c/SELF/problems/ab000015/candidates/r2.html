@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Velocity: Pro Edition</title>
+<style>
+    :root {
+        --c-sky-top: #0b1026;
+        --c-sky-mid: #2b32b2;
+        --c-sky-bot: #1488cc;
+        --c-sun: #ff4b1f;
+        --c-ice-light: #e0f7fa;
+        --c-ice-mid: #b2ebf2;
+        --c-ice-dark: #4dd0e1;
+        --c-acc-cyan: #00e5ff;
+        --c-acc-yellow: #ffea00;
+        --c-acc-pink: #ff007f;
+        --c-text: #ffffff;
+        --c-ui-bg: rgba(11, 16, 38, 0.6);
+        --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+    
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden;
+        background-color: var(--c-sky-top);
+        font-family: var(--font-main);
+        color: var(--c-text);
+    }
+
+    /* LAYOUT LAYERS */
+    #game-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
+    .layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    
+    /* 1. SKY & MOUNTAINS */
+    #sky-layer {
+        z-index: 1;
+        background: linear-gradient(to bottom, var(--c-sky-top) 0%, var(--c-sky-mid) 60%, var(--c-sky-bot) 100%);
+    }
+    
+    /* Sun */
+    .sun {
+        position: absolute; bottom: 35%; left: 50%; transform: translateX(-50%);
+        width: 120px; height: 120px;
+        background: linear-gradient(to top, var(--c-sun), #ff9068);
+        border-radius: 50%;
+        box-shadow: 0 0 40px var(--c-sun), 0 0 80px rgba(255, 75, 31, 0.4);
+        filter: blur(1px);
+    }
+
+    .mountain {
+        position: absolute;
+        bottom: 34%; /* Horizon line */
+        width: 0; height: 0;
+        border-left: 150px solid transparent;
+        border-right: 150px solid transparent;
+        border-bottom: 250px solid rgba(255,255,255,0.05);
+        filter: blur(2px);
+        z-index: 1;
+    }
+    .mtn-1 { left: -10%; transform: scale(1.5); border-bottom-color: rgba(255,255,255,0.1); }
+    .mtn-2 { right: -10%; transform: scale(1.2); border-bottom-color: rgba(255,255,255,0.08); }
+    .mtn-3 { left: 25%; transform: scale(2.2); border-bottom-color: rgba(255,255,255,0.03); }
+    .mtn-4 { right: 25%; transform: scale(1.8); border-bottom-color: rgba(255,255,255,0.04); }
+
+    /* 2. GAME WORLD (Canvas) */
+    canvas#world-canvas { z-index: 2; }
+
+    /* 3. ENTITIES */
+    #entity-layer { z-index: 3; }
+
+    /* 4. PLAYER */
+    #player-container {
+        position: absolute;
+        bottom: 12%; 
+        left: 50%;
+        width: 120px;
+        height: 120px;
+        transform: translate(-50%, 0);
+        z-index: 10;
+        will-change: transform;
+    }
+    
+    .rider-shadow {
+        position: absolute; bottom: 5px; left: 50%; transform: translate(-50%, 0);
+        width: 80px; height: 20px; background: rgba(0,0,0,0.4);
+        border-radius: 50%; filter: blur(8px);
+        animation: shadowPulse 0.1s infinite alternate;
+    }
+    @keyframes shadowPulse { from { transform: translate(-50%, 0) scale(1); opacity: 0.4; } to { transform: translate(-50%, 0) scale(1.1); opacity: 0.2; } }
+    
+    .rider-svg {
+        width: 100%; height: 100%;
+        filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
+        transform-origin: center bottom;
+        transition: transform 0.1s ease-out;
+    }
+
+    /* 5. HUD UI */
+    #ui-layer { z-index: 20; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+    
+    .hud-top { display: flex; justify-content: space-between; align-items: flex-start; }
+    
+    .hud-card {
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.15);
+        padding: 10px 18px;
+        border-radius: 6px;
+        transform: skewX(-12deg);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        min-width: 140px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    /* Tech line accent */
+    .hud-card::after {
+        content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 2px;
+        background: linear-gradient(90deg, transparent, var(--c-acc-cyan), transparent);
+    }
+    
+    .hud-card * { transform: skewX(12deg); display: block; }
+    
+    .hud-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,0.5); margin-bottom: 2px; font-weight: 700; }
+    .hud-value { font-size: 2rem; font-weight: 800; font-style: italic; line-height: 1; letter-spacing: -1px; }
+    .hud-unit { font-size: 0.7rem; font-weight: 700; margin-left: 4px; opacity: 0.7; font-style: normal; }
+    
+    .speed-val { color: var(--c-acc-cyan); text-shadow: 0 0 10px rgba(0, 229, 255, 0.5); }
+    .dist-val { color: var(--c-acc-yellow); text-shadow: 0 0 10px rgba(255, 234, 0, 0.5); }
+
+    /* Progress Bar */
+    .progress-track {
+        position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+        width: 240px; height: 8px; background: rgba(0,0,0,0.4);
+        border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);
+        backdrop-filter: blur(4px);
+    }
+    .progress-fill {
+        height: 100%; width: 0%; 
+        background: linear-gradient(90deg, var(--c-acc-cyan), var(--c-acc-pink));
+        box-shadow: 0 0 15px var(--c-acc-cyan);
+        transition: width 0.1s linear;
+    }
+
+    /* Controls */
+    .controls {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        padding: 0 30px 40px 30px;
+        pointer-events: auto;
+    }
+    
+    .ctrl-btn {
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(10px);
+        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .ctrl-btn:active, .ctrl-btn.active {
+        background: var(--c-acc-cyan);
+        border-color: #fff;
+        transform: scale(0.92);
+        box-shadow: 0 0 25px var(--c-acc-cyan);
+    }
+    
+    .ctrl-btn svg { width: 32px; height: 32px; fill: #fff; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }
+
+    /* Obstacles */
+    .obstacle {
+        position: absolute;
+        will-change: transform, top, left, width, height;
+        transform-origin: center bottom;
+    }
+    
+    /* Gate */
+    .gate { width: 100px; height: 100px; }
+    .gate-pole { position: absolute; width: 6px; height: 100%; background: #fff; box-shadow: 2px 0 10px rgba(0,0,0,0.2); }
+    .gate-pole.l { left: 0; } .gate-pole.r { right: 0; }
+    .gate-flag {
+        position: absolute; top: 0; left: 0; width: 100%; height: 35px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 900; font-style: italic; font-size: 1.4rem;
+        clip-path: polygon(0 0, 100% 0, 90% 100%, 0% 100%);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    .gate.blue .gate-flag { background: var(--c-acc-cyan); color: #000; }
+    .gate.red .gate-flag { background: var(--c-acc-pink); color: #fff; }
+
+    /* Rock */
+    .rock {
+        width: 80px; height: 60px;
+        background: linear-gradient(135deg, #455a64, #263238);
+        clip-path: polygon(10% 100%, 20% 40%, 40% 20%, 60% 40%, 80% 100%, 90% 80%);
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        position: relative;
+    }
+    .rock::after {
+        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 30%;
+        background: rgba(255,255,255,0.15);
+        clip-path: polygon(0 0, 100% 0, 80% 100%, 20% 100%);
+    }
+
+    /* FX */
+    .speed-lines {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: repeating-linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.05) 2%, transparent 4%);
+        background-size: 100% 100px;
+        opacity: 0; mix-blend-mode: overlay;
+        pointer-events: none; z-index: 4;
+        animation: blurSpeed 0.3s infinite linear;
+    }
+    @keyframes blurSpeed { 0% { transform: translateY(-50px); } 100% { transform: translateY(0); } }
+
+    .shake { animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+    @keyframes shake {
+        10%, 90% { transform: translate3d(-2px, 0, 0); }
+        20%, 80% { transform: translate3d(4px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+        40%, 60% { transform: translate3d(6px, 0, 0); }
+    }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- 1. Sky -->
+    <div id="sky-layer" class="layer">
+        <div class="mountain mtn-1"></div>
+        <div class="mountain mtn-3"></div>
+        <div class="mountain mtn-4"></div>
+        <div class="mountain mtn-2"></div>
+        <div class="sun"></div>
+    </div>
+
+    <!-- 2. World Canvas -->
+    <canvas id="world-canvas" class="layer"></canvas>
+    
+    <!-- Speed Lines FX -->
+    <div class="speed-lines" id="speed-fx"></div>
+
+    <!-- 3. Entities -->
+    <div id="entity-layer" class="layer"></div>
+
+    <!-- 4. Player -->
+    <div id="player-container">
+        <div class="rider-shadow"></div>
+        <svg class="rider-svg" viewBox="0 0 100 100">
+            <!-- Board -->
+            <path d="M5,85 L95,85 L98,82 L2,82 Z" fill="#1a237e" stroke="#000" stroke-width="1"/>
+            <path d="M10,85 L90,85" stroke="var(--c-acc-yellow)" stroke-width="4" />
+            <!-- Legs -->
+            <path d="M35,65 L25,80" stroke="#0d47a1" stroke-width="9" stroke-linecap="round" />
+            <path d="M65,65 L75,80" stroke="#0d47a1" stroke-width="9" stroke-linecap="round" />
+            <!-- Body (Jacket) -->
+            <path d="M30,65 L50,35 L70,65 Z" fill="#d32f2f" />
+            <path d="M35,65 L50,45 L65,65" fill="#b71c1c" opacity="0.5"/>
+            <!-- Head -->
+            <circle cx="50" cy="25" r="11" fill="#ffca28" /> 
+            <path d="M40,25 Q50,38 60,25" stroke="#212121" stroke-width="4" fill="none" /> <!-- Goggles -->
+            <path d="M40,25 L35,20" stroke="#333" stroke-width="3"/> <!-- Strap -->
+            <!-- Scarf -->
+            <path d="M40,35 Q30,45 20,40" stroke="var(--c-acc-cyan)" stroke-width="5" fill="none" stroke-linecap="round"/>
+        </svg>
+    </div>
+
+    <!-- 5. UI -->
+    <div id="ui-layer" class="layer">
+        <div class="progress-track">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        
+        <div class="hud-top">
+            <div class="hud-card">
+                <span class="hud-label">Speed</span>
+                <span class="hud-value speed-val" id="hud-speed">0 <span class="hud-unit">km/h</span></span>
+            </div>
+            <div class="hud-card">
+                <span class="hud-label">Distance</span>
+                <span class="hud-value dist-val" id="hud-dist">0 <span class="hud-unit">m</span></span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="ctrl-btn" id="btn-left"><svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></div>
+            <div class="ctrl-btn" id="btn-right"><svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * ALPINE VELOCITY - ENGINE
+     * Core Logic: Perspective projection, Object Pooling, Game Loop
+     */
+
+    // --- Config ---
+    const CONFIG = {
+        horizonY: 0.35,      // Horizon line percentage
+        fov: 350,            // Field of view
+        speedBase: 20,       // Base movement speed
+        maxSpeed: 140,       // Max visual speed
+        spawnRate: 0.03,     // Chance per frame
+        roadWidth: 2400      // Virtual width of road at camera
+    };
+
+    // --- State ---
+    const state = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        cx: window.innerWidth / 2,
+        cy: window.innerHeight * CONFIG.horizonY,
+        speed: 0,            // Current speed 0-100
+        distance: 0,
+        playerX: 0,          // -1 (left) to 1 (right)
+        targetX: 0,
+        input: { left: false, right: false },
+        obstacles: [],
+        particles: [],
+        lastTime: 0
+    };
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('world-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
+    const entityLayer = document.getElementById('entity-layer');
+    const playerEl = document.getElementById('player-container');
+    const hudSpeed = document.getElementById('hud-speed');
+    const hudDist = document.getElementById('hud-dist');
+    const progressFill = document.getElementById('progress-fill');
+    const speedFx = document.getElementById('speed-fx');
+
+    // --- Resize Handler ---
+    function resize() {
+        state.width = window.innerWidth;
+        state.height = window.innerHeight;
+        state.cx = state.width / 2;
+        state.cy = state.height * CONFIG.horizonY;
+        canvas.width = state.width;
+        canvas.height = state.height;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- Input Handling ---
+    const handleInput = (dir, active) => {
+        state.input[dir] = active;
+        const btn = document.getElementById(`btn-${dir}`);
+        if(active) btn.classList.add('active');
+        else btn.classList.remove('active');
+    };
+
+    // Touch/Mouse
+    ['left', 'right'].forEach(dir => {
+        const btn = document.getElementById(`btn-${dir}`);
+        const start = (e) => { e.preventDefault(); handleInput(dir, true); };
+        const end = (e) => { e.preventDefault(); handleInput(dir, false); };
+        btn.addEventListener('mousedown', start);
+        btn.addEventListener('mouseup', end);
+        btn.addEventListener('touchstart', start);
+        btn.addEventListener('touchend', end);
+    });
+
+    // Keyboard
+    window.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft') handleInput('left', true);
+        if (e.key === 'ArrowRight') handleInput('right', true);
+    });
+    window.addEventListener('keyup', e => {
+        if (e.key === 'ArrowLeft') handleInput('left', false);
+        if (e.key === 'ArrowRight') handleInput('right', false);
+    });
+
+    // --- Game Objects ---
+    class Obstacle {
+        constructor() {
+            this.z = 1000; // Start far away
+            this.x = (Math.random() * 2 - 1); // Random lane -1 to 1
+            this.type = Math.random() > 0.4 ? 'gate' : 'rock';
+            this.el = document.createElement('div');
+            this.el.className = `obstacle ${this.type}`;
+            
+            if (this.type === 'gate') {
+                const color = Math.random() > 0.5 ? 'blue' : 'red';
+                this.el.classList.add(color);
+                this.el.innerHTML = `
+                    <div class="gate-pole l"></div><div class="gate-pole r"></div>
+                    <div class="gate-flag">${Math.floor(Math.random()*90)+10}</div>
+                `;
+            } else {
+                this.el.innerHTML = ''; // Rock is CSS
+            }
+            
+            entityLayer.appendChild(this.el);
+        }
+
+        update(dt, speedFactor) {
+            this.z -= speedFactor * 18; // Move towards camera
+            
+            // Simple collision logic
+            // Player is roughly at z = 100 (visual depth)
+            if (this.z < 110 && this.z > 90) {
+                // Check X overlap
+                if (Math.abs(this.x - state.playerX) < 0.25) {
+                    // Hit!
+                    state.speed *= 0.5;
+                    this.z = 1005; // Teleport back to avoid sticking
+                    triggerCrashEffect();
+                }
+            }
+
+            // Remove if behind camera
+            if (this.z < -50) {
+                this.el.remove();
+                return false; // Dead
+            }
+            return true; // Alive
+        }
+
+        draw() {
+            // Perspective Projection
+            // Map Z (1000 -> 0) to Screen
+            const scale = CONFIG.fov / (CONFIG.fov + this.z);
+            
+            // Y position on screen (Horizon to Bottom)
+            // We map Z 1000..0 to Y 0..1
+            const depthPercent = (1000 - this.z) / 1000;
+            const yPos = state.cy + (depthPercent * (state.height - state.cy));
+            
+            // X position on screen (Center outwards)
+            // At horizon, x is compressed. At camera, x is wide.
+            const roadWidthAtZ = state.width * 0.9 * scale; 
+            const xPos = state.cx + (this.x * roadWidthAtZ * 0.5);
+
+            // Render
+            const w = this.type === 'gate' ? 100 : 80;
+            const h = this.type === 'gate' ? 100 : 60;
+            
+            this.el.style.width = `${w * scale}px`;
+            this.el.style.height = `${h * scale}px`;
+            this.el.style.left = `${xPos}px`;
+            this.el.style.top = `${yPos}px`;
+            this.el.style.transform = `translate(-50%, -50%)`;
+            this.el.style.zIndex = Math.floor(100 - depthPercent * 100);
+        }
+    }
+
+    // --- Particle System ---
+    function spawnParticles(x, y, count) {
+        for(let i=0; i<count; i++) {
+            state.particles.push({
+                x: x, y: y,
+                vx: (Math.random() - 0.5) * 15,
+                vy: (Math.random() - 0.5) * 15,
+                life: 1.0,
+                size: Math.random() * 4 + 2
+            });
+        }
+    }
+
+    // --- Visual Effects ---
+    function triggerCrashEffect() {
+        document.getElementById('game-container').classList.add('shake');
+        document.getElementById('game-container').style.filter = "brightness(1.5) sepia(1)";
+        setTimeout(() => {
+            document.getElementById('game-container').classList.remove('shake');
+            document.getElementById('game-container').style.filter = "none";
+        }, 300);
+    }
+
+    // --- Main Loop ---
+    function loop(timestamp) {
+        if (!state.lastTime) state.lastTime = timestamp;
+        const dt = timestamp - state.lastTime;
+        state.lastTime = timestamp;
+
+        // 1. Physics & Logic
+        // Acceleration
+        if (state.speed < CONFIG.maxSpeed) state.speed += 0.15;
+        
+        // Input Movement
+        const moveSpeed = 0.06;
+        if (state.input.left) state.targetX -= moveSpeed;
+        if (state.input.right) state.targetX += moveSpeed;
+        state.targetX = Math.max(-1, Math.min(1, state.targetX));
+        
+        // Smooth Player X
+        state.playerX += (state.targetX - state.playerX) * 0.1;
+
+        // Update Distance
+        state.distance += state.speed * 0.01;
+
+        // 2. Render Canvas (Background/Grid)
+        // Clear with transparent
+        ctx.clearRect(0, 0, state.width, state.height);
+        
+        // Draw Ice Floor
+        ctx.fillStyle = 'rgba(224, 247, 250, 0.85)'; // Ice fill with slight transparency for sun glow
+        ctx.fillRect(0, state.cy, state.width, state.height - state.cy);
+
+        // Draw Perspective Grid
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        // Vertical Lines (Converging)
+        const lines = 30;
+        for(let i = -lines; i <= lines; i++) {
+            const x = state.cx + (i * 120); // Base width
+            // Project to horizon
+            ctx.moveTo(state.cx, state.cy);
+            ctx.lineTo(x, state.height);
+        }
+        
+        // Horizontal Lines (Moving)
+        // We simulate movement by shifting Y based on speed
+        const timeOffset = (timestamp * state.speed * 0.002) % 100;
+        for(let i=0; i<20; i++) {
+            // Exponential spacing for perspective
+            let z = i * 100; 
+            let scale = CONFIG.fov / (CONFIG.fov + z);
+            let y = state.cy + (state.height - state.cy) * (1 - scale);
+            
+            // Animate Y
+            let moveY = y + (timeOffset * 3);
+            if (moveY > state.height) moveY -= (state.height - state.cy);
+            if (moveY < state.cy) continue;
+
+            ctx.moveTo(0, moveY);
+            ctx.lineTo(state.width, moveY);
+        }
+        ctx.stroke();
+
+        // 3. Manage Entities
+        // Spawn
+        if (Math.random() < CONFIG.spawnRate) {
+            state.obstacles.push(new Obstacle());
+        }
+
+        // Update & Draw Obstacles
+        for (let i = state.obstacles.length - 1; i >= 0; i--) {
+            let obs = state.obstacles[i];
+            if (!obs.update(dt, state.speed)) {
+                state.obstacles.splice(i, 1);
+            } else {
+                obs.draw();
+            }
+        }
+
+        // 4. Render Particles (Snow Spray)
+        if (state.speed > 20) {
+            // Spawn spray behind player
+            const pScreenX = state.cx + (state.playerX * state.width * 0.4);
+            const pScreenY = state.height * 0.85;
+            spawnParticles(pScreenX, pScreenY, 2);
+        }
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        for (let i = state.particles.length - 1; i >= 0; i--) {
+            let p = state.particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            
+            ctx.globalAlpha = p.life;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+            ctx.fill();
+            
+            if (p.life <= 0) state.particles.splice(i, 1);
+        }
+        ctx.globalAlpha = 1.0;
+
+        // 5. Update DOM UI
+        // Player Position
+        // Map -1..1 to screen width range (approx 40% to 60% of width)
+        const playerScreenX = state.cx + (state.playerX * state.width * 0.35);
+        playerEl.style.left = `${playerScreenX}px`;
+        
+        // Tilt Player
+        const tilt = (state.targetX - state.playerX) * -400; // Exaggerate tilt
+        playerEl.style.transform = `translate(-50%, 0) rotate(${tilt}deg)`;
+
+        // HUD
+        hudSpeed.innerHTML = Math.floor(state.speed) + ' <span class="hud-unit">km/h</span>';
+        hudDist.innerHTML = Math.floor(state.distance) + ' <span class="hud-unit">m</span>';
+        
+        // Progress (Looping every 1000m)
+        const progress = (state.distance % 1000) / 10;
+        progressFill.style.width = `${progress}%`;
+
+        // FX Intensity
+        speedFx.style.opacity = Math.min(1, state.speed / 80) * 0.5;
+
+        requestAnimationFrame(loop);
+    }
+
+    // Start
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

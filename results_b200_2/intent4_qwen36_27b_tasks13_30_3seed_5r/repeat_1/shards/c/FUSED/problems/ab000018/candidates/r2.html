@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Low-Poly Road Crossing</title>
+<style>
+    :root {
+        --sky-top: #4facfe;
+        --sky-bottom: #00f2fe;
+        --grass-light: #9ccc65;
+        --grass-dark: #558b2f;
+        --road-light: #78909c;
+        --road-dark: #455a64;
+        --water-light: #29b6f6;
+        --water-dark: #0277bd;
+        --wood-light: #a1887f;
+        --wood-dark: #5d4037;
+        --ui-bg: rgba(255, 255, 255, 0.2);
+        --ui-border: rgba(255, 255, 255, 0.6);
+        --shadow: rgba(0, 0, 0, 0.25);
+        --lane-height: 70px;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-bottom) 100%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: white;
+    }
+
+    /* 3D SCENE CONTAINER */
+    #scene {
+        width: 100%;
+        height: 100%;
+        max-width: 600px;
+        max-height: 900px;
+        position: relative;
+        perspective: 800px;
+        overflow: hidden;
+    }
+
+    /* HUD - Anchored Top */
+    .hud {
+        position: absolute;
+        top: 20px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        z-index: 100;
+        pointer-events: none;
+    }
+
+    .score-pill {
+        background: rgba(255, 255, 255, 0.9);
+        color: #37474f;
+        padding: 8px 24px;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15), 0 1px 0 rgba(255,255,255,1) inset;
+        transform: translateZ(50px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 80px;
+    }
+
+    .score-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #78909c;
+        font-weight: 800;
+        margin-bottom: 2px;
+    }
+
+    .score-val {
+        font-size: 28px;
+        font-weight: 900;
+        line-height: 1;
+        color: #0277bd;
+    }
+
+    /* GAME BOARD */
+    #board {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-style: preserve-3d;
+        /* The Isometric Tilt */
+        transform: rotateX(35deg) translateY(-150px) translateZ(-150px);
+        transition: transform 0.1s linear;
+        will-change: transform;
+    }
+
+    /* LANES - Structured Grid */
+    .lane {
+        width: 100%;
+        height: var(--lane-height);
+        position: absolute;
+        left: 0;
+        transform-style: preserve-3d;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Lane Surfaces */
+    .lane.grass { 
+        background: var(--grass-light); 
+        border-bottom: 6px solid var(--grass-dark);
+    }
+    .lane.road { 
+        background: var(--road-light); 
+        border-bottom: 6px solid var(--road-dark);
+    }
+    .lane.water { 
+        background: var(--water-light); 
+        border-bottom: 6px solid var(--water-dark);
+    }
+
+    /* Lane Details (Pseudo-3D strips for thickness) */
+    .lane::before {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: inherit;
+        filter: brightness(0.8);
+        transform: rotateX(-90deg) translateZ(-35px); /* Thickness */
+        opacity: 0.8;
+    }
+
+    /* Road Markings */
+    .lane.road::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: repeating-linear-gradient(90deg, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 40px, transparent 40px, transparent 80px);
+        transform: translateY(-50%) translateZ(1px);
+    }
+
+    /* Water Animation */
+    .lane.water::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: repeating-linear-gradient(90deg, transparent 0, transparent 60px, rgba(255,255,255,0.4) 60px, rgba(255,255,255,0.4) 62px);
+        animation: waterFlow 3s linear infinite;
+    }
+
+    @keyframes waterFlow {
+        from { transform: translateX(0); }
+        to { transform: translateX(62px); }
+    }
+
+    /* OBJECTS (Cars, Logs) */
+    .moving-object {
+        position: absolute;
+        top: 50%;
+        transform-style: preserve-3d;
+        transform: translateY(-50%);
+        filter: drop-shadow(0 5px 5px rgba(0,0,0,0.3));
+    }
+
+    /* --- LOW POLY CAR --- */
+    .car {
+        width: 80px;
+        height: 40px;
+        position: relative;
+        transform: translateZ(15px);
+    }
+
+    .car-body {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 24px;
+        background: #ff5252;
+        border-radius: 4px;
+        box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2);
+    }
+    .car-body::after {
+        content:''; position:absolute; top:0; left:0; right:0; height:50%;
+        background: rgba(255,255,255,0.2); border-radius: 4px 4px 0 0;
+    }
+
+    .car-top {
+        position: absolute;
+        bottom: 24px;
+        left: 10px;
+        width: 55px;
+        height: 18px;
+        background: #ff8a80;
+        border-radius: 6px 6px 0 0;
+        clip-path: polygon(15% 100%, 0% 0%, 100% 0%, 85% 100%);
+    }
+    .car-top::after {
+        content:''; position:absolute; top:2px; left:5px; right:5px; bottom:0;
+        background: rgba(0,0,0,0.1);
+    }
+
+    .car-wheel {
+        position: absolute;
+        bottom: -4px;
+        width: 12px;
+        height: 12px;
+        background: #333;
+        border-radius: 2px;
+        border: 2px solid #111;
+    }
+    .car-wheel.left { left: 8px; }
+    .car-wheel.right { right: 8px; }
+
+    /* Truck Variant */
+    .car.truck .car-body { background: #ffca28; height: 28px; width: 130px; }
+    .car.truck .car-top { left: 80px; width: 35px; height: 28px; background: #ffd54f; border-radius: 2px; clip-path: none; }
+    .car.truck { width: 130px; }
+    .car.truck .car-wheel { bottom: -4px; }
+    .car.truck .car-wheel.left { left: 10px; }
+    .car.truck .car-wheel.right { right: 10px; }
+
+    /* --- LOW POLY LOG --- */
+    .log {
+        width: 110px;
+        height: 24px;
+        background: var(--wood-light);
+        position: relative;
+        transform: translateZ(5px);
+        box-shadow: inset 0 -6px 0 var(--wood-dark);
+    }
+    /* Log ends */
+    .log::before, .log::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        width: 24px;
+        height: 24px;
+        background: #d7ccc8;
+        border-radius: 50%;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .log::before { left: -2px; }
+    .log::after { right: -2px; }
+
+    /* --- PLAYER (CHICKEN) --- */
+    #player {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        left: 50%;
+        bottom: 0; 
+        transform: translateX(-50%);
+        z-index: 50;
+        transition: bottom 0.15s ease-out, left 0.15s ease-out;
+        pointer-events: none;
+    }
+
+    .chicken-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        animation: breathe 1s infinite alternate ease-in-out;
+        transform-style: preserve-3d;
+    }
+
+    .chicken-body {
+        position: absolute;
+        width: 32px;
+        height: 32px;
+        background: #fff;
+        border-radius: 50%;
+        bottom: 0;
+        left: 4px;
+        box-shadow: inset -4px -4px 0 #eee, 0 6px 5px rgba(0,0,0,0.2);
+        z-index: 2;
+    }
+
+    .chicken-head {
+        position: absolute;
+        width: 26px;
+        height: 26px;
+        background: #fff;
+        border-radius: 50%;
+        top: -12px;
+        right: 2px;
+        z-index: 3;
+        box-shadow: 0 2px 0 #eee;
+    }
+
+    .chicken-eye {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        background: #000;
+        border-radius: 50%;
+        top: 8px;
+        right: 4px;
+    }
+    .chicken-eye::after {
+        content:''; position:absolute; top:0; left:1px; width:1px; height:1px; background:white;
+    }
+
+    .chicken-beak {
+        position: absolute;
+        width: 0; 
+        height: 0; 
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 10px solid #ffca28;
+        top: 10px;
+        right: -8px;
+        filter: drop-shadow(1px 1px 0 rgba(0,0,0,0.1));
+    }
+
+    .chicken-comb {
+        position: absolute;
+        width: 14px;
+        height: 10px;
+        background: #ff5252;
+        top: -16px;
+        right: 4px;
+        border-radius: 4px 4px 0 0;
+        z-index: 4;
+        box-shadow: inset -2px 0 0 rgba(0,0,0,0.1);
+    }
+
+    .chicken-shadow {
+        position: absolute;
+        width: 32px;
+        height: 10px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 50%;
+        bottom: -4px;
+        left: 4px;
+        z-index: 1;
+        transform: scaleY(0.5) translateZ(-1px);
+        filter: blur(1px);
+    }
+
+    @keyframes breathe {
+        0% { transform: translateY(0) scaleY(1); }
+        100% { transform: translateY(-3px) scaleY(1.05); }
+    }
+
+    /* CONTROLS - Compact & Polished */
+    .controls {
+        position: absolute;
+        bottom: 30px;
+        right: 30px;
+        width: 180px;
+        height: 180px;
+        z-index: 200;
+        opacity: 0.8;
+    }
+
+    .d-btn {
+        position: absolute;
+        width: 60px;
+        height: 60px;
+        background: rgba(255,255,255,0.25);
+        border: 2px solid rgba(255,255,255,0.4);
+        border-radius: 20px;
+        backdrop-filter: blur(4px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.1s;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    .d-btn:active {
+        background: rgba(255,255,255,0.5);
+        transform: scale(0.92);
+        border-color: #fff;
+    }
+
+    .d-btn svg {
+        width: 28px;
+        height: 28px;
+        fill: #fff;
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+    }
+
+    .d-up { top: 0; left: 60px; }
+    .d-down { bottom: 0; left: 60px; }
+    .d-left { top: 60px; left: 0; }
+    .d-right { top: 60px; right: 0; }
+
+    /* TREES (Low Poly) */
+    .tree-container {
+        position: absolute;
+        transform-style: preserve-3d;
+        width: 100%;
+        height: 100%;
+        top: 0; left: 0;
+    }
+    
+    .tree {
+        position: absolute;
+        width: 0; 
+        height: 0; 
+        border-left: 18px solid transparent;
+        border-right: 18px solid transparent;
+        border-bottom: 55px solid #2e7d32;
+        transform: translateZ(20px);
+        filter: drop-shadow(0 10px 5px rgba(0,0,0,0.2));
+    }
+    
+    /* Tree Highlight */
+    .tree::before {
+        content: '';
+        position: absolute;
+        top: 55px; left: -18px;
+        width: 0; height: 0;
+        border-left: 18px solid transparent;
+        border-right: 18px solid transparent;
+        border-bottom: 55px solid #388e3c;
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 100%);
+        opacity: 0.5;
+    }
+
+    .trunk {
+        position: absolute;
+        bottom: -55px;
+        left: -6px;
+        width: 12px;
+        height: 15px;
+        background: #5d4037;
+        transform: translateZ(10px);
+    }
+
+    /* CLOUDS */
+    .cloud {
+        position: absolute;
+        background: rgba(255,255,255,0.5);
+        border-radius: 40px;
+        filter: blur(2px);
+        animation: floatCloud 40s linear infinite;
+        z-index: -1;
+    }
+
+    @keyframes floatCloud {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(100vw); }
+    }
+
+    /* DEATH OVERLAY */
+    #death-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 300;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        backdrop-filter: blur(5px);
+    }
+    #death-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .death-msg {
+        font-size: 48px;
+        font-weight: 900;
+        color: #fff;
+        text-shadow: 0 6px 0 #b71c1c;
+        transform: scale(0.8);
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #death-overlay.active .death-msg {
+        transform: scale(1);
+    }
+    .restart-btn {
+        margin-top: 30px;
+        padding: 14px 40px;
+        background: #ffca28;
+        border: none;
+        border-radius: 12px;
+        font-size: 20px;
+        font-weight: 800;
+        color: #333;
+        cursor: pointer;
+        box-shadow: 0 6px 0 #f57f17;
+        transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .restart-btn:active {
+        transform: translateY(6px);
+        box-shadow: 0 0 0 #f57f17;
+    }
+</style>
+</head>
+<body>
+
+<div id="scene">
+    <!-- HUD -->
+    <div class="hud">
+        <div class="score-pill">
+            <div class="score-label">Score</div>
+            <div class="score-val" id="score">0</div>
+        </div>
+        <div class="score-pill">
+            <div class="score-label">Best</div>
+            <div class="score-val" id="best">0</div>
+        </div>
+    </div>
+
+    <!-- BACKGROUND CLOUDS -->
+    <div class="cloud" style="top: 10%; left: -10%; width: 140px; height: 50px; animation-duration: 45s;"></div>
+    <div class="cloud" style="top: 25%; left: -30%; width: 200px; height: 70px; animation-duration: 35s; animation-delay: -10s;"></div>
+    <div class="cloud" style="top: 5%; left: -50%; width: 120px; height: 40px; animation-duration: 55s; animation-delay: -5s;"></div>
+
+    <!-- GAME BOARD -->
+    <div id="board">
+        <!-- Generated via JS -->
+    </div>
+
+    <!-- PLAYER -->
+    <div id="player">
+        <div class="chicken-wrapper">
+            <div class="chicken-comb"></div>
+            <div class="chicken-head">
+                <div class="chicken-eye"></div>
+                <div class="chicken-beak"></div>
+            </div>
+            <div class="chicken-body"></div>
+            <div class="chicken-shadow"></div>
+        </div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+        <div class="d-btn d-up" onclick="movePlayer(0, 1)">
+            <svg viewBox="0 0 24 24"><path d="M12 4l-8 8h6v8h4v-8h6z"/></svg>
+        </div>
+        <div class="d-btn d-down" onclick="movePlayer(0, -1)">
+            <svg viewBox="0 0 24 24"><path d="M12 20l8-8h-6V4h-4v8H4z"/></svg>
+        </div>
+        <div class="d-btn d-left" onclick="movePlayer(-1, 0)">
+            <svg viewBox="0 0 24 24"><path d="M4 12l8-8v6h8v4h-8v6z"/></svg>
+        </div>
+        <div class="d-btn d-right" onclick="movePlayer(1, 0)">
+            <svg viewBox="0 0 24 24"><path d="M20 12l-8-8v6H4v4h8v6z"/></svg>
+        </div>
+    </div>
+
+    <!-- DEATH OVERLAY -->
+    <div id="death-overlay">
+        <div class="death-msg">OOPS!</div>
+        <button class="restart-btn" onclick="resetGame()">Try Again</button>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    const LANE_HEIGHT = 70;
+    const BOARD_OFFSET_Y = -150; 
+    const START_LANES = 15;
+    const GRID_WIDTH_UNITS = 12; // Steps wide
+    const UNIT_WIDTH_PCT = 100 / GRID_WIDTH_UNITS;
+
+    // --- STATE ---
+    let score = 0;
+    let best = 0;
+    let playerGridPos = { x: 0, y: 2 }; 
+    let lanes = [];
+    let gameLoopId;
+    let isGameOver = false;
+    let cameraY = 0;
+
+    // --- ELEMENTS ---
+    const board = document.getElementById('board');
+    const playerEl = document.getElementById('player');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const deathOverlay = document.getElementById('death-overlay');
+
+    // --- INITIALIZATION ---
+    function init() {
+        best = parseInt(localStorage.getItem('crossyBest')) || 0;
+        bestEl.innerText = best;
+        resetGame();
+    }
+
+    // --- LANE GENERATION ---
+    function addLane(index) {
+        // Pattern logic
+        let type = 'grass';
+        if (index < -2) {
+            const r = Math.random();
+            if (r < 0.45) type = 'road';
+            else if (r < 0.7) type = 'water';
+            else type = 'grass';
+        }
+
+        const lane = document.createElement('div');
+        lane.className = `lane ${type}`;
+        lane.dataset.index = index;
+        lane.style.bottom = (index * LANE_HEIGHT) + 'px';
+        
+        let content = null;
+        let speed = 0;
+        let speedDir = 1;
+        let xPos = 0;
+
+        if (type === 'road') {
+            const isTruck = Math.random() > 0.7;
+            const car = document.createElement('div');
+            car.className = `moving-object car ${isTruck ? 'truck' : ''}`;
+            
+            car.innerHTML = `
+                <div class="car-body"></div>
+                <div class="car-top"></div>
+                <div class="car-wheel left"></div>
+                <div class="car-wheel right"></div>
+            `;
+
+            // Speed varies by vehicle type
+            const baseSpeed = isTruck ? 1.5 : 2.5;
+            speed = (baseSpeed + Math.random()) * (Math.random() > 0.5 ? 1 : -1);
+            // Start offscreen
+            xPos = speed > 0 ? -150 : 120; 
+            lane.appendChild(car);
+            content = car;
+        } else if (type === 'water') {
+            const log = document.createElement('div');
+            log.className = 'moving-object log';
+            speed = (0.8 + Math.random()) * (Math.random() > 0.5 ? 1 : -1);
+            xPos = speed > 0 ? -150 : 120;
+            lane.appendChild(log);
+            content = log;
+        } else if (type === 'grass') {
+            // Random trees
+            if (Math.random() > 0.5) {
+                const treePos = Math.floor(Math.random() * GRID_WIDTH_UNITS); 
+                const treeContainer = document.createElement('div');
+                treeContainer.className = 'tree-container';
+                // Center the tree in its grid slot
+                treeContainer.style.left = (treePos * UNIT_WIDTH_PCT) + '%';
+                treeContainer.style.width = UNIT_WIDTH_PCT + '%';
+                treeContainer.style.textAlign = 'center';
+                
+                const tree = document.createElement('div');
+                tree.className = 'tree';
+                tree.innerHTML = '<div class="trunk"></div>';
+                
+                treeContainer.appendChild(tree);
+                lane.appendChild(treeContainer);
+            }
+        }
+
+        board.appendChild(lane);
+
+        lanes.push({
+            element: lane,
+            type: type,
+            index: index,
+            content: content,
+            speed: speed,
+            x: xPos
+        });
+    }
+
+    // --- GAME LOOP ---
+    function gameLoop() {
+        if (isGameOver) return;
+
+        // Move objects
+        lanes.forEach(l => {
+            if (l.content) {
+                l.x += l.speed;
+                // Wrap around logic
+                if (l.speed > 0 && l.x > 120) l.x = -150;
+                if (l.speed < 0 && l.x < -150) l.x = 120;
+                l.content.style.transform = `translateY(-50%) translateX(${l.x}%)`;
+            }
+        });
+
+        checkCollisions();
+        updateCamera();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function checkCollisions() {
+        const currentLaneObj = lanes.find(l => l.index === playerGridPos.y);
+        if (!currentLaneObj) return;
+
+        // Calculate Player Position in Lane %
+        // Grid X: 0 is center (50%).
+        // 1 Grid Unit = UNIT_WIDTH_PCT / 2
+        const playerPct = 50 + (playerGridPos.x * (UNIT_WIDTH_PCT / 2));
+        // Player hitbox is slightly smaller than visual
+        const hitboxWidth = 6; // % of screen width
+        const pLeft = playerPct - (hitboxWidth / 2); 
+        const pRight = playerPct + (hitboxWidth / 2);
+
+        if (currentLaneObj.type === 'water') {
+            const objWidth = 22; // Log width approx %
+            const oLeft = currentLaneObj.x;
+            const oRight = currentLaneObj.x + objWidth;
+            
+            const onLog = (pLeft < oRight && pRight > oLeft);
+            
+            if (onLog) {
+                // Move player with log
+                // Speed conversion: 100% width = GRID_WIDTH_UNITS grid units
+                const gridSpeed = (currentLaneObj.speed / 100) * GRID_WIDTH_UNITS;
+                playerGridPos.x += gridSpeed;
+                updatePlayerVisuals();
+            } else {
+                gameOver();
+            }
+        } else if (currentLaneObj.type === 'road') {
+            const isTruck = currentLaneObj.content.classList.contains('truck');
+            const objWidth = isTruck ? 28 : 18;
+            const oLeft = currentLaneObj.x;
+            const oRight = currentLaneObj.x + objWidth;
+
+            if (pLeft < oRight && pRight > oLeft) {
+                gameOver();
+            }
+        }
+    }
+
+    // --- MOVEMENT ---
+    window.movePlayer = function(dx, dy) {
+        if (isGameOver) return;
+
+        playerGridPos.x += dx;
+        playerGridPos.y += dy;
+
+        // Clamp X
+        const maxGrid = GRID_WIDTH_UNITS / 2;
+        if (playerGridPos.x > maxGrid) playerGridPos.x = maxGrid;
+        if (playerGridPos.x < -maxGrid) playerGridPos.x = -maxGrid;
+
+        updatePlayerVisuals();
+
+        // Score increment on forward move
+        if (dy > 0) {
+            score++;
+            scoreEl.innerText = score;
+            
+            // Add new lane at the top
+            const topIndex = lanes[lanes.length-1].index;
+            addLane(topIndex - 1);
+            
+            // Cleanup old lanes to save DOM nodes
+            if (lanes.length > 30) {
+                const oldLane = lanes.shift();
+                oldLane.element.remove();
+            }
+        }
+    };
+
+    function updatePlayerVisuals() {
+        if(playerEl.parentNode !== board) {
+            board.appendChild(playerEl);
+        }
+
+        const bottomPx = (playerGridPos.y * LANE_HEIGHT) + (LANE_HEIGHT/2) + 10; 
+        
+        // X: Percentage. Center is 50%. 
+        const leftPct = 50 + (playerGridPos.x * (UNIT_WIDTH_PCT / 2));
+
+        playerEl.style.bottom = bottomPx + 'px';
+        playerEl.style.left = leftPct + '%';
+    }
+
+    function updateCamera() {
+        // Target: keep player roughly 30% up from bottom
+        const targetBoardY = - (playerGridPos.y * LANE_HEIGHT) + (window.innerHeight * 0.35);
+        
+        // Smooth Lerp
+        cameraY += (targetBoardY - cameraY) * 0.1;
+        
+        board.style.transform = `rotateX(35deg) translateY(${BOARD_OFFSET_Y + cameraY}px) translateZ(-150px)`;
+    }
+
+    function gameOver() {
+        isGameOver = true;
+        
+        // Visual feedback
+        playerEl.style.filter = 'grayscale(100%)';
+        playerEl.style.transform = 'translateX(-50%) rotate(90deg)';
+        
+        if(score > best) {
+            best = score;
+            localStorage.setItem('crossyBest', best);
+            bestEl.innerText = best;
+        }
+
+        deathOverlay.classList.add('active');
+    }
+
+    window.resetGame = function() {
+        isGameOver = false;
+        score = 0;
+        scoreEl.innerText = '0';
+        playerGridPos = { x: 0, y: 0 };
+        cameraY = 0;
+        
+        deathOverlay.classList.remove('active');
+        
+        playerEl.style.filter = 'none';
+        playerEl.style.transform = 'translateX(-50%)';
+        
+        // Clear lanes
+        board.innerHTML = '';
+        lanes = [];
+        
+        board.appendChild(playerEl);
+
+        // Generate initial lanes
+        for (let i = 0; i > -START_LANES; i--) {
+            addLane(i);
+        }
+        
+        updatePlayerVisuals();
+        gameLoop();
+    };
+
+    // --- KEYBOARD SUPPORT ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'w') movePlayer(0, 1);
+        if (e.key === 'ArrowDown' || e.key === 's') movePlayer(0, -1);
+        if (e.key === 'ArrowLeft' || e.key === 'a') movePlayer(-1, 0);
+        if (e.key === 'ArrowRight' || e.key === 'd') movePlayer(1, 0);
+    });
+
+    // --- START ---
+    init();
+
+</script>
+</body>
+</html>

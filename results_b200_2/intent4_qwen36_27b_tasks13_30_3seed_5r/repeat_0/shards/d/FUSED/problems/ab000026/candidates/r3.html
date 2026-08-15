@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play with Tiles - Revised Design</title>
+<style>
+  :root {
+    /* Palette - Tactile & Premium */
+    --felt-primary: #264F3B;
+    --felt-dark: #12291E;
+    --felt-noise: rgba(0,0,0,0.4);
+    
+    /* Wood Frame */
+    --wood-dark: #2D1E18;
+    --wood-light: #5D4037;
+    --wood-shadow: #1a100c;
+    
+    /* Tile Materials */
+    --tile-face: #F5F4EE;
+    --tile-edge: #D0CEC3;
+    --tile-shadow: #111;
+    --pip-color: #1A1A1A;
+    
+    /* UI Accents */
+    --gold-bright: #FFD700;
+    --gold-dim: #B8860B;
+    --gold-glow: rgba(255, 215, 0, 0.4);
+    --blue-back: #1A237E;
+    
+    /* Typography */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-display: "Georgia", "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  
+  body, html {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background-color: #0a0a0a;
+    font-family: var(--font-ui);
+    color: #fff;
+  }
+
+  /* --- 1. Layout & Composition --- */
+  #game-container {
+    position: relative;
+    width: 100vw; height: 100vh;
+    display: grid;
+    grid-template-rows: 90px 1fr 220px; /* Taller Header, Playable Board, Taller Hand */
+    background: 
+      radial-gradient(circle at 50% 30%, var(--felt-primary) 0%, var(--felt-dark) 80%),
+      var(--felt-dark);
+    /* Felt Noise Texture */
+    background-image: 
+      radial-gradient(circle at 50% 30%, var(--felt-primary) 0%, var(--felt-dark) 80%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.12'/%3E%3C/svg%3E");
+  }
+
+  /* Wood Frame Overlay */
+  .frame-overlay {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+    border: 28px solid var(--wood-dark);
+    border-image: linear-gradient(to bottom right, var(--wood-light), var(--wood-dark)) 1;
+    z-index: 100;
+  }
+  /* Inner Bevel */
+  .frame-overlay::before {
+    content: ''; position: absolute; inset: 28px;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.9);
+    pointer-events: none;
+  }
+
+  /* --- 2. Top HUD --- */
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 60px;
+    z-index: 50;
+    /* Push down slightly to ensure readability */
+    margin-top: 10px;
+  }
+
+  /* Score Pill Design */
+  .score-pill {
+    background: linear-gradient(to bottom, #3E2723, #2D1A15);
+    border: 1px solid #5D4037;
+    border-radius: 8px;
+    padding: 8px 20px;
+    display: flex; align-items: center; gap: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1);
+    min-width: 180px;
+    position: relative;
+  }
+  .score-pill::after {
+    content: ''; position: absolute; inset: -1px; border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    pointer-events: none;
+  }
+  .score-pill.right { flex-direction: row-reverse; text-align: right; }
+
+  .avatar {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #111;
+    border: 2px solid #5D4037;
+    display: flex; justify-content: center; align-items: center;
+    font-size: 1.4rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    color: #888;
+    transition: all 0.3s ease;
+  }
+  .avatar.active {
+    border-color: var(--gold-bright);
+    box-shadow: 0 0 15px var(--gold-glow), inset 0 0 10px rgba(255,215,0,0.2);
+    color: var(--gold-bright);
+    transform: scale(1.1);
+  }
+
+  .score-info { display: flex; flex-direction: column; }
+  .score-label { 
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; 
+    color: #A1887F; font-weight: 600; margin-bottom: 2px;
+  }
+  .score-val { 
+    font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; 
+    color: #FFF; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    line-height: 1;
+  }
+
+  /* Center Title & Turn Badge */
+  .center-hud {
+    display: flex; flex-direction: column; align-items: center;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+  }
+  .game-title {
+    font-family: var(--font-display);
+    font-size: 1.2rem; color: #A1887F; letter-spacing: 2px;
+    margin-bottom: 6px; opacity: 0.9;
+  }
+  
+  /* Turn Badge - Prominent */
+  .turn-badge {
+    background: linear-gradient(to right, var(--gold-dim), var(--gold-bright), var(--gold-dim));
+    color: #2D1A15;
+    padding: 6px 24px;
+    border-radius: 20px;
+    font-weight: 800;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    box-shadow: 0 0 20px var(--gold-glow);
+    border: 1px solid #FFF;
+    animation: pulse-glow 2s infinite;
+  }
+  @keyframes pulse-glow {
+    0% { box-shadow: 0 0 10px var(--gold-glow); }
+    50% { box-shadow: 0 0 25px var(--gold-bright); }
+    100% { box-shadow: 0 0 10px var(--gold-glow); }
+  }
+
+  /* --- 3. Board Area --- */
+  #board-area {
+    position: relative;
+    display: flex; justify-content: center; align-items: center;
+    /* Shift composition up */
+    padding-top: -20px; 
+  }
+
+  svg#game-board {
+    width: 100%; height: 100%;
+    overflow: visible;
+  }
+
+  /* --- 4. Bottom Player Area --- */
+  .player-area {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.2) 60%, transparent 100%);
+    padding-bottom: 30px; /* Padding to prevent cutting off tiles */
+    z-index: 20;
+  }
+
+  /* Hand Rack */
+  .hand-rack {
+    display: flex; 
+    justify-content: center;
+    align-items: flex-end;
+    gap: 12px; /* Tighter gap for more tiles */
+    perspective: 1000px;
+  }
+
+  /* --- 5. The Tile (HTML Hand) --- */
+  .tile {
+    width: 56px; height: 112px;
+    background: var(--tile-face);
+    border-radius: 8px;
+    position: relative;
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    
+    /* Complex Tactile Styling */
+    border: 1px solid #ccc;
+    box-shadow: 
+      inset 1px 1px 3px rgba(255,255,255,0.9), /* Top Highlight */
+      inset -2px -2px 4px rgba(0,0,0,0.1), /* Inner Shadow */
+      0 1px 0 #eee, 0 2px 0 #ddd, 0 3px 0 #ccc, 0 4px 0 #bbb, 0 5px 0 #aaa, /* 3D Edge */
+      0 10px 20px rgba(0,0,0,0.5); /* Drop Shadow */
+      
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  /* Noise Texture on Tile */
+  .tile::before {
+    content: ''; position: absolute; inset: 0; border-radius: 8px;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+
+  .tile:hover {
+    transform: translateY(-25px) scale(1.05);
+    box-shadow: 0 25px 40px rgba(0,0,0,0.6);
+    z-index: 30;
+  }
+
+  .tile.selected {
+    transform: translateY(-35px) scale(1.1);
+    border-color: var(--gold-bright);
+    box-shadow: 
+      0 0 0 2px var(--gold-bright),
+      0 30px 50px rgba(0,0,0,0.6);
+  }
+
+  .tile.disabled {
+    filter: grayscale(1) brightness(0.9);
+    transform: translateY(5px) scale(0.95);
+    box-shadow: 0 5px 10px rgba(0,0,0,0.5);
+    cursor: default;
+  }
+  .tile.disabled:hover { transform: translateY(5px) scale(0.95); }
+
+  /* Tile Inner Structure */
+  .tile-half {
+    flex: 1; width: 100%;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+    padding: 6px;
+    position: relative;
+    z-index: 1;
+  }
+  .tile-divider {
+    height: 2px; background: #d4d2c8; width: 80%; margin: 0 auto;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    z-index: 1;
+  }
+  .pip {
+    background: var(--pip-color);
+    border-radius: 50%;
+    width: 9px; height: 9px;
+    margin: auto;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  /* --- 6. Draw Pile (Stack) --- */
+  .boneyard-container {
+    position: absolute;
+    right: 60px; bottom: 40px;
+    width: 64px; height: 116px;
+    cursor: pointer;
+    z-index: 10;
+  }
+  .boneyard-container:hover .boneyard-top { transform: translateY(-2px); }
+  .boneyard-container:active .boneyard-top { transform: scale(0.95); }
+
+  /* Stack Depth */
+  .boneyard-layer {
+    position: absolute; inset: 0;
+    background: var(--blue-back);
+    border-radius: 8px;
+    border: 1px solid #303F9F;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+    z-index: 1;
+  }
+  .boneyard-layer:nth-child(1) { transform: rotate(-2deg) translate(-3px, -3px); }
+  .boneyard-layer:nth-child(2) { transform: rotate(1deg) translate(2px, -4px); }
+  .boneyard-layer:nth-child(3) { transform: rotate(-1deg) translate(-2px, -2px); }
+  
+  .boneyard-top {
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, #283593, #151E60);
+    border-radius: 8px;
+    border: 1px solid #5C6BC0;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.6);
+    z-index: 5;
+    display: flex; justify-content: center; align-items: center;
+    transition: transform 0.2s;
+  }
+  /* Pattern */
+  .boneyard-top::after {
+    content: ''; position: absolute; inset: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.05) 5px, rgba(255,255,255,0.05) 10px);
+  }
+  .boneyard-icon {
+    font-size: 24px; color: rgba(255,255,255,0.8);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  }
+  
+  .boneyard-count {
+    position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); color: var(--gold-bright);
+    padding: 4px 12px; border-radius: 12px;
+    font-size: 0.8rem; font-weight: 700;
+    border: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  }
+
+  /* --- 7. Endpoint Indicators (SVG) --- */
+  .endpoint-group { cursor: pointer; transition: transform 0.2s; }
+  .endpoint-group:hover { transform: scale(1.1); }
+  
+  /* Glowing Ring */
+  .endpoint-ring {
+    fill: rgba(255, 215, 0, 0.1);
+    stroke: var(--gold-bright);
+    stroke-width: 2;
+    stroke-dasharray: 8, 4;
+    animation: spin 10s linear infinite;
+  }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+  
+  .endpoint-text {
+    fill: var(--gold-bright);
+    font-family: var(--font-display);
+    font-weight: bold; font-size: 24px;
+    text-anchor: middle; dominant-baseline: central;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+  }
+
+  /* --- Toast --- */
+  #toast {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
+    background: rgba(10, 10, 10, 0.95);
+    color: var(--gold-bright); 
+    padding: 12px 30px; border-radius: 4px;
+    pointer-events: none; opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 200; text-align: center; font-weight: 600;
+    border: 1px solid var(--gold-dim);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <div class="frame-overlay"></div>
+
+  <!-- 1. Top HUD -->
+  <div class="top-bar">
+    <!-- Opponent -->
+    <div class="score-pill">
+      <div class="avatar" id="avatar-cpu">🤖</div>
+      <div class="score-info">
+        <div class="score-label">Opponent</div>
+        <div class="score-val" id="cpu-score">0</div>
+      </div>
+    </div>
+
+    <!-- Center Status -->
+    <div class="center-hud">
+      <div class="game-title">Play With Tiles</div>
+      <div id="turn-indicator" class="turn-badge">Your Turn</div>
+    </div>
+
+    <!-- Player -->
+    <div class="score-pill right">
+      <div class="avatar active" id="avatar-player">👤</div>
+      <div class="score-info">
+        <div class="score-label">You</div>
+        <div class="score-val" id="player-score">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Board Area -->
+  <div id="board-area">
+    <svg id="game-board" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <!-- Shadows -->
+        <filter id="tileDropShadow" x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="6" stdDeviation="5" flood-opacity="0.6"/>
+        </filter>
+        <filter id="pipShadow">
+           <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.7"/>
+        </filter>
+        
+        <!-- SVG Tile Base -->
+        <g id="tile-shape-svg">
+          <!-- Shadow Base -->
+          <rect x="-24" y="-48" width="48" height="96" rx="6" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="0"/>
+          <!-- Main Body -->
+          <rect x="-24" y="-48" width="48" height="96" rx="6" fill="#F5F4EE" stroke="#D0CEC3" stroke-width="1"/>
+          <!-- Inner Highlight -->
+          <rect x="-22" y="-46" width="44" height="92" rx="4" fill="none" stroke="white" stroke-opacity="0.8" stroke-width="1"/>
+          <!-- Divider -->
+          <line x1="-20" y1="0" x2="20" y2="0" stroke="#C0C0C0" stroke-width="1"/>
+          <!-- Divider Shadow -->
+          <line x1="-20" y1="1" x2="20" y2="1" stroke="white" stroke-width="1"/>
+        </g>
+
+        <!-- Pips -->
+        <g id="pip-1"><circle cx="0" cy="0" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/></g>
+        <g id="pip-2">
+          <circle cx="-10" cy="-10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-3">
+          <circle cx="0" cy="0" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="-10" cy="-10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-4">
+          <circle cx="-10" cy="-10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="-10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="-10" cy="10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="10" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-5">
+          <use href="#pip-4"/>
+          <circle cx="0" cy="0" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-6">
+          <circle cx="-10" cy="-12" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="-12" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="-10" cy="0" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="0" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="-10" cy="12" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+          <circle cx="10" cy="12" r="5.5" fill="#1A1A1A" filter="url(#pipShadow)"/>
+        </g>
+      </defs>
+
+      <!-- Layers -->
+      <g id="chain-layer" transform="translate(600, 250)"></g>
+      <g id="endpoints-layer" transform="translate(600, 250)"></g>
+    </svg>
+  </div>
+
+  <!-- 3. Bottom Area -->
+  <div class="player-area">
+    
+    <!-- Hand Rack -->
+    <div class="hand-rack" id="player-hand"></div>
+
+    <!-- Draw Pile -->
+    <div class="boneyard-container" onclick="drawTile()">
+      <div class="boneyard-layer"></div>
+      <div class="boneyard-layer"></div>
+      <div class="boneyard-layer"></div>
+      <div class="boneyard-top">
+        <div class="boneyard-icon">?</div>
+      </div>
+      <div class="boneyard-count" id="boneyard-count">12 Left</div>
+    </div>
+  </div>
+
+  <div id="toast">Message</div>
+</div>
+
+<script>
+/**
+ * Game Logic & Rendering
+ */
+const TILE_W = 48; // SVG Width
+const TILE_H = 96; // SVG Height
+const GAP = 8;     // Gap between tiles
+
+// Pip Map
+const PIP_MAP = {
+  0: null, 1: 'pip-1', 2: 'pip-2', 3: 'pip-3', 4: 'pip-4', 5: 'pip-5', 6: 'pip-6'
+};
+
+// State
+let boardChain = []; // Array of {a, b, rotation, x, y}
+let playerHand = [];
+let boneyard = [];
+let leftEndVal = null;
+let rightEndVal = null;
+let selectedTileIdx = -1;
+
+// --- Initialization ---
+function initGame() {
+  // Generate Double Six Set
+  for(let i=0; i<=6; i++) {
+    for(let j=i; j<=6; j++) {
+      boneyard.push({a: i, b: j});
+    }
+  }
+  // Shuffle
+  boneyard.sort(() => Math.random() - 0.5);
+
+  // Deal 6 to player
+  for(let i=0; i<6; i++) playerHand.push(boneyard.pop());
+
+  // CRITIQUE FIX: Demonstrate Chain
+  // Start Board with [6,6]
+  const startTile = {a: 6, b: 6, rotation: 0}; // Vertical
+  boardChain.push(startTile);
+  
+  // Add second tile [6,3] to demonstrate connection
+  // Connects to the 6 of the first tile.
+  // Since 6-6 is vertical, we attach horizontally.
+  // If we attach to the right, the left side of new tile must be 6.
+  // Tile is 6-3. If we rotate -90 (CCW), Top(6) becomes Left. Right becomes 3.
+  const demoTile = {a: 6, b: 3, rotation: -90}; 
+  boardChain.push(demoTile);
+
+  leftEndVal = 6; // Left side of 6-6 is 6
+  rightEndVal = 3; // Right side of 6-3 is 3
+
+  renderHand();
+  renderBoard();
+  updateUI();
+}
+
+// --- Rendering: Board (SVG) ---
+function createBoardTileSVG(tileData) {
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  
+  // Transform: Move to position, then rotate
+  g.setAttribute("transform", `translate(${tileData.x}, ${tileData.y}) rotate(${tileData.rotation})`);
+  g.setAttribute("filter", "url(#tileDropShadow)");
+
+  // Shape
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  shape.setAttribute("href", "#tile-shape-svg");
+  g.appendChild(shape);
+
+  // Pips Top (Value A) -> y = -24
+  if(PIP_MAP[tileData.a]) {
+    const pipsA = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsA.setAttribute("href", `#${PIP_MAP[tileData.a]}`);
+    pipsA.setAttribute("transform", "translate(0, -24)");
+    g.appendChild(pipsA);
+  }
+
+  // Pips Bottom (Value B) -> y = 24
+  if(PIP_MAP[tileData.b]) {
+    const pipsB = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsB.setAttribute("href", `#${PIP_MAP[tileData.b]}`);
+    pipsB.setAttribute("transform", "translate(0, 24)");
+    g.appendChild(pipsB);
+  }
+
+  return g;
+}
+
+function renderBoard() {
+  const container = document.getElementById('chain-layer');
+  const endsLayer = document.getElementById('endpoints-layer');
+  container.innerHTML = '';
+  endsLayer.innerHTML = '';
+
+  if (boardChain.length === 0) return;
+
+  // 1. Calculate Layout (Simple Linear Center-Out)
+  const getW = (rot) => (rot === 90 || rot === -90) ? TILE_H : TILE_W;
+
+  // Calculate total width
+  let totalW = 0;
+  boardChain.forEach(t => totalW += getW(t.rotation) + GAP);
+  totalW -= GAP;
+
+  let currentX = -totalW / 2;
+
+  // 2. Render Tiles
+  boardChain.forEach((t) => {
+    const w = getW(t.rotation);
+    t.x = currentX + w/2; // Center anchor
+    t.y = 0; // Center Y
+    
+    const svgTile = createBoardTileSVG(t);
+    container.appendChild(svgTile);
+    
+    currentX += w + GAP;
+  });
+
+  // 3. Render Endpoints
+  // Left End
+  const first = boardChain[0];
+  const wFirst = getW(first.rotation);
+  const leftX = -totalW/2 - (wFirst/2) - GAP - 35; // 35 radius
+  
+  const leftEp = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  leftEp.setAttribute("class", "endpoint-group");
+  leftEp.setAttribute("transform", `translate(${leftX}, 0)`);
+  leftEp.onclick = () => playTileToSide('left');
+  leftEp.innerHTML = `
+    <circle cx="0" cy="0" r="28" class="endpoint-ring"/>
+    <text x="0" y="2" class="endpoint-text">${leftEndVal}</text>
+  `;
+  endsLayer.appendChild(leftEp);
+
+  // Right End
+  const last = boardChain[boardChain.length-1];
+  const wLast = getW(last.rotation);
+  const rightX = (totalW/2) + (wLast/2) + GAP + 35;
+
+  const rightEp = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  rightEp.setAttribute("class", "endpoint-group");
+  rightEp.setAttribute("transform", `translate(${rightX}, 0)`);
+  rightEp.onclick = () => playTileToSide('right');
+  rightEp.innerHTML = `
+    <circle cx="0" cy="0" r="28" class="endpoint-ring"/>
+    <text x="0" y="2" class="endpoint-text">${rightEndVal}</text>
+  `;
+  endsLayer.appendChild(rightEp);
+}
+
+// --- Rendering: Hand (HTML) ---
+function renderHand() {
+  const rack = document.getElementById('player-hand');
+  rack.innerHTML = '';
+  
+  playerHand.forEach((tile, idx) => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    
+    // Check validity
+    const valid = (tile.a === leftEndVal || tile.b === leftEndVal || 
+                  tile.a === rightEndVal || tile.b === rightEndVal);
+    if (!valid) el.classList.add('disabled');
+    if (idx === selectedTileIdx) el.classList.add('selected');
+
+    el.innerHTML = `
+      <div class="tile-half">${getPipsHTML(tile.a)}</div>
+      <div class="tile-divider"></div>
+      <div class="tile-half">${getPipsHTML(tile.b)}</div>
+    `;
+    
+    el.onclick = () => selectTile(idx);
+    rack.appendChild(el);
+  });
+}
+
+function getPipsHTML(n) {
+  if(n===0) return '';
+  let html = '';
+  const positions = {
+    1: [[2,2]],
+    2: [[1,1], [3,3]],
+    3: [[1,1], [2,2], [3,3]],
+    4: [[1,1], [3,1], [1,3], [3,3]],
+    5: [[1,1], [3,1], [2,2], [1,3], [3,3]],
+    6: [[1,1], [3,1], [1,2], [3,2], [1,3], [3,3]]
+  };
+  
+  positions[n].forEach(([r,c]) => {
+    html += `<div style="grid-area: ${r} / ${c}"><div class="pip"></div></div>`;
+  });
+  return html;
+}
+
+// --- Interaction Logic ---
+
+function selectTile(idx) {
+  if (selectedTileIdx === idx) {
+    selectedTileIdx = -1; // Deselect
+  } else {
+    const tile = playerHand[idx];
+    // Check if playable
+    if (tile.a !== leftEndVal && tile.b !== leftEndVal && 
+        tile.a !== rightEndVal && tile.b !== rightEndVal) {
+      showToast("No matching ends");
+      return;
+    }
+    selectedTileIdx = idx;
+  }
+  renderHand();
+}
+
+function playTileToSide(side) {
+  if (selectedTileIdx === -1) {
+    showToast("Select a tile first");
+    return;
+  }
+
+  const tile = playerHand[selectedTileIdx];
+  let played = false;
+  let newTileData = null;
+
+  // Logic: 
+  // Vertical (0 deg): Top=A, Bottom=B
+  // Horizontal (90 deg): Left=B, Right=A (Standard rotation)
+  
+  if (side === 'left') {
+    // We are attaching to the LEFT of the chain.
+    // The chain's left end value is `leftEndVal`.
+    // We need the RIGHT side of our new tile to match `leftEndVal`.
+    
+    if (tile.a === leftEndVal) {
+      // A matches. A is Top. We need A on Right.
+      // Rotate 90deg (Clockwise). Top moves to Right.
+      // New Left end becomes B.
+      newTileData = { a: tile.b, b: tile.a, rotation: 90 };
+      leftEndVal = tile.b;
+      played = true;
+    } else if (tile.b === leftEndVal) {
+      // B matches. B is Bottom. We need B on Right.
+      // Rotate -90deg (Counter-Clockwise). Bottom moves to Right.
+      // New Left end becomes A.
+      newTileData = { a: tile.a, b: tile.b, rotation: -90 };
+      leftEndVal = tile.a;
+      played = true;
+    }
+  } else if (side === 'right') {
+    // We are attaching to the RIGHT of the chain.
+    // The chain's right end value is `rightEndVal`.
+    // We need the LEFT side of our new tile to match `rightEndVal`.
+
+    if (tile.b === rightEndVal) {
+      // B matches. B is Bottom. We need B on Left.
+      // Rotate 90deg. Bottom moves to Left.
+      // New Right end becomes A.
+      newTileData = { a: tile.a, b: tile.b, rotation: 90 };
+      rightEndVal = tile.a;
+      played = true;
+    } else if (tile.a === rightEndVal) {
+      // A matches. A is Top. We need A on Left.
+      // Rotate -90deg. Top moves to Left.
+      // New Right end becomes B.
+      newTileData = { a: tile.a, b: tile.b, rotation: -90 };
+      rightEndVal = tile.b;
+      played = true;
+    }
+  }
+
+  if (played) {
+    if (side === 'left') boardChain.unshift(newTileData);
+    else boardChain.push(newTileData);
+    
+    playerHand.splice(selectedTileIdx, 1);
+    selectedTileIdx = -1;
+    
+    renderHand();
+    renderBoard();
+    updateUI();
+    checkWin();
+  } else {
+    showToast("Invalid move");
+  }
+}
+
+function drawTile() {
+  if (boneyard.length > 0) {
+    const t = boneyard.pop();
+    playerHand.push(t);
+    renderHand();
+    updateUI();
+    showToast("Drawn Tile");
+  } else {
+    showToast("Boneyard Empty");
+  }
+}
+
+function updateUI() {
+  document.getElementById('boneyard-count').textContent = boneyard.length + " Left";
+  // Simulate scores
+  document.getElementById('player-score').textContent = Math.floor(Math.random() * 20);
+  document.getElementById('cpu-score').textContent = Math.floor(Math.random() * 20);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+
+function checkWin() {
+  if (playerHand.length === 0) {
+    showToast("You Win!");
+  }
+}
+
+// Start
+initGame();
+
+</script>
+</body>
+</html>

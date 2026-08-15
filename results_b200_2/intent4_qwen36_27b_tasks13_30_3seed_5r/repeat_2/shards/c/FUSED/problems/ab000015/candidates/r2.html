@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Alpine Rush: Velocity</title>
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff0055;
+            --neon-orange: #ff9d00;
+            --glass-bg: rgba(2, 10, 24, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.12);
+            --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #020617;
+            font-family: var(--font-ui);
+            color: white;
+        }
+
+        /* --- LAYOUT & LAYERS --- */
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Speed Lines Overlay */
+        #fx-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+            mix-blend-mode: screen;
+        }
+
+        /* Vignette & Grain */
+        .overlay-fx {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 3;
+            background: radial-gradient(circle at center, transparent 40%, rgba(0,0,0,0.6) 100%);
+        }
+
+        .noise {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            opacity: 0.05;
+            z-index: 4;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        /* --- UI LAYER --- */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        /* --- TOP HUD --- */
+        .hud-top {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* Progress Bar - Dynamic Shrinking Style */
+        .progress-container {
+            width: 100%;
+            max-width: 600px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--neon-blue), #ffffff);
+            width: 100%;
+            box-shadow: 0 0 10px var(--neon-blue);
+            transform-origin: left;
+        }
+
+        /* Stats Row */
+        .stats-row {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            justify-content: space-between;
+        }
+
+        .stat-box {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-left: 4px solid var(--neon-blue);
+            padding: 10px 20px;
+            border-radius: 4px;
+            transform: skewX(-10deg);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            min-width: 120px;
+        }
+
+        .stat-box.speed-box { border-left-color: var(--neon-orange); }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.6);
+            display: block;
+            margin-bottom: 2px;
+            transform: skewX(10deg); /* Counter-skew text */
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: white;
+            display: block;
+            transform: skewX(10deg);
+            text-shadow: 0 0 5px rgba(255,255,255,0.3);
+        }
+
+        .stat-unit {
+            font-size: 12px;
+            color: var(--neon-blue);
+            margin-left: 4px;
+        }
+
+        /* --- CONTROLS --- */
+        .controls-area {
+            padding: 30px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            pointer-events: auto;
+        }
+
+        /* D-Pad */
+        .d-pad {
+            display: flex;
+            gap: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 10px;
+            border-radius: 50px;
+            border: 1px solid rgba(255,255,255,0.05);
+            backdrop-filter: blur(4px);
+        }
+
+        .ctrl-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+            color: rgba(255,255,255,0.7);
+        }
+
+        .ctrl-btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+        .ctrl-btn:active, .ctrl-btn.active {
+            background: rgba(0, 243, 255, 0.2);
+            border-color: var(--neon-blue);
+            color: var(--neon-blue);
+            transform: scale(0.92);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+        }
+
+        /* Brake / Action */
+        .action-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(255, 0, 85, 0.1);
+            border: 2px solid rgba(255, 0, 85, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: 900;
+            font-size: 14px;
+            letter-spacing: 1px;
+            color: var(--neon-pink);
+            text-transform: uppercase;
+            transition: all 0.1s;
+            box-shadow: 0 0 10px rgba(255, 0, 85, 0.1);
+        }
+
+        .action-btn:active, .action-btn.active {
+            background: var(--neon-pink);
+            color: white;
+            transform: scale(0.95);
+            box-shadow: 0 0 25px var(--neon-pink);
+        }
+
+        /* Animations */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+
+        .shake-effect {
+            animation: shake 0.5s infinite;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Main Render -->
+    <canvas id="gameCanvas"></canvas>
+    <!-- FX Layer -->
+    <canvas id="fx-canvas"></canvas>
+    <!-- Overlays -->
+    <div class="overlay-fx"></div>
+    <div class="noise"></div>
+
+    <!-- UI -->
+    <div class="ui-layer">
+        
+        <div class="hud-top">
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-fill" id="progressBar"></div>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-row">
+                <div class="stat-box">
+                    <span class="stat-label">Distance</span>
+                    <span class="stat-value"><span id="distDisplay">0.00</span><span class="stat-unit">KM</span></span>
+                </div>
+                <div class="stat-box speed-box">
+                    <span class="stat-label">Velocity</span>
+                    <span class="stat-value"><span id="speedDisplay">0</span><span class="stat-unit">KM/H</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-area">
+            <div class="d-pad">
+                <div class="ctrl-btn" id="btnLeft">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                </div>
+                <div class="ctrl-btn" id="btnRight">
+                    <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </div>
+            </div>
+
+            <div class="action-btn" id="btnBrake">
+                Brake
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * ALPINE RUSH ENGINE v3 - VISUAL REDESIGN
+     * Focus: Speed, Clarity, Atmosphere
+     */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const fxCanvas = document.getElementById('fx-canvas');
+    const fxCtx = fxCanvas.getContext('2d');
+
+    // UI Elements
+    const speedDisplay = document.getElementById('speedDisplay');
+    const distDisplay = document.getElementById('distDisplay');
+    const progressBar = document.getElementById('progressBar');
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+    const btnBrake = document.getElementById('btnBrake');
+    const gameContainer = document.getElementById('game-container');
+
+    // Config
+    let width, height, dpr;
+    let cx, cy;
+    let frame = 0;
+
+    // Game State
+    const state = {
+        speed: 0,
+        targetSpeed: 140, // High initial target
+        distance: 0,
+        playerX: 0, // -1 (Left Edge) to 1 (Right Edge)
+        playerTilt: 0,
+        isBraking: false,
+        roadWidth: 2400,
+        cameraHeight: 1000,
+        fov: 100,
+        cameraDepth: 0.8, // Distance to projection plane
+        segmentLength: 200,
+        rumbleFreq: 0
+    };
+
+    // Input
+    const input = { left: false, right: false, brake: false };
+
+    // World Generation
+    const world = {
+        obstacles: [],
+        trees: [],
+        particles: []
+    };
+
+    // --- Init & Resize ---
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        dpr = Math.min(window.devicePixelRatio || 1, 2); // Cap DPR for performance
+        
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        ctx.scale(dpr, dpr);
+
+        fxCanvas.width = width * dpr;
+        fxCanvas.height = height * dpr;
+        fxCanvas.style.width = width + 'px';
+        fxCanvas.style.height = height + 'px';
+        fxCtx.scale(dpr, dpr);
+
+        cx = width / 2;
+        cy = height / 2;
+    }
+
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        setupInputs();
+        generateWorld();
+        state.speed = 80; // Start with momentum
+        requestAnimationFrame(loop);
+    }
+
+    function generateWorld() {
+        // Trees
+        for(let i=0; i<100; i++) {
+            world.trees.push({
+                z: Math.random() * 8000,
+                x: (Math.random() * 2 - 1) * 6000, // Very wide spread
+                scale: Math.random() * 0.5 + 0.8,
+                type: Math.random() > 0.7 ? 'pine' : 'rock'
+            });
+        }
+        // Obstacles
+        for(let i=0; i<40; i++) {
+            world.obstacles.push({
+                z: 1500 + i * 400 + Math.random() * 200,
+                x: (Math.random() * 2 - 1) * 1400, // Within road mostly
+                type: Math.random() > 0.5 ? 'gate' : 'barrier'
+            });
+        }
+    }
+
+    function setupInputs() {
+        const setKey = (k, v) => {
+            if(k === 'ArrowLeft') input.left = v;
+            if(k === 'ArrowRight') input.right = v;
+            if(k === 'ArrowDown' || k === ' ') input.brake = v;
+        };
+
+        document.addEventListener('keydown', e => setKey(e.key, true));
+        document.addEventListener('keyup', e => setKey(e.key, false));
+
+        const bindTouch = (el, key) => {
+            const start = (e) => { e.preventDefault(); input[key] = true; el.classList.add('active'); };
+            const end = (e) => { e.preventDefault(); input[key] = false; el.classList.remove('active'); };
+            el.addEventListener('mousedown', start);
+            el.addEventListener('mouseup', end);
+            el.addEventListener('touchstart', start);
+            el.addEventListener('touchend', end);
+        };
+
+        bindTouch(btnLeft, 'left');
+        bindTouch(btnRight, 'right');
+        bindTouch(btnBrake, 'brake');
+    }
+
+    // --- Math & Projection ---
+
+    function project(x, y, z) {
+        // Camera is at (0, cameraHeight, 0)
+        // We move objects relative to camera
+        const scale = state.fov / (state.fov + z);
+        const x2d = (x * scale) + cx;
+        const y2d = ((y - state.cameraHeight) * scale) + cy + 100; // +100 moves horizon down
+        return { x: x2d, y: y2d, scale: scale };
+    }
+
+    // --- Rendering Helpers ---
+
+    function drawSky() {
+        const grad = ctx.createLinearGradient(0, 0, 0, height);
+        grad.addColorStop(0, '#020024');
+        grad.addColorStop(0.5, '#090979');
+        grad.addColorStop(1, '#00d4ff');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+    }
+
+    function drawMountains() {
+        const offset = (frame * state.speed * 0.02) % width;
+        
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(0, height);
+        
+        // Far layer (Blueish)
+        for(let i = -200; i < width + 200; i += 60) {
+            const h = Math.sin((i + offset * 0.2) * 0.005) * 100 + 
+                      Math.cos((i + offset * 0.2) * 0.01) * 50;
+            ctx.lineTo(i, cy + 50 - h);
+        }
+        ctx.lineTo(width, height);
+        ctx.fillStyle = '#1a2a6c';
+        ctx.fill();
+
+        // Mid layer (Darker)
+        ctx.beginPath();
+        ctx.moveTo(0, height);
+        for(let i = -200; i < width + 200; i += 40) {
+            const h = Math.sin((i + offset * 0.5) * 0.008) * 80 + 
+                      Math.cos((i + offset * 0.5) * 0.02) * 40;
+            ctx.lineTo(i, cy + 100 - h);
+        }
+        ctx.lineTo(width, height);
+        ctx.fillStyle = '#061124';
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawTrack() {
+        // Draw the ground plane first
+        ctx.fillStyle = '#e2e8f0'; // Snow color
+        ctx.fillRect(0, cy + 100, width, height - (cy + 100));
+
+        const tl = -state.roadWidth / 2;
+        const tr = state.roadWidth / 2;
+        const drawDist = 6000;
+
+        ctx.save();
+        ctx.beginPath();
+        const p1 = project(tl, 0, 10);
+        const p2 = project(tr, 0, 10);
+        const p3 = project(tr, 0, drawDist);
+        const p4 = project(tl, 0, drawDist);
+        
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.lineTo(p4.x, p4.y);
+        ctx.closePath();
+        ctx.clip();
+
+        // Draw "Tracks" (The icy path)
+        // We draw horizontal lines moving towards camera
+        const speedOffset = (frame * state.speed * 3) % state.segmentLength;
+        
+        ctx.lineWidth = 2;
+        for (let z = drawDist; z > 10; z -= state.segmentLength) {
+            const drawZ = z - speedOffset;
+            if (drawZ < 10) continue;
+            
+            const pL = project(tl, 0, drawZ);
+            const pR = project(tr, 0, drawZ);
+            
+            // Fade out distance
+            const alpha = Math.max(0, 1 - (drawZ / drawDist));
+            
+            ctx.strokeStyle = `rgba(148, 163, 184, ${alpha * 0.3})`;
+            ctx.beginPath();
+            ctx.moveTo(pL.x, pL.y);
+            ctx.lineTo(pR.x, pR.y);
+            ctx.stroke();
+        }
+
+        // Glowing Edges
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.6)';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = 'var(--neon-blue)';
+
+        // Left Edge
+        ctx.beginPath();
+        for(let z=10; z<drawDist; z+=100) {
+            const p = project(tl, 0, z);
+            if(z===10) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+
+        // Right Edge
+        ctx.beginPath();
+        for(let z=10; z<drawDist; z+=100) {
+            const p = project(tr, 0, z);
+            if(z===10) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawObstacle(obs) {
+        // Relative Z
+        let z = obs.z - (frame * state.speed * 3);
+        if (z < 10) z += 8000; // Loop
+
+        // Relative X (Player movement affects world X)
+        const relX = obs.x - (state.playerX * state.roadWidth);
+        const p = project(relX, 0, z);
+        
+        if (p.scale <= 0) return;
+
+        const size = 250 * p.scale;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+
+        if (obs.type === 'gate') {
+            // High Contrast Gate
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 6 * p.scale;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'var(--neon-blue)';
+            
+            // Arch
+            ctx.beginPath();
+            ctx.arc(0, -size, size, Math.PI, 0);
+            ctx.stroke();
+
+            // Inner glow
+            ctx.fillStyle = 'rgba(0, 243, 255, 0.2)';
+            ctx.fill();
+
+            // Banner
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-size, -size * 1.5, size * 2, size * 0.4);
+            ctx.fillStyle = 'var(--neon-blue)';
+            ctx.font = `bold ${10 * p.scale}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.fillText("CHECKPOINT", 0, -size * 1.25);
+
+        } else {
+            // Danger Obstacle (Rock/Barrier)
+            ctx.fillStyle = '#1e293b';
+            ctx.strokeStyle = 'var(--neon-orange)';
+            ctx.lineWidth = 4 * p.scale;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'var(--neon-orange)';
+
+            // Jagged shape
+            ctx.beginPath();
+            ctx.moveTo(-size/2, 0);
+            ctx.lineTo(-size/3, -size/1.5);
+            ctx.lineTo(size/4, -size/1.2);
+            ctx.lineTo(size/2, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function drawTree(tree) {
+        let z = tree.z - (frame * state.speed * 3);
+        if (z < 10) z += 8000;
+        
+        const relX = tree.x - (state.playerX * 2000); // Parallax effect
+        const p = project(relX, 0, z);
+        if (p.scale <= 0) return;
+
+        const size = 400 * p.scale * tree.scale;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+
+        // Pine Tree Shape
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(-size/2, 0);
+        ctx.lineTo(size/2, 0);
+        ctx.fill();
+
+        // Snow Cap
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(-size/4, -size*0.7);
+        ctx.lineTo(size/4, -size*0.7);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawPlayer() {
+        // Fixed position at bottom
+        const p = project(0, 0, 10); 
+        
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(state.playerTilt * 0.8);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 60, 15, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Skier Body (Dynamic colors)
+        // Helmet
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, -80, 18, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Torso
+        ctx.fillStyle = 'var(--neon-pink)';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'var(--neon-pink)';
+        ctx.beginPath();
+        ctx.moveTo(-18, -80);
+        ctx.lineTo(18, -80);
+        ctx.lineTo(25, -40);
+        ctx.lineTo(-25, -40);
+        ctx.fill();
+
+        // Skis (Glowing Blue)
+        ctx.strokeStyle = 'var(--neon-blue)';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = 'var(--neon-blue)';
+
+        // Left Ski
+        ctx.beginPath();
+        ctx.moveTo(-25, -40);
+        ctx.quadraticCurveTo(-30, -10, -45, 20);
+        ctx.stroke();
+
+        // Right Ski
+        ctx.beginPath();
+        ctx.moveTo(25, -40);
+        ctx.quadraticCurveTo(30, -10, 45, 20);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function drawSpeedLines() {
+        fxCtx.clearRect(0, 0, width, height);
+        
+        if(state.speed < 80) return;
+
+        const intensity = (state.speed - 80) / 100; 
+        const count = Math.floor(intensity * 40);
+        
+        fxCtx.lineWidth = 2;
+        fxCtx.lineCap = 'round';
+
+        for(let i=0; i<count; i++) {
+            // Random position
+            const x = Math.random() * width;
+            const y = Math.random() * height;
+            const len = 50 + Math.random() * 150 * intensity;
+            
+            // Opacity based on speed
+            fxCtx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.5 * intensity})`;
+            
+            fxCtx.beginPath();
+            fxCtx.moveTo(x, y);
+            // Radiate from center or vertical speed lines
+            const angle = Math.atan2(y - cy, x - cx) + Math.PI; // Point towards camera
+            fxCtx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+            fxCtx.stroke();
+        }
+    }
+
+    // --- Main Loop ---
+
+    function update() {
+        // Physics
+        if (input.brake) {
+            state.targetSpeed = Math.max(20, state.targetSpeed - 5);
+            state.isBraking = true;
+        } else {
+            state.targetSpeed = Math.min(180, state.targetSpeed + 0.5);
+            state.isBraking = false;
+        }
+        
+        // Lerp speed
+        state.speed += (state.targetSpeed - state.speed) * 0.05;
+
+        // Steering
+        const steerSpeed = 0.03;
+        if (input.left) {
+            state.playerX = Math.max(-1, state.playerX - steerSpeed);
+            state.playerTilt = Math.max(-0.8, state.playerTilt - 0.05);
+        } else if (input.right) {
+            state.playerX = Math.min(1, state.playerX + steerSpeed);
+            state.playerTilt = Math.min(0.8, state.playerTilt + 0.05);
+        } else {
+            // Return to center tilt
+            state.playerTilt += (0 - state.playerTilt) * 0.1;
+        }
+
+        // Stats
+        state.distance += state.speed * 0.0002;
+        
+        // UI Updates
+        speedDisplay.innerText = Math.floor(state.speed);
+        distDisplay.innerText = state.distance.toFixed(2);
+        
+        // Progress Logic (Simulated loop)
+        const progress = (state.distance % 5) / 5 * 100;
+        progressBar.style.width = progress + '%';
+
+        // Camera Shake Logic
+        if (state.speed > 140) {
+            state.rumbleFreq = 2;
+            gameContainer.classList.add('shake-effect');
+        } else {
+            gameContainer.classList.remove('shake-effect');
+        }
+
+        // Color shift on Speed
+        if(state.speed > 160) {
+            speedDisplay.style.color = 'var(--neon-pink)';
+            speedDisplay.style.textShadow = '0 0 10px var(--neon-pink)';
+        } else {
+            speedDisplay.style.color = 'white';
+            speedDisplay.style.textShadow = 'none';
+        }
+
+        frame++;
+    }
+
+    function loop() {
+        ctx.clearRect(0, 0, width, height);
+
+        update();
+
+        // 1. Environment
+        drawSky();
+        drawMountains();
+        drawTrack();
+
+        // 2. World Objects
+        // We need to sort objects by Z depth to render correctly (Painter's Algorithm)
+        // Since we loop infinitely, we calculate effective Z for sorting
+        
+        const renderList = [];
+        
+        // Add Trees
+        world.trees.forEach(t => {
+            let z = t.z - (frame * state.speed * 3);
+            while(z < 10) z += 8000;
+            renderList.push({ type: 'tree', obj: t, z: z });
+        });
+
+        // Add Obstacles
+        world.obstacles.forEach(o => {
+            let z = o.z - (frame * state.speed * 3);
+            while(z < 10) z += 8000;
+            renderList.push({ type: 'obs', obj: o, z: z });
+        });
+
+        // Sort: Far to Near
+        renderList.sort((a, b) => b.z - a.z);
+
+        renderList.forEach(item => {
+            if(item.type === 'tree') drawTree(item.obj);
+            else drawObstacle(item.obj);
+        });
+
+        // 3. Player
+        drawPlayer();
+
+        // 4. FX
+        drawSpeedLines();
+
+        requestAnimationFrame(loop);
+    }
+
+    init();
+</script>
+</body>
+</html>

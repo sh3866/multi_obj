@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>The Cube - 3D Puzzle</title>
+<style>
+  :root {
+    /* --- PALETTE: Refined Dark --- */
+    --bg-deep: #0a0a0a;
+    --bg-panel: #161616;
+    --bg-panel-border: rgba(255,255,255,0.08);
+    --text-main: #ffffff;
+    --text-muted: #777777;
+    
+    /* Accents */
+    --accent-primary: #3b82f6; /* Used sparingly for active states */
+    --accent-glow: rgba(59, 130, 246, 0.15);
+    
+    /* Cube Stickers (High Contrast) */
+    --c-white: #ffffff;
+    --c-yellow: #ffcc00;
+    --c-red: #ff3333;
+    --c-orange: #ff9933;
+    --c-blue: #3366ff;
+    --c-green: #33cc33;
+    --c-plastic: #050505;
+    
+    /* Typography */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "Roboto Mono", "Courier New", monospace;
+    
+    /* Dimensions */
+    --cube-size: 300px;
+    --sticker-radius: 6px;
+    --gap: 4px;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; outline: none; }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-deep);
+    /* Subtle radial gradient for "Stage" lighting */
+    background-image: radial-gradient(circle at 50% 40%, #1a1a1a 0%, #050505 70%);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* --- LAYOUT --- */
+  .app-container {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100%;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    position: relative;
+  }
+
+  /* --- HEADER --- */
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 20px;
+    z-index: 10;
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 0.05em;
+    color: var(--text-main);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* --- CONTROLS: Size Selector --- */
+  .size-selector {
+    display: flex;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 4px;
+    border: 1px solid var(--bg-panel-border);
+  }
+
+  .size-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 6px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-family: var(--font-ui);
+  }
+  .size-btn:hover { color: var(--text-main); }
+  .size-btn.active {
+    background: var(--bg-panel);
+    color: var(--text-main);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+
+  /* --- METRICS --- */
+  .metrics-group {
+    display: flex;
+    gap: 24px;
+  }
+
+  .metric-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .metric-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+  }
+
+  .metric-value {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-main);
+    line-height: 1;
+    font-feature-settings: "tnum"; /* Tabular nums */
+  }
+
+  /* --- CENTER STAGE (3D) --- */
+  .stage {
+    grid-row: 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    perspective: 1000px;
+    position: relative;
+  }
+
+  /* Ambient glow behind cube */
+  .stage::before {
+    content: '';
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
+    transform: rotateX(60deg) translateZ(-50px);
+    pointer-events: none;
+  }
+
+  .scene-interactor {
+    width: var(--cube-size);
+    height: var(--cube-size);
+    position: relative;
+    transform-style: preserve-3d;
+    /* Initial Isometric-ish View */
+    transform: rotateX(-25deg) rotateY(-35deg);
+    cursor: grab;
+    transition: transform 0.1s linear;
+    /* Deep shadow for weight */
+    filter: drop-shadow(0 20px 30px rgba(0,0,0,0.6));
+  }
+  .scene-interactor:active { cursor: grabbing; }
+
+  .cube {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    transform-style: preserve-3d;
+  }
+
+  /* Faces */
+  .face {
+    position: absolute;
+    width: var(--cube-size);
+    height: var(--cube-size);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    background: var(--c-plastic);
+    border-radius: 12px;
+    padding: var(--gap);
+    gap: var(--gap);
+    /* Dark inset shadow to simulate plastic depth */
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.9);
+    backface-visibility: hidden;
+  }
+
+  /* Stickers */
+  .sticker {
+    border-radius: var(--sticker-radius);
+    position: relative;
+    background-color: var(--c-white); 
+    /* Physical sticker look: subtle bevel and shadow */
+    box-shadow: 
+      inset 1px 1px 1px rgba(255,255,255,0.2),
+      inset -1px -1px 1px rgba(0,0,0,0.1),
+      0 1px 2px rgba(0,0,0,0.6);
+    transition: background-color 0.2s ease;
+  }
+
+  /* Gloss Overlay (Top Left Highlight) */
+  .sticker::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px; right: 60%; bottom: 60%;
+    background: linear-gradient(to bottom right, rgba(255,255,255,0.4), transparent);
+    border-radius: 4px 0 0 0;
+    pointer-events: none;
+  }
+
+  /* Face Positioning */
+  .face.front  { transform: rotateY(0deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.back   { transform: rotateY(180deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.right  { transform: rotateY(90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.left   { transform: rotateY(-90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.top    { transform: rotateX(90deg) translateZ(calc(var(--cube-size)/2)); }
+  .face.bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-size)/2)); }
+
+  /* --- FOOTER DASHBOARD --- */
+  .dashboard {
+    grid-row: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+    padding-top: 20px;
+  }
+
+  /* Control Row */
+  .control-row {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 600px;
+    justify-content: center;
+  }
+
+  /* Unified Button System */
+  button.btn {
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    background: var(--bg-panel);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    box-shadow: 0 4px 0 #000, 0 8px 10px rgba(0,0,0,0.3);
+    font-family: var(--font-ui);
+    flex: 1;
+  }
+
+  .btn:hover {
+    color: var(--text-main);
+    background: #222;
+    transform: translateY(-1px);
+    box-shadow: 0 5px 0 #000, 0 10px 12px rgba(0,0,0,0.3);
+  }
+
+  .btn:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 #000, inset 0 2px 4px rgba(0,0,0,0.5);
+  }
+
+  /* Primary Action (Scramble) - Muted but Distinct */
+  .btn-primary {
+    background: #2a2a2a;
+    color: var(--text-main);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .btn-primary:hover {
+    background: #333;
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  /* Info Panel */
+  .info-panel {
+    width: 100%;
+    max-width: 600px;
+    background: rgba(20, 20, 20, 0.8);
+    border: 1px solid var(--bg-panel-border);
+    border-radius: 8px;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    backdrop-filter: blur(5px);
+  }
+
+  .panel-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+
+  .scramble-text {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-main);
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    min-height: 1.4em;
+  }
+
+  .tip-text {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* --- RESPONSIVE --- */
+  @media(max-width: 768px) {
+    .app-container { padding: 10px; }
+    header { flex-direction: column; gap: 15px; align-items: center; }
+    .brand { display: none; } /* Save space */
+    .metrics-group { gap: 15px; }
+    
+    .stage { perspective: 800px; }
+    :root { --cube-size: 240px; }
+    
+    .dashboard { padding-top: 10px; }
+    .control-row { flex-wrap: wrap; }
+    .btn { min-width: 45%; }
+    .btn-primary { width: 100%; order: -1; margin-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  
+  <header>
+    <div class="brand">
+      <!-- Simple Cube Icon -->
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+      </svg>
+      <span>The Cube</span>
+    </div>
+
+    <div class="size-selector">
+      <button class="size-btn" onclick="setCubeSize(2)">2×2</button>
+      <button class="size-btn active" onclick="setCubeSize(3)">3×3</button>
+      <button class="size-btn" onclick="setCubeSize(4)">4×4</button>
+      <button class="size-btn" onclick="setCubeSize(5)">5×5</button>
+    </div>
+
+    <div class="metrics-group">
+      <div class="metric-card">
+        <span class="metric-label">Moves</span>
+        <span class="metric-value" id="move-count">00</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Time</span>
+        <span class="metric-value" id="timer">00:00</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Center Stage -->
+  <div class="stage">
+    <div class="scene-interactor" id="scene">
+      <div class="cube" id="cube">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer Dashboard -->
+  <div class="dashboard">
+    
+    <!-- Unified Control Row -->
+    <div class="control-row">
+      <button class="btn" onclick="undoMove()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+        Undo
+      </button>
+      <button class="btn" onclick="getHint()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        Hint
+      </button>
+      <button class="btn" onclick="resetCube()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+        Reset
+      </button>
+      
+      <!-- Primary Action -->
+      <button class="btn btn-primary" onclick="scrambleCube()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+        Scramble
+      </button>
+    </div>
+
+    <!-- Info Panel -->
+    <div class="info-panel">
+      <div class="panel-content">
+        <div class="panel-label">Current Scramble</div>
+        <div class="scramble-text" id="scramble-display">R U R' U' F' U F</div>
+      </div>
+      <div class="tip-text" id="tip-display">Focus on the cross</div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // --- CONFIGURATION ---
+  const COLORS = {
+    U: 'var(--c-white)', 
+    D: 'var(--c-yellow)', 
+    F: 'var(--c-green)', 
+    B: 'var(--c-red)',   
+    R: 'var(--c-orange)', 
+    L: 'var(--c-blue)'   
+  };
+
+  // --- STATE ---
+  let cubeState = []; 
+  let moveHistory = [];
+  let timerInterval;
+  let seconds = 0;
+  let isDragging = false;
+  let startX, startY;
+  let currentRotX = -25;
+  let currentRotY = -35;
+
+  // --- DOM ELEMENTS ---
+  const cubeEl = document.getElementById('cube');
+  const sceneEl = document.getElementById('scene');
+  const timerEl = document.getElementById('timer');
+  const moveCountEl = document.getElementById('move-count');
+  const scrambleDisplayEl = document.getElementById('scramble-display');
+  const tipDisplayEl = document.getElementById('tip-display');
+
+  // --- INITIALIZATION ---
+  function init() {
+    createCubeDOM();
+    resetCube();
+    setupInteraction();
+  }
+
+  // --- DOM GENERATION ---
+  function createCubeDOM() {
+    cubeEl.innerHTML = '';
+    const faces = ['front', 'back', 'right', 'left', 'top', 'bottom'];
+    
+    faces.forEach((faceName, index) => {
+      const faceDiv = document.createElement('div');
+      faceDiv.className = `face ${faceName}`;
+      faceDiv.id = `face-${index}`;
+      
+      // Create 3x3 grid
+      for(let i=0; i<9; i++) {
+        const sticker = document.createElement('div');
+        sticker.className = 'sticker';
+        sticker.dataset.index = i;
+        faceDiv.appendChild(sticker);
+      }
+      cubeEl.appendChild(faceDiv);
+    });
+  }
+
+  // --- LOGIC: STATE MANAGEMENT ---
+  function resetCube() {
+    stopTimer();
+    seconds = 0;
+    updateTimerDisplay();
+    moveHistory = [];
+    moveCountEl.innerText = '00';
+    
+    // Initialize standard colors
+    const faces = ['F', 'B', 'R', 'L', 'U', 'D'];
+    cubeEl.childNodes.forEach((face, i) => {
+      const color = COLORS[faces[i]];
+      Array.from(face.children).forEach(sticker => {
+        sticker.style.backgroundColor = color;
+      });
+    });
+    
+    scrambleDisplayEl.innerHTML = "R U R' U' F' U F";
+    tipDisplayEl.innerHTML = "Focus on the cross";
+  }
+
+  function setCubeSize(size) {
+    // Visual only update
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    const faces = document.querySelectorAll('.face');
+    faces.forEach(f => {
+      f.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+      f.style.gridTemplateRows = `repeat(${size}, 1fr)`;
+      
+      // Rebuild stickers to match grid
+      const currentColor = f.children[0] ? f.children[0].style.backgroundColor : '#fff';
+      f.innerHTML = '';
+      for(let i=0; i<size*size; i++) {
+        const s = document.createElement('div');
+        s.className = 'sticker';
+        s.style.backgroundColor = currentColor;
+        f.appendChild(s);
+      }
+    });
+  }
+
+  // --- LOGIC: MOVES ---
+  const FACES_MAP = { 'F': 0, 'B': 1, 'R': 2, 'L': 3, 'U': 4, 'D': 5 };
+
+  // Simplified Sticker Swapping Logic (Visual Simulation for Front Face)
+  function swapStickers(move) {
+    const f = 0; // Front
+    const u = 4; // Up
+    const r = 2; // Right
+    const d = 5; // Down
+    const l = 3; // Left
+    
+    const get = (faceIdx, stickerIdx) => cubeEl.children[faceIdx].children[stickerIdx].style.backgroundColor;
+    const set = (faceIdx, stickerIdx, color) => cubeEl.children[faceIdx].children[stickerIdx].style.backgroundColor = color;
+
+    // Rotate Face Internal Stickers (Clockwise)
+    const rotateFace = (faceIdx) => {
+      const stickers = Array.from(cubeEl.children[faceIdx].children);
+      const colors = stickers.map(s => s.style.backgroundColor);
+      // Clockwise rotation of indices
+      const map = [6,3,0, 7,4,1, 8,5,2];
+      const temp = [...colors];
+      map.forEach((src, dest) => set(faceIdx, dest, temp[src]));
+    };
+
+    const char = move.charAt(0);
+    
+    // Example logic for F move
+    if (char === 'F') {
+      rotateFace(f);
+      // Swap edges
+      const uRow = [get(u,6), get(u,7), get(u,8)];
+      const rCol = [get(r,0), get(r,3), get(r,6)];
+      const dRow = [get(d,2), get(d,1), get(d,0)]; 
+      const lCol = [get(l,8), get(l,5), get(l,2)]; 
+      
+      set(u,6, lCol[0]); set(u,7, lCol[1]); set(u,8, lCol[2]);
+      set(r,0, uRow[0]); set(r,3, uRow[1]); set(r,6, uRow[2]);
+      set(d,0, rCol[2]); set(d,1, rCol[1]); set(d,2, rCol[0]);
+      set(l,2, dRow[2]); set(l,5, dRow[1]); set(l,8, dRow[0]);
+    }
+  }
+
+  function applyMove(moveChar, visual = true) {
+    const faceIndex = FACES_MAP[moveChar.charAt(0)];
+    const faceEl = cubeEl.children[faceIndex];
+    
+    if(visual) {
+      let dir = 1; 
+      if(moveChar.includes("'")) dir = -1;
+      
+      // Animate spin
+      faceEl.style.transition = `transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)`;
+      faceEl.style.transform += ` rotateZ(${dir * 90}deg)`;
+    }
+
+    setTimeout(() => {
+      swapStickers(moveChar);
+      if(visual) {
+        faceEl.style.transition = 'none';
+        faceEl.style.transform = ''; 
+      }
+    }, visual ? 300 : 0);
+  }
+
+  // --- SCRAMBLE ---
+  function scrambleCube() {
+    const moves = ['F', 'B', 'U', 'D', 'L', 'R'];
+    const modifiers = ['', "'", '2'];
+    let scrambleString = "";
+    const scrambleMoves = [];
+    
+    // Generate 20 moves
+    for(let i=0; i<20; i++) {
+      const m = moves[Math.floor(Math.random() * moves.length)];
+      const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
+      scrambleMoves.push(m + mod);
+      scrambleString += (m + mod + " ");
+    }
+    
+    scrambleDisplayEl.innerHTML = scrambleString;
+    tipDisplayEl.innerHTML = "Look for patterns";
+    
+    // Visual Effect: Rapid Randomization
+    let count = 0;
+    const interval = setInterval(() => {
+      randomizeColors();
+      count++;
+      if(count > 15) {
+        clearInterval(interval);
+        startTimer();
+      }
+    }, 80);
+  }
+
+  function randomizeColors() {
+    const allStickers = document.querySelectorAll('.sticker');
+    const colorKeys = Object.keys(COLORS);
+    allStickers.forEach(s => {
+      const randColor = COLORS[colorKeys[Math.floor(Math.random() * colorKeys.length)]];
+      s.style.backgroundColor = randColor;
+    });
+  }
+
+  // --- CONTROLS ---
+  function startTimer() {
+    stopTimer();
+    seconds = 0;
+    timerInterval = setInterval(() => {
+      seconds++;
+      updateTimerDisplay();
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+  }
+
+  function updateTimerDisplay() {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    timerEl.innerText = `${m}:${s}`;
+  }
+
+  function undoMove() {
+    // Visual feedback
+    const btn = event.currentTarget;
+    btn.style.transform = "translateY(3px)";
+    btn.style.boxShadow = "0 1px 0 #000";
+    setTimeout(() => {
+      btn.style.transform = "";
+      btn.style.boxShadow = "";
+    }, 100);
+  }
+
+  function getHint() {
+    tipDisplayEl.innerHTML = "Solve the white cross first";
+    tipDisplayEl.style.color = "var(--accent-primary)";
+    setTimeout(() => {
+      tipDisplayEl.style.color = "var(--text-muted)";
+    }, 2000);
+  }
+
+  // --- INTERACTION (3D ROTATION) ---
+  function setupInteraction() {
+    document.addEventListener('mousedown', (e) => {
+      if(e.target.closest('.btn') || e.target.closest('.size-btn')) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      currentRotY += deltaX * 0.5;
+      currentRotX -= deltaY * 0.5;
+      
+      currentRotX = Math.max(-90, Math.min(90, currentRotX));
+
+      sceneEl.style.transform = `rotateX(${currentRotX}deg) rotateY(${currentRotY}deg)`;
+      
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    document.addEventListener('mouseup', () => isDragging = false);
+    
+    // Touch support
+    document.addEventListener('touchstart', (e) => {
+      if(e.target.closest('.btn')) return;
+      isDragging = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    }, {passive: false});
+    
+    document.addEventListener('touchmove', (e) => {
+      if (!isDragging) return;
+      e.preventDefault(); 
+      const deltaX = e.touches[0].clientX - startX;
+      const deltaY = e.touches[0].clientY - startY;
+      
+      currentRotY += deltaX * 0.5;
+      currentRotX -= deltaY * 0.5;
+      currentRotX = Math.max(-90, Math.min(90, currentRotX));
+
+      sceneEl.style.transform = `rotateX(${currentRotX}deg) rotateY(${currentRotY}deg)`;
+      
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    }, {passive: false});
+    
+    document.addEventListener('touchend', () => isDragging = false);
+  }
+
+  // Start
+  init();
+
+</script>
+</body>
+</html>

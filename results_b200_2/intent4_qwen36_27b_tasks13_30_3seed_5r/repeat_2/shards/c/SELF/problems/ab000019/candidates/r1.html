@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tactical AI Behavior Visualization</title>
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --panel-bg: rgba(11, 12, 16, 0.85);
+            --grid-color: rgba(255, 255, 255, 0.03);
+            --accent-primary: #45f3ff; /* Cyan */
+            --accent-danger: #ff2a6d; /* Pink/Red */
+            --accent-warning: #f9c74f; /* Yellow */
+            --accent-safe: #90be6d; /* Green */
+            --text-main: #e0e6ed;
+            --text-muted: #6e7f91;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --font-stack: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font-stack);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* --- Layout --- */
+        #app {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- Canvas Area --- */
+        #arena-container {
+            position: relative;
+            flex-grow: 1;
+            overflow: hidden;
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 50px 50px;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- UI Overlay (Top Left) --- */
+        .hud-overlay {
+            position: absolute;
+            top: 30px;
+            left: 40px;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .hud-title {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: var(--accent-primary);
+            margin-bottom: 5px;
+            opacity: 0.8;
+        }
+
+        .hud-header {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: #fff;
+            text-shadow: 0 0 20px rgba(69, 243, 255, 0.3);
+        }
+
+        /* --- Inspector Panel (Right) --- */
+        #inspector {
+            width: 320px;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            z-index: 10;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            transition: width 0.3s ease;
+        }
+
+        .panel-header {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-safe);
+            box-shadow: 0 0 10px var(--accent-safe);
+            animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
+
+        /* Player Stats */
+        .stat-group {
+            margin-bottom: 35px;
+        }
+
+        .stat-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            display: block;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: var(--accent-primary);
+            width: 100%;
+            box-shadow: 0 0 15px var(--accent-primary);
+            transition: width 0.3s ease;
+            position: relative;
+        }
+        
+        .bar-fill::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0; left: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+        }
+
+        .stat-footer {
+            display: flex; 
+            justify-content: space-between; 
+            margin-top: 8px;
+            font-family: var(--font-mono);
+        }
+
+        .stat-val { font-size: 11px; color: var(--text-main); }
+        .stat-status { font-size: 10px; color: var(--accent-primary); font-weight: 700; }
+
+        /* Legend */
+        .legend-list {
+            list-style: none;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: var(--text-main);
+            cursor: default;
+            transition: transform 0.2s ease;
+        }
+
+        .legend-item:hover {
+            transform: translateX(5px);
+        }
+
+        .legend-icon {
+            width: 12px;
+            height: 12px;
+            margin-right: 16px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .legend-icon::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            background: currentColor;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .color-patrol { color: var(--text-muted); }
+        .color-alert { color: var(--accent-warning); }
+        .color-chase { color: var(--accent-danger); }
+        .color-attack { color: #ff0055; }
+
+        .legend-desc {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-left: auto;
+            font-family: var(--font-mono);
+        }
+
+        /* Bottom Info */
+        .panel-footer {
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+
+        .info-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .info-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+
+        .help-text {
+            margin-top: 15px;
+            font-size: 11px;
+            line-height: 1.6;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: absolute;
+            background: rgba(11, 12, 16, 0.9);
+            border: 1px solid var(--border-color);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            transform: translate(15px, 15px);
+            z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        #tooltip::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 3px;
+            background: var(--accent-primary);
+            border-radius: 6px 0 0 6px;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="arena-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div class="hud-overlay">
+            <div class="hud-title">System Status: Active</div>
+            <div class="hud-header">Tactical AI Analysis</div>
+        </div>
+
+        <div id="tooltip">
+            <div id="tt-title" style="font-weight:700; margin-bottom:6px; color:#fff;">Enemy Unit</div>
+            <div id="tt-state" style="color:var(--text-muted); font-family:var(--font-mono);">State: Idle</div>
+        </div>
+    </div>
+
+    <aside id="inspector">
+        <div class="panel-header">
+            <span>Live Inspector</span>
+            <div class="live-dot"></div>
+        </div>
+
+        <div class="stat-group">
+            <span class="stat-label">Player Integrity</span>
+            <div class="bar-container">
+                <div class="bar-fill" id="health-bar" style="width: 100%;"></div>
+            </div>
+            <div class="stat-footer">
+                <span class="stat-val">HP: 1000/1000</span>
+                <span class="stat-status">MOVING</span>
+            </div>
+        </div>
+
+        <div class="stat-group">
+            <span class="stat-label">AI Behavior Legend</span>
+            <ul class="legend-list">
+                <li class="legend-item color-patrol">
+                    <div class="legend-icon"></div>
+                    <span>PATROL</span>
+                    <span class="legend-desc">Routine</span>
+                </li>
+                <li class="legend-item color-alert">
+                    <div class="legend-icon"></div>
+                    <span>ALERT</span>
+                    <span class="legend-desc">Investigating</span>
+                </li>
+                <li class="legend-item color-chase">
+                    <div class="legend-icon"></div>
+                    <span>CHASE</span>
+                    <span class="legend-desc">Target Locked</span>
+                </li>
+                <li class="legend-item color-attack">
+                    <div class="legend-icon"></div>
+                    <span>ATTACK</span>
+                    <span class="legend-desc">Engaging</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="panel-footer">
+            <div class="info-row">
+                <div class="info-dot" style="background:var(--accent-primary); box-shadow:0 0 5px var(--accent-primary);"></div>
+                <span>Player (You)</span>
+            </div>
+            <div class="info-row">
+                <div class="info-dot" style="background:var(--text-muted);"></div>
+                <span>Enemy Unit</span>
+            </div>
+            <div class="help-text">
+                Move mouse to control player.<br>
+                Hover enemies for details.
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script>
+/**
+ * Vector Utility
+ */
+class Vec2 {
+    constructor(x, y) { this.x = x; this.y = y; }
+    add(v) { return new Vec2(this.x + v.x, this.y + v.y); }
+    sub(v) { return new Vec2(this.x - v.x, this.y - v.y); }
+    mult(n) { return new Vec2(this.x * n, this.y * n); }
+    mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+    normalize() {
+        let m = this.mag();
+        return m === 0 ? new Vec2(0, 0) : new Vec2(this.x / m, this.y / m);
+    }
+    dist(v) { return Math.sqrt(Math.pow(this.x - v.x, 2) + Math.pow(this.y - v.y, 2)); }
+    limit(max) {
+        if (this.mag() > max) return this.normalize().mult(max);
+        return this;
+    }
+    copy() { return new Vec2(this.x, this.y); }
+}
+
+/**
+ * Configuration & Constants
+ */
+const COLORS = {
+    player: '#45f3ff',
+    playerGlow: 'rgba(69, 243, 255, 0.4)',
+    wall: '#1f2430',
+    wallBorder: '#323a4e',
+    patrol: '#6e7f91',
+    alert: '#f9c74f',
+    chase: '#ff2a6d',
+    attack: '#ff0055',
+    vision: 'rgba(255, 255, 255, 0.03)',
+    path: 'rgba(255, 255, 255, 0.1)'
+};
+
+const STATES = {
+    PATROL: 'patrol',
+    ALERT: 'alert',
+    CHASE: 'chase',
+    ATTACK: 'attack'
+};
+
+/**
+ * Game Objects
+ */
+class Wall {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+    }
+    
+    draw(ctx) {
+        ctx.fillStyle = COLORS.wall;
+        ctx.strokeStyle = COLORS.wallBorder;
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        ctx.strokeRect(this.x, this.y, this.w, this.h);
+        
+        // Tech detail: subtle gradient overlay
+        let grad = ctx.createLinearGradient(this.x, this.y, this.x, this.y + this.h);
+        grad.addColorStop(0, 'rgba(255,255,255,0.05)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.1)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+    }
+}
+
+class Player {
+    constructor(x, y) {
+        this.pos = new Vec2(x, y);
+        this.target = new Vec2(x, y);
+        this.radius = 8;
+        this.speed = 4;
+        this.angle = 0;
+        this.health = 100;
+    }
+
+    update() {
+        // Smooth movement towards mouse target
+        let dir = this.target.sub(this.pos);
+        let dist = dir.mag();
+        
+        if (dist > 1) {
+            dir = dir.normalize().mult(this.speed);
+            this.pos = this.pos.add(dir);
+            this.angle = Math.atan2(dir.y, dir.x);
+        }
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(this.angle);
+
+        // Outer Glow
+        ctx.shadowColor = COLORS.player;
+        ctx.shadowBlur = 20;
+
+        // Body - Sleek Triangle
+        ctx.fillStyle = COLORS.player;
+        ctx.beginPath();
+        ctx.moveTo(12, 0);
+        ctx.lineTo(-8, 8);
+        ctx.lineTo(-4, 0);
+        ctx.lineTo(-8, -8);
+        ctx.closePath();
+        ctx.fill();
+
+        // Inner Core
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+class Enemy {
+    constructor(x, y, patrolPoints) {
+        this.pos = new Vec2(x, y);
+        this.patrolPoints = patrolPoints; // Array of Vec2
+        this.currentPatrolIdx = 0;
+        this.radius = 10;
+        this.angle = 0;
+        this.speed = 1.5;
+        this.state = STATES.PATROL;
+        
+        // AI Params
+        this.visionRange = 180;
+        this.visionAngle = Math.PI / 4; // 45 degrees
+        this.attackRange = 50;
+        
+        // Animation/State timing
+        this.alertTimer = 0;
+        this.lastKnownPos = null;
+        this.pulseOffset = Math.random() * 100;
+    }
+
+    update(player, walls) {
+        let distToPlayer = this.pos.dist(player.pos);
+        let vecToPlayer = player.pos.sub(this.pos);
+        let angleToPlayer = Math.atan2(vecToPlayer.y, vecToPlayer.x);
+        
+        // Normalize angles
+        let angleDiff = angleToPlayer - this.angle;
+        while (angleDiff <= -Math.PI) angleDiff += Math.PI*2;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI*2;
+
+        // State Machine Logic
+        switch (this.state) {
+            case STATES.PATROL:
+                if (distToPlayer < this.visionRange && Math.abs(angleDiff) < this.visionAngle / 2) {
+                    this.state = STATES.CHASE;
+                    this.lastKnownPos = player.pos.copy();
+                } else {
+                    this.moveTo(this.patrolPoints[this.currentPatrolIdx], 1);
+                    if (this.pos.dist(this.patrolPoints[this.currentPatrolIdx]) < 5) {
+                        this.currentPatrolIdx = (this.currentPatrolIdx + 1) % this.patrolPoints.length;
+                    }
+                }
+                break;
+
+            case STATES.ALERT:
+                this.moveTo(this.lastKnownPos, 2.5);
+                this.alertTimer--;
+                if (this.alertTimer <= 0 || this.pos.dist(this.lastKnownPos) < 5) {
+                    this.state = STATES.PATROL;
+                    let minDist = Infinity;
+                    let nearestIdx = 0;
+                    this.patrolPoints.forEach((p, i) => {
+                        let d = this.pos.dist(p);
+                        if (d < minDist) { minDist = d; nearestIdx = i; }
+                    });
+                    this.currentPatrolIdx = nearestIdx;
+                }
+                if (distToPlayer < this.visionRange && Math.abs(angleDiff) < this.visionAngle / 2) {
+                    this.state = STATES.CHASE;
+                }
+                break;
+
+            case STATES.CHASE:
+                if (distToPlayer < this.visionRange && Math.abs(angleDiff) < this.visionAngle / 2) {
+                    this.lastKnownPos = player.pos.copy();
+                    if (distToPlayer < this.attackRange) {
+                        this.state = STATES.ATTACK;
+                    } else {
+                        this.moveTo(player.pos, 2.2);
+                    }
+                } else {
+                    this.state = STATES.ALERT;
+                    this.alertTimer = 180; // 3 seconds
+                }
+                break;
+
+            case STATES.ATTACK:
+                this.angle = angleToPlayer;
+                if (distToPlayer > this.visionRange) {
+                    this.state = STATES.ALERT;
+                    this.alertTimer = 60;
+                }
+                break;
+        }
+
+        // Collision
+        walls.forEach(w => {
+            if (this.pos.x > w.x && this.pos.x < w.x + w.w &&
+                this.pos.y > w.y && this.pos.y < w.y + w.h) {
+                let center = new Vec2(w.x + w.w/2, w.y + w.h/2);
+                let push = this.pos.sub(center).normalize().mult(2);
+                this.pos = this.pos.add(push);
+            }
+        });
+    }
+
+    moveTo(target, spd) {
+        let dir = target.sub(this.pos);
+        let dist = dir.mag();
+        if (dist > 1) {
+            this.angle = Math.atan2(dir.y, dir.x);
+            dir = dir.normalize().mult(spd);
+            this.pos = this.pos.add(dir);
+        }
+    }
+
+    draw(ctx, isSelected, time) {
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(this.angle);
+
+        let color = COLORS.patrol;
+        if (this.state === STATES.ALERT) color = COLORS.alert;
+        if (this.state === STATES.CHASE) color = COLORS.chase;
+        if (this.state === STATES.ATTACK) color = COLORS.attack;
+
+        // Detection Cone
+        // Make cone pulse slightly
+        let coneOpacity = (this.state === STATES.CHASE || this.state === STATES.ATTACK) ? 0.15 : 0.03;
+        if (this.state === STATES.ALERT) coneOpacity = 0.08;
+        
+        ctx.fillStyle = color;
+        ctx.globalAlpha = coneOpacity;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, this.visionRange, -this.visionAngle/2, this.visionAngle/2);
+        ctx.lineTo(0, 0);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        // Body
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = '#0b0c10'; // Fill with bg color to hide lines behind
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        
+        // Shape
+        ctx.beginPath();
+        if (this.state === STATES.ATTACK) {
+            ctx.moveTo(14, 0);
+            ctx.lineTo(-10, 10);
+            ctx.lineTo(-10, -10);
+        } else {
+            // Diamond
+            ctx.moveTo(12, 0);
+            ctx.lineTo(0, 10);
+            ctx.lineTo(-12, 0);
+            ctx.lineTo(0, -10);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner rotating ring for tech feel
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6, 0, Math.PI*2);
+        ctx.stroke();
+
+        ctx.restore();
+
+        // State Label (Floating above)
+        ctx.fillStyle = color;
+        ctx.font = '10px "SF Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.8;
+        ctx.fillText(this.state.toUpperCase(), this.pos.x, this.pos.y - 24);
+        ctx.globalAlpha = 1.0;
+
+        // Selection Ring
+        if (isSelected) {
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(this.pos.x, this.pos.y, 20, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Debug lines for vision
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            let endX = this.pos.x + Math.cos(this.angle - this.visionAngle/2) * this.visionRange;
+            let endY = this.pos.y + Math.sin(this.angle - this.visionAngle/2) * this.visionRange;
+            ctx.lineTo(endX, endY);
+            ctx.moveTo(this.pos.x, this.pos.y);
+            endX = this.pos.x + Math.cos(this.angle + this.visionAngle/2) * this.visionRange;
+            endY = this.pos.y + Math.sin(this.angle + this.visionAngle/2) * this.visionRange;
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+    }
+}
+
+/**
+ * Main System
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const ttTitle = document.getElementById('tt-title');
+const ttState = document.getElementById('tt-state');
+
+let width, height;
+let player;
+let enemies = [];
+let walls = [];
+let mousePos = new Vec2(0,0);
+let selectedEnemy = null;
+let time = 0;
+
+function resize() {
+    width = canvas.parentElement.offsetWidth;
+    height = canvas.parentElement.offsetHeight;
+    canvas.width = width;
+    canvas.height = height;
+    initLevel();
+}
+
+function initLevel() {
+    player = new Player(width / 2, height / 2);
+    player.target = new Vec2(width / 2, height / 2);
+
+    // Create Walls (Symmetrical Layout)
+    walls = [
+        new Wall(width * 0.2, height * 0.2, width * 0.15, 20),
+        new Wall(width * 0.6, height * 0.3, 20, height * 0.4),
+        new Wall(width * 0.3, height * 0.7, width * 0.4, 20),
+        new Wall(width * 0.8, height * 0.1, 20, height * 0.2),
+        new Wall(width * 0.1, height * 0.6, 20, height * 0.3)
+    ];
+
+    // Create Enemies
+    enemies = [
+        new Enemy(width * 0.2, height * 0.5, [
+            new Vec2(width * 0.1, height * 0.5),
+            new Vec2(width * 0.35, height * 0.5)
+        ]),
+        new Enemy(width * 0.8, height * 0.8, [
+            new Vec2(width * 0.8, height * 0.6),
+            new Vec2(width * 0.9, height * 0.8),
+            new Vec2(width * 0.7, height * 0.9)
+        ]),
+        new Enemy(width * 0.5, height * 0.2, [
+            new Vec2(width * 0.5, height * 0.1),
+            new Vec2(width * 0.6, height * 0.2)
+        ])
+    ];
+}
+
+// Interaction
+window.addEventListener('resize', resize);
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos = new Vec2(e.clientX - rect.left, e.clientY - rect.top);
+    player.target = mousePos;
+
+    let hovered = null;
+    enemies.forEach(en => {
+        if (en.pos.dist(mousePos) < 20) hovered = en;
+    });
+
+    if (hovered) {
+        selectedEnemy = hovered;
+        canvas.style.cursor = 'pointer';
+        tooltip.style.opacity = 1;
+        tooltip.style.left = (e.clientX + 20) + 'px';
+        tooltip.style.top = (e.clientY + 20) + 'px';
+        ttState.innerText = "State: " + hovered.state.toUpperCase();
+        
+        if(hovered.state === STATES.PATROL) ttState.style.color = COLORS.patrol;
+        if(hovered.state === STATES.ALERT) ttState.style.color = COLORS.alert;
+        if(hovered.state === STATES.CHASE) ttState.style.color = COLORS.chase;
+        if(hovered.state === STATES.ATTACK) ttState.style.color = COLORS.attack;
+
+    } else {
+        selectedEnemy = null;
+        canvas.style.cursor = 'crosshair';
+        tooltip.style.opacity = 0;
+    }
+});
+
+function drawConnections() {
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    for(let i=0; i<enemies.length; i++) {
+        for(let j=i+1; j<enemies.length; j++) {
+            let d = enemies[i].pos.dist(enemies[j].pos);
+            if (d < 250) {
+                ctx.beginPath();
+                ctx.moveTo(enemies[i].pos.x, enemies[i].pos.y);
+                ctx.lineTo(enemies[j].pos.x, enemies[j].pos.y);
+                ctx.stroke();
+            }
+        }
+    }
+}
+
+function drawPatrolPaths() {
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.setLineDash([4, 8]);
+    enemies.forEach(en => {
+        if (en.state === STATES.PATROL) {
+            ctx.beginPath();
+            ctx.moveTo(en.patrolPoints[0].x, en.patrolPoints[0].y);
+            for(let i=1; i<en.patrolPoints.length; i++) {
+                ctx.lineTo(en.patrolPoints[i].x, en.patrolPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+    });
+    ctx.setLineDash([]);
+}
+
+function animate() {
+    time++;
+    ctx.clearRect(0, 0, width, height);
+
+    player.update();
+    enemies.forEach(en => en.update(player, walls));
+
+    drawPatrolPaths();
+    drawConnections();
+    
+    walls.forEach(w => w.draw(ctx));
+    
+    // Sort for depth
+    const renderList = [...enemies, player].sort((a, b) => a.pos.y - b.pos.y);
+    
+    renderList.forEach(obj => {
+        if (obj instanceof Enemy) {
+            obj.draw(ctx, obj === selectedEnemy, time);
+        } else {
+            obj.draw(ctx);
+        }
+    });
+
+    // Player Trail
+    ctx.strokeStyle = 'rgba(69, 243, 255, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(player.pos.x, player.pos.y);
+    let dir = player.target.sub(player.pos).normalize().mult(40);
+    ctx.lineTo(player.pos.x + dir.x, player.pos.y + dir.y);
+    ctx.stroke();
+
+    requestAnimationFrame(animate);
+}
+
+resize();
+animate();
+
+</script>
+</body>
+</html>

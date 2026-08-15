@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    --felt-base: #1e3f2b;
+    --felt-dark: #0f2217;
+    --wood-frame: #362014;
+    --wood-highlight: #5c3a21;
+    --wood-shadow: #1a0e08;
+    --bone-top: #f4f0e6;
+    --bone-mid: #e0dcd2;
+    --bone-shadow: #b8b0a0;
+    --pip-black: #111;
+    --pip-highlight: #333;
+    --gold: #d4af37;
+    --gold-glow: rgba(212, 175, 55, 0.4);
+    --text-light: #ececec;
+    --text-muted: #a0a0a0;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+  body {
+    background-color: #000;
+    font-family: var(--font-ui);
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* --- Environment & Materials --- */
+  #game-table {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 50% 40%, var(--felt-base), var(--felt-dark) 90%);
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Felt Texture (SVG Noise) */
+  #game-table::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.06'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Wooden Frame */
+  .frame-rim {
+    position: absolute;
+    inset: 0;
+    border: 24px solid var(--wood-frame);
+    border-image: linear-gradient(to bottom, var(--wood-highlight), var(--wood-frame) 20%, var(--wood-shadow) 100%) 1;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.9);
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  /* --- UI Hierarchy --- */
+  .ui-layer {
+    position: absolute;
+    inset: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  /* Header Area */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  /* Draw Pile (Top Left) */
+  .draw-pile {
+    pointer-events: auto;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .draw-pile:active { transform: scale(0.95); }
+  .draw-pile-label {
+    margin-top: 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .draw-count {
+    font-size: 14px;
+    color: var(--gold);
+    font-weight: bold;
+    margin-top: 2px;
+  }
+
+  /* Score Panel (Top Right) - Die-cut Style */
+  .score-panel {
+    background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+    border: 1px solid #000;
+    border-radius: 6px;
+    padding: 8px 16px;
+    display: flex;
+    gap: 24px;
+    box-shadow: 
+      0 4px 10px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.1),
+      inset 0 0 20px rgba(0,0,0,0.8);
+    position: relative;
+  }
+  /* Simulated screws */
+  .score-panel::before, .score-panel::after {
+    content: '';
+    position: absolute;
+    width: 6px; height: 6px;
+    background: radial-gradient(circle, #444, #111);
+    border-radius: 50%;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,1), 0 1px 0 rgba(255,255,255,0.1);
+  }
+  .score-panel::before { top: 8px; left: 8px; }
+  .score-panel::after { top: 8px; right: 8px; }
+
+  .score-item {
+    text-align: center;
+    min-width: 40px;
+  }
+  .score-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    color: #666;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .score-val {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 18px;
+    color: var(--gold);
+    text-shadow: 0 0 5px var(--gold-glow);
+  }
+
+  /* --- The Board (SVG) --- */
+  #board-svg {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -60%); /* Shift up slightly to make room for hand */
+    width: 90%;
+    height: 70%;
+    overflow: visible;
+    z-index: 5;
+  }
+
+  /* --- Player Hand (Bottom) --- */
+  .hand-container {
+    pointer-events: auto;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding-bottom: 10px;
+  }
+
+  .hand-rack {
+    display: flex;
+    gap: 16px;
+    padding: 20px 40px;
+    background: linear-gradient(to bottom, #3e2723, #281812);
+    border-radius: 12px 12px 0 0;
+    border: 1px solid #1a0e08;
+    border-bottom: none;
+    box-shadow: 
+      0 -5px 20px rgba(0,0,0,0.6),
+      inset 0 2px 5px rgba(255,255,255,0.1),
+      inset 0 -10px 30px rgba(0,0,0,0.5); /* Inner depth */
+    position: relative;
+  }
+  
+  /* Wood grain texture for rack */
+  .hand-rack::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: repeating-linear-gradient(90deg, transparent, rgba(0,0,0,0.1) 2px, transparent 4px);
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  /* --- Tile Component --- */
+  .tile {
+    width: 56px;
+    height: 104px;
+    border-radius: 6px;
+    position: relative;
+    background: linear-gradient(135deg, var(--bone-top), var(--bone-mid));
+    /* Complex Shadow for 3D thickness */
+    box-shadow: 
+      inset 0 1px 0 rgba(255,255,255,0.9), /* Top bevel */
+      inset 0 -2px 2px rgba(0,0,0,0.1),   /* Inner shadow */
+      2px 4px 8px rgba(0,0,0,0.4),        /* Drop shadow */
+      2px 2px 0px var(--bone-shadow),      /* Side layer 1 */
+      4px 4px 0px #8a8274;                 /* Side layer 2 */
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .tile-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: linear-gradient(to bottom, #fff, #f0ece4);
+    border: 1px solid #dcd6c8;
+  }
+
+  .tile-half {
+    flex: 1;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .tile-divider {
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    right: 6px;
+    height: 1px;
+    background: rgba(0,0,0,0.1);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.5);
+    transform: translateY(-0.5px);
+    z-index: 2;
+  }
+
+  /* Pips */
+  .pip {
+    width: 8px;
+    height: 8px;
+    background: radial-gradient(circle at 30% 30%, #333, #000);
+    border-radius: 50%;
+    position: absolute;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 1px 0 rgba(255,255,255,0.2); /* Inset look */
+  }
+  
+  /* Pip Layouts */
+  .p-1 { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+  .p-2-1 { top: 25%; left: 25%; } .p-2-2 { bottom: 25%; right: 25%; }
+  .p-3-1 { top: 25%; left: 25%; } .p-3-2 { top: 50%; left: 50%; transform: translate(-50%, -50%); } .p-3-3 { bottom: 25%; right: 25%; }
+  .p-4-1 { top: 25%; left: 25%; } .p-4-2 { top: 25%; right: 25%; } .p-4-3 { bottom: 25%; left: 25%; } .p-4-4 { bottom: 25%; right: 25%; }
+  .p-5-1 { top: 25%; left: 25%; } .p-5-2 { top: 25%; right: 25%; } .p-5-3 { top: 50%; left: 50%; transform: translate(-50%, -50%); } .p-5-4 { bottom: 25%; left: 25%; } .p-5-5 { bottom: 25%; right: 25%; }
+  .p-6-1 { top: 20%; left: 25%; } .p-6-2 { top: 20%; right: 25%; } .p-6-3 { top: 50%; left: 25%; transform: translateY(-50%); } .p-6-4 { top: 50%; right: 25%; transform: translateY(-50%); } .p-6-5 { bottom: 20%; left: 25%; } .p-6-6 { bottom: 20%; right: 25%; }
+
+  /* --- Board Specifics --- */
+  .board-tile {
+    width: 40px;
+    height: 72px;
+    /* Slightly flatter shadow for board to recede */
+    box-shadow: 
+      inset 0 1px 0 rgba(255,255,255,0.8),
+      1px 2px 4px rgba(0,0,0,0.5),
+      1px 1px 0 var(--bone-shadow),
+      2px 2px 0 #8a8274;
+  }
+  .board-tile .pip { width: 5px; height: 5px; }
+  .board-tile .tile-divider { left: 4px; right: 4px; }
+
+  /* --- Hand Specifics --- */
+  .hand-tile { cursor: pointer; }
+  .hand-tile:hover {
+    transform: translateY(-15px) scale(1.05);
+    z-index: 10;
+    box-shadow: 
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      4px 10px 15px rgba(0,0,0,0.5),
+      2px 2px 0 var(--bone-shadow),
+      4px 4px 0 #8a8274;
+  }
+  
+  /* Playable State */
+  .hand-tile.playable {
+    box-shadow: 
+      0 0 0 2px var(--gold),
+      0 0 10px var(--gold-glow),
+      2px 4px 8px rgba(0,0,0,0.4),
+      2px 2px 0 var(--bone-shadow),
+      4px 4px 0 #8a8274;
+  }
+  .hand-tile.playable:hover {
+    transform: translateY(-20px) scale(1.1);
+  }
+
+  /* --- Interaction Markers (The "Pegs") --- */
+  .marker-group {
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .marker-group:hover { transform: scale(1.1); }
+
+  .peg-glow {
+    animation: pulse-peg 2s infinite ease-in-out;
+  }
+  @keyframes pulse-peg {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+
+  /* SVG Filters */
+  .svg-filters { position: absolute; width: 0; height: 0; }
+
+</style>
+</head>
+<body>
+
+<!-- SVG Filters Definition -->
+<svg class="svg-filters">
+  <defs>
+    <filter id="glow-filter">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="shadow-filter">
+      <feDropShadow dx="0" dy="2" stdDeviation="1" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+</svg>
+
+<div id="game-table">
+  <div class="frame-rim"></div>
+
+  <div class="ui-layer">
+    <!-- Top Bar -->
+    <div class="header">
+      <!-- Draw Pile -->
+      <div class="draw-pile" id="draw-pile">
+        <svg width="44" height="68" viewBox="0 0 44 68">
+          <defs>
+            <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#5c3a21"/>
+              <stop offset="100%" stop-color="#2e1e15"/>
+            </linearGradient>
+          </defs>
+          <!-- Stack -->
+          <rect x="3" y="3" width="40" height="64" rx="4" fill="#1a0e08" />
+          <rect x="2" y="2" width="40" height="64" rx="4" fill="#2e1e15" />
+          <rect x="1" y="1" width="40" height="64" rx="4" fill="#3e2723" />
+          <!-- Top Card -->
+          <rect x="0" y="0" width="40" height="64" rx="4" fill="url(#cardGrad)" stroke="#1a0e08" stroke-width="1"/>
+          <!-- Pattern -->
+          <rect x="4" y="4" width="32" height="56" rx="2" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="2"/>
+        </svg>
+        <div class="draw-pile-label">Boneyard</div>
+        <div class="draw-count">14</div>
+      </div>
+
+      <!-- Score Panel -->
+      <div class="score-panel">
+        <div class="score-item">
+          <div class="score-label">You</div>
+          <div class="score-val">42</div>
+        </div>
+        <div class="score-item">
+          <div class="score-label">CPU</div>
+          <div class="score-val">35</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Board -->
+    <svg id="board-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+      <!-- The Chain -->
+      <g id="chain-group"></g>
+      <!-- Markers -->
+      <g id="markers-group"></g>
+    </svg>
+
+    <!-- Player Hand -->
+    <div class="hand-container">
+      <div class="hand-rack" id="hand-rack">
+        <!-- JS Injected -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * Tile Geometry & Logic
+ */
+
+// Helper to get pip HTML
+function getPipHTML(n) {
+  const map = {
+    1: ['p-1'],
+    2: ['p-2-1', 'p-2-2'],
+    3: ['p-3-1', 'p-3-2', 'p-3-3'],
+    4: ['p-4-1', 'p-4-2', 'p-4-3', 'p-4-4'],
+    5: ['p-5-1', 'p-5-2', 'p-5-3', 'p-5-4', 'p-5-5'],
+    6: ['p-6-1', 'p-6-2', 'p-6-3', 'p-6-4', 'p-6-5', 'p-6-6']
+  };
+  if (n === 0) return '';
+  return map[n].map(c => `<div class="pip ${c}"></div>`).join('');
+}
+
+function createTileHTML(top, bottom, isBoard = false) {
+  const cls = isBoard ? 'tile board-tile' : 'tile hand-tile';
+  return `
+    <div class="${cls}">
+      <div class="tile-inner">
+        <div class="tile-half">${getPipHTML(top)}</div>
+        <div class="tile-divider"></div>
+        <div class="tile-half">${getPipHTML(bottom)}</div>
+      </div>
+    </div>
+  `;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  
+  // --- Game State Simulation ---
+  
+  // A snake-like chain. 
+  // Coordinates are centered on the tile.
+  // Note: The chain logic visually matches numbers.
+  const chain = [
+    { t: 6, b: 2, x: 200, y: 250, r: 0 },      // 6|2
+    { t: 2, b: 5, x: 270, y: 250, r: 0 },      // 2|5
+    { t: 5, b: 3, x: 340, y: 250, r: 0 },      // 5|3
+    { t: 3, b: 1, x: 410, y: 250, r: 0 },      // 3|1
+    { t: 1, b: 4, x: 480, y: 250, r: 0 },      // 1|4
+    { t: 4, b: 6, x: 480, y: 320, r: 90 },     // 4|6 (Turn Down)
+    { t: 6, b: 3, x: 550, y: 320, r: 90 },     // 6|3 (Turn Down)
+    { t: 3, b: 3, x: 620, y: 320, r: 90 },     // 3|3 (Turn Down)
+    { t: 3, b: 5, x: 690, y: 320, r: 90 },     // 3|5 (Turn Down)
+    { t: 5, b: 2, x: 760, y: 320, r: 90 },     // 5|2 (Turn Down)
+    { t: 2, b: 2, x: 830, y: 320, r: 90 },     // 2|2 (Turn Down)
+    { t: 2, b: 1, x: 830, y: 250, r: 180 },    // 2|1 (Turn Left)
+    { t: 1, b: 4, x: 900, y: 250, r: 180 }     // 1|4 (Turn Left)
+  ];
+
+  // Ends of the chain
+  // Left End: 6 (from first tile 6|2)
+  // Right End: 4 (from last tile 1|4 -> 4|1 rotated)
+  const leftEndVal = 6;
+  const rightEndVal = 4;
+
+  const hand = [
+    { t: 6, b: 1, playable: true }, // Matches Left
+    { t: 3, b: 3, playable: false },
+    { t: 4, b: 2, playable: true }, // Matches Right
+    { t: 5, b: 5, playable: false },
+    { t: 1, b: 6, playable: true }, // Matches Left
+    { t: 4, b: 4, playable: true }, // Matches Right
+    { t: 2, b: 2, playable: false }
+  ];
+
+  // --- Render Board ---
+  const chainGroup = document.getElementById('chain-group');
+  
+  chain.forEach(tile => {
+    const div = document.createElement('div');
+    // Create the HTML string for the tile
+    div.innerHTML = createTileHTML(tile.t, tile.b, true);
+    const tileEl = div.firstElementChild;
+
+    const fo = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+    // Position FO so the tile center aligns with x,y
+    // Board tile size: 40x72. Offset: 20, 36
+    fo.setAttribute("x", tile.x - 20);
+    fo.setAttribute("y", tile.y - 36);
+    fo.setAttribute("width", 40);
+    fo.setAttribute("height", 72);
+    
+    // Apply rotation around center
+    fo.setAttribute("transform", `rotate(${tile.r}, ${tile.x}, ${tile.y})`);
+    
+    fo.appendChild(tileEl);
+    chainGroup.appendChild(fo);
+  });
+
+  // --- Render Markers (Pegs) ---
+  const markersGroup = document.getElementById('markers-group');
+
+  function createMarker(x, y, val) {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("transform", `translate(${x}, ${y})`);
+    g.setAttribute("class", "marker-group");
+    g.setAttribute("data-val", val);
+
+    // Glow
+    g.innerHTML = `
+      <circle cx="0" cy="0" r="18" fill="var(--gold)" class="peg-glow" opacity="0.3" filter="url(#glow-filter)"/>
+      <!-- Peg Base -->
+      <circle cx="0" cy="0" r="12" fill="#3e2723" stroke="#1a0e08" stroke-width="2"/>
+      <!-- Peg Top -->
+      <circle cx="0" cy="-2" r="8" fill="#5c3a21"/>
+      <!-- Highlight -->
+      <circle cx="-2" cy="-4" r="3" fill="rgba(255,255,255,0.2)"/>
+      <!-- Value Text -->
+      <text x="0" y="4" font-family="sans-serif" font-size="10" font-weight="bold" fill="#fff" text-anchor="middle">${val}</text>
+    `;
+    return g;
+  }
+
+  // Left Marker (at end of 6|2 tile)
+  markersGroup.appendChild(createMarker(160, 250, leftEndVal));
+  // Right Marker (at end of ...|4 tile)
+  markersGroup.appendChild(createMarker(940, 250, rightEndVal));
+
+  // --- Render Hand ---
+  const handRack = document.getElementById('hand-rack');
+  
+  hand.forEach(tile => {
+    const div = document.createElement('div');
+    div.innerHTML = createTileHTML(tile.t, tile.b, false);
+    const tileEl = div.firstElementChild;
+    
+    if (tile.playable) tileEl.classList.add('playable');
+
+    // Hover interaction
+    tileEl.addEventListener('click', () => {
+      if(tile.playable) {
+        // Visual feedback
+        tileEl.style.transform = 'scale(0.9)';
+        setTimeout(() => {
+           tileEl.style.transform = '';
+           // In a real game, this would move the tile
+        }, 150);
+      }
+    });
+
+    handRack.appendChild(tileEl);
+  });
+
+  // Draw Pile Interaction
+  document.getElementById('draw-pile').addEventListener('click', function() {
+    this.style.transform = 'scale(0.95)';
+    setTimeout(() => this.style.transform = '', 150);
+  });
+
+});
+</script>
+</body>
+</html>

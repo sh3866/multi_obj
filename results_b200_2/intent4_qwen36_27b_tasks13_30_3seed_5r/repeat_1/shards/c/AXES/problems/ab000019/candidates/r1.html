@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tactical AI Behavior Inspector</title>
+<style>
+  :root {
+    --bg-deep: #050508;
+    --bg-panel: #0a0a0f;
+    --border: #1f222e;
+    --text-primary: #e2e8f0;
+    --text-secondary: #64748b;
+    --text-dim: #334155;
+    
+    /* Tactical Palette */
+    --accent-blue: #0ea5e9;
+    --accent-cyan: #22d3ee;
+    --accent-red: #f43f5e;
+    --accent-orange: #f97316;
+    --accent-yellow: #eab308;
+    --accent-green: #22c55e;
+    
+    --font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    grid-template-rows: 50px 1fr;
+    user-select: none;
+  }
+
+  /* HEADER */
+  header {
+    grid-column: 1 / -1;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 10;
+    font-family: var(--font-mono);
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand span { color: var(--accent-cyan); }
+
+  .header-controls {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 11px;
+  }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-green);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent-green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.4; }
+    100% { opacity: 1; }
+  }
+
+  /* MAIN CANVAS AREA */
+  main {
+    position: relative;
+    background-color: var(--bg-deep);
+    overflow: hidden;
+    cursor: crosshair;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Scanline Overlay */
+  .scanlines {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.3;
+  }
+
+  /* INSPECTOR PANEL */
+  aside {
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    gap: 32px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+  }
+
+  .panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+
+  /* LEGEND REDESIGN */
+  .legend-grid {
+    display: grid;
+    grid-template-columns: 1fr; /* Single column list */
+    gap: 12px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .legend-marker {
+    width: 24px;
+    height: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .legend-marker::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 4px currentColor;
+  }
+
+  .legend-text {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  
+  .legend-sub {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  /* Player Stats */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  
+  .stat-row:last-child { border-bottom: none; }
+
+  .stat-label { 
+    color: var(--text-secondary); 
+    font-size: 11px;
+  }
+  
+  .stat-value { 
+    font-weight: 600; 
+    font-size: 12px; 
+    color: var(--text-primary);
+  }
+
+  .stat-highlight {
+    color: var(--accent-cyan);
+    text-shadow: 0 0 5px rgba(34, 211, 238, 0.3);
+  }
+
+  /* Interactive Elements */
+  button {
+    background: rgba(255,255,255,0.03);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    transition: all 0.2s;
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  button:hover { 
+    background: rgba(255,255,255,0.08); 
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+  
+  button:active { background: rgba(255,255,255,0.12); }
+
+  .toggle-group {
+    display: flex;
+    background: rgba(0,0,0,0.2);
+    border-radius: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+  }
+  
+  .toggle-btn {
+    flex: 1;
+    text-align: center;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    padding: 6px 0;
+    font-size: 10px;
+  }
+  
+  .toggle-btn.active {
+    background: var(--border);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+
+  /* Overlay Info */
+  .overlay-info {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    pointer-events: none;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1.5;
+    text-transform: uppercase;
+  }
+  
+  .overlay-coords {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    pointer-events: none;
+    font-family: var(--font-mono);
+    color: var(--accent-cyan);
+    font-size: 11px;
+    opacity: 0.7;
+  }
+
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2v10l7 7" />
+    </svg>
+    TACTICAL<span>AI</span> // OBSERVER
+  </div>
+  <div class="header-controls">
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      SIMULATION ACTIVE
+    </div>
+    <div style="color: var(--text-dim)">SYS.FPS: 60</div>
+  </div>
+</header>
+
+<main id="canvas-container">
+  <canvas id="simCanvas"></canvas>
+  <div class="scanlines"></div>
+  <div class="overlay-info">
+    <div>MOUSE: Move Player Unit</div>
+    <div>CLICK: Ping Location</div>
+  </div>
+  <div class="overlay-coords" id="coord-display">X:000 Y:000</div>
+</main>
+
+<aside>
+  <div class="panel-section">
+    <div class="panel-title">Player Status <span style="color:var(--accent-cyan)">●</span></div>
+    <div class="stat-row">
+      <span class="stat-label">Health Integrity</span>
+      <span class="stat-value stat-highlight">100%</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Stamina</span>
+      <span class="stat-value">84%</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Position</span>
+      <span class="stat-value" id="pos-display">000, 000</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Detected By</span>
+      <span class="stat-value" style="color: var(--text-dim)">0 / 4</span>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">AI State Legend</div>
+    <div class="legend-grid">
+      <div class="legend-item" style="color: var(--accent-green)">
+        <div class="legend-marker"></div>
+        <span class="legend-text">PATROL</span>
+        <span class="legend-sub">Idle</span>
+      </div>
+      <div class="legend-item" style="color: var(--accent-yellow)">
+        <div class="legend-marker"></div>
+        <span class="legend-text">ALERT</span>
+        <span class="legend-sub">Search</span>
+      </div>
+      <div class="legend-item" style="color: var(--accent-orange)">
+        <div class="legend-marker"></div>
+        <span class="legend-text">CHASE</span>
+        <span class="legend-sub">Engage</span>
+      </div>
+      <div class="legend-item" style="color: var(--accent-red)">
+        <div class="legend-marker"></div>
+        <span class="legend-text">ATTACK</span>
+        <span class="legend-sub">Fire</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">Visualization Layers</div>
+    <div class="toggle-group">
+      <button class="toggle-btn active" onclick="toggleLayer('paths')">Paths</button>
+      <button class="toggle-btn active" onclick="toggleLayer('fov')">FOV</button>
+      <button class="toggle-btn active" onclick="toggleLayer('labels')">Labels</button>
+    </div>
+  </div>
+
+  <div class="panel-section" style="margin-top: auto;">
+    <button onclick="resetSimulation()">Reset Simulation</button>
+  </div>
+</aside>
+
+<script>
+/**
+ * TACTICAL AI SIMULATION ENGINE
+ * Enhanced with visual polish and pathfinding visualization
+ */
+
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const posDisplay = document.getElementById('pos-display');
+const coordDisplay = document.getElementById('coord-display');
+
+// Configuration
+const CONFIG = {
+  colors: {
+    bg: '#050508',
+    wall: '#1e293b',
+    wallStroke: '#334155',
+    grid: '#0f172a',
+    player: '#0ea5e9', // Sky blue
+    playerGlow: '#38bdf8',
+    states: {
+      PATROL: '#22c55e',
+      ALERT: '#eab308',
+      CHASE: '#f97316',
+      ATTACK: '#f43f5e'
+    }
+  },
+  enemyCount: 5,
+  wallCount: 8
+};
+
+// State
+let width, height;
+let lastTime = 0;
+let mouse = { x: 0, y: 0 };
+let walls = [];
+let enemies = [];
+let particles = [];
+let time = 0;
+
+// Layers
+const layers = {
+  paths: true,
+  fov: true,
+  labels: true
+};
+
+// --- UTILS ---
+
+const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+const lerp = (a, b, t) => a + (b - a) * t;
+const angleTo = (x1, y1, x2, y2) => Math.atan2(y2 - y1, x2 - x1);
+
+// Line segment intersection
+function getIntersection(A, B, C, D) {
+  const tTop = (D.x - C.x) * (A.y - C.y) - (D.y - C.y) * (A.x - C.x);
+  const uTop = (C.y - A.y) * (A.x - B.x) - (C.x - A.x) * (A.y - B.y);
+  const bottom = (D.y - C.y) * (B.x - A.x) - (D.x - C.x) * (B.y - A.y);
+
+  if (bottom !== 0) {
+    const t = tTop / bottom;
+    const u = uTop / bottom;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+      return {
+        x: lerp(A.x, B.x, t),
+        y: lerp(A.y, B.y, t),
+        offset: t
+      }
+    }
+  }
+  return null;
+}
+
+// --- CLASSES ---
+
+class Wall {
+  constructor(x, y, w, h) {
+    this.x = x; this.y = y; this.w = w; this.h = h;
+    this.segments = [
+      {x1: x, y1: y, x2: x + w, y2: y},
+      {x1: x + w, y1: y, x2: x + w, y2: y + h},
+      {x1: x + w, y1: y + h, x2: x, y2: y + h},
+      {x1: x, y1: y + h, x2: x, y2: y}
+    ];
+  }
+
+  draw(ctx) {
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(this.x + 4, this.y + 4, this.w, this.h);
+    
+    // Main body
+    ctx.fillStyle = CONFIG.colors.wall;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+    
+    // Border
+    ctx.strokeStyle = CONFIG.colors.wallStroke;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(this.x, this.y, this.w, this.h);
+    
+    // Top bevel
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(this.x, this.y, this.w, 2);
+    ctx.fillRect(this.x, this.y, 2, this.h);
+  }
+}
+
+class Particle {
+  constructor(x, y, color) {
+    this.x = x; this.y = y;
+    this.color = color;
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 2 + 1;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1.0;
+    this.decay = 0.03 + Math.random() * 0.03;
+    this.size = Math.random() * 2 + 1;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.95;
+    this.vy *= 0.95;
+    this.life -= this.decay;
+  }
+  draw(ctx) {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+class Enemy {
+  constructor(id) {
+    this.id = id;
+    // Spawn away from center initially
+    let safe = false;
+    while(!safe) {
+      this.x = Math.random() * (width - 100) + 50;
+      this.y = Math.random() * (height - 100) + 50;
+      if(dist(this.x, this.y, width/2, height/2) > 200) safe = true;
+    }
+    
+    this.radius = 10;
+    this.angle = Math.random() * Math.PI * 2;
+    this.speed = 1.2 + Math.random() * 0.5;
+    
+    // AI State Machine
+    this.state = 'PATROL'; 
+    this.targetX = this.x;
+    this.targetY = this.y;
+    
+    // Waypoints
+    this.waypoints = [];
+    this.currentWaypointIndex = 0;
+    this.generateWaypoints();
+
+    // Properties
+    this.viewDistance = 220;
+    this.viewAngle = Math.PI / 3; // 60 degrees
+    this.attackRange = 70;
+    
+    this.alertTimer = 0;
+    this.alertTarget = {x: 0, y: 0};
+    
+    // Pathing visual
+    this.pathPoints = [];
+  }
+
+  generateWaypoints() {
+    this.waypoints = [];
+    for(let i=0; i<3; i++) {
+      this.waypoints.push({
+        x: Math.random() * (width - 100) + 50,
+        y: Math.random() * (height - 100) + 50
+      });
+    }
+  }
+
+  update(player, walls) {
+    const dToPlayer = dist(this.x, this.y, player.x, player.y);
+    const angleToPlayer = angleTo(this.x, this.y, player.x, player.y);
+    
+    // Normalize angle diff
+    let angleDiff = angleToPlayer - this.angle;
+    while (angleDiff <= -Math.PI) angleDiff += Math.PI*2;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI*2;
+    
+    const inFOV = Math.abs(angleDiff) < this.viewAngle / 2;
+    const canSee = dToPlayer < this.viewDistance && inFOV && this.hasLineOfSight(player.x, player.y, walls);
+
+    // State Logic
+    if (this.state === 'PATROL') {
+      if (canSee) {
+        this.state = 'CHASE';
+        return;
+      }
+      this.patrol();
+    } 
+    else if (this.state === 'ALERT') {
+      this.alertTimer--;
+      if (dist(this.x, this.y, this.alertTarget.x, this.alertTarget.y) < 5) {
+        // Investigated spot, go back to patrol
+        this.state = 'PATROL';
+      } else if (canSee) {
+        this.state = 'CHASE';
+      } else {
+        // Move to last seen position
+        this.moveTowards(this.alertTarget.x, this.alertTarget.y);
+      }
+      if (this.alertTimer <= 0 && this.state !== 'CHASE') this.state = 'PATROL';
+    }
+    else if (this.state === 'CHASE') {
+      if (!canSee) {
+        this.state = 'ALERT';
+        this.alertTimer = 180; // 3 seconds
+        this.alertTarget = {x: player.x, y: player.y};
+        return;
+      }
+      if (dToPlayer < this.attackRange) {
+        this.state = 'ATTACK';
+      } else {
+        this.moveTowards(player.x, player.y);
+        this.pathPoints = [{x: this.x, y: this.y}, {x: player.x, y: player.y}];
+      }
+    }
+    else if (this.state === 'ATTACK') {
+      if (dToPlayer > this.viewDistance * 1.2) {
+        this.state = 'CHASE';
+      } else {
+        // Face player and shoot
+        this.angle = lerp(this.angle, angleToPlayer, 0.2);
+        if (Math.random() < 0.05) this.shoot(player.x, player.y);
+        this.pathPoints = [{x: this.x, y: this.y}, {x: player.x, y: player.y}];
+      }
+    }
+    
+    // Boundary check
+    this.x = Math.max(20, Math.min(width - 20, this.x));
+    this.y = Math.max(20, Math.min(height - 20, this.y));
+  }
+
+  hasLineOfSight(tx, ty, walls) {
+    const p1 = {x: this.x, y: this.y};
+    const p2 = {x: tx, y: ty};
+    
+    for (let w of walls) {
+      for (let seg of w.segments) {
+        if (getIntersection(p1, p2, {x: seg.x1, y: seg.y1}, {x: seg.x2, y: seg.y2})) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  patrol() {
+    const wp = this.waypoints[this.currentWaypointIndex];
+    if (dist(this.x, this.y, wp.x, wp.y) < 5) {
+      this.currentWaypointIndex = (this.currentWaypointIndex + 1) % this.waypoints.length;
+    }
+    this.moveTowards(wp.x, wp.y);
+  }
+
+  moveTowards(tx, ty) {
+    const targetAngle = angleTo(this.x, this.y, tx, ty);
+    // Smooth rotation
+    let diff = targetAngle - this.angle;
+    while (diff <= -Math.PI) diff += Math.PI*2;
+    while (diff > Math.PI) diff -= Math.PI*2;
+    this.angle += diff * 0.08;
+
+    // Move
+    this.x += Math.cos(this.angle) * this.speed;
+    this.y += Math.sin(this.angle) * this.speed;
+  }
+
+  shoot(tx, ty) {
+    for(let i=0; i<3; i++) {
+      particles.push(new Particle(this.x + Math.cos(this.angle)*12, this.y + Math.sin(this.angle)*12, '#fbbf24'));
+    }
+  }
+
+  draw(ctx) {
+    // Draw Pathfinding Line (Dotted)
+    if (layers.paths && (this.state === 'CHASE' || this.state === 'ATTACK')) {
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(this.pathPoints[1].x, this.pathPoints[1].y);
+      ctx.strokeStyle = CONFIG.colors.states[this.state];
+      ctx.globalAlpha = 0.3;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
+    // Draw Attack Range (Circle)
+    if (this.state === 'ATTACK') {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.attackRange, 0, Math.PI*2);
+      ctx.strokeStyle = CONFIG.colors.states.ATTACK;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Draw FOV Cone
+    if (layers.fov) {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle);
+      
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, this.viewDistance, -this.viewAngle/2, this.viewAngle/2);
+      ctx.closePath();
+      
+      // Gradient fill for cone
+      const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, this.viewDistance);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+      
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      // Stroke the edges of the cone
+      ctx.strokeStyle = `rgba(255, 255, 255, 0.1)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Draw Body
+    const color = CONFIG.colors.states[this.state];
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    
+    // Glow
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    
+    // Body Shape (Drone-like)
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-8, 7);
+    ctx.lineTo(-4, 0);
+    ctx.lineTo(-8, -7);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    
+    // Inner detail
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.arc(-2, 0, 3, 0, Math.PI*2);
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // Draw State Label
+    if (layers.labels) {
+      ctx.fillStyle = color;
+      ctx.font = '600 9px monospace';
+      ctx.fillText(this.state, this.x - 15, this.y - 22);
+    }
+  }
+}
+
+// --- MAIN LOOP ---
+
+function init() {
+  resize();
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+  });
+
+  generateMap();
+  requestAnimationFrame(loop);
+}
+
+function resize() {
+  const container = document.getElementById('canvas-container');
+  width = container.clientWidth;
+  height = container.clientHeight;
+  canvas.width = width;
+  canvas.height = height;
+}
+
+function generateMap() {
+  walls = [];
+  enemies = [];
+  
+  // Random Walls
+  for(let i=0; i<CONFIG.wallCount; i++) {
+    const w = 60 + Math.random() * 120;
+    const h = 20 + Math.random() * 40;
+    const x = Math.random() * (width - w - 100) + 50;
+    const y = Math.random() * (height - h - 100) + 50;
+    // Keep center clear
+    if (dist(x, y, width/2, height/2) > 150) {
+      walls.push(new Wall(x, y, w, h));
+    }
+  }
+
+  // Spawn Enemies
+  for(let i=0; i<CONFIG.enemyCount; i++) {
+    enemies.push(new Enemy(i));
+  }
+}
+
+function drawGrid() {
+  ctx.strokeStyle = CONFIG.colors.grid;
+  ctx.lineWidth = 1;
+  const gridSize = 50;
+  
+  // Subtle topographic feel - slightly offset grid lines
+  ctx.beginPath();
+  for(let x=0; x<=width; x+=gridSize) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+  }
+  for(let y=0; y<=height; y+=gridSize) {
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+  }
+  ctx.stroke();
+  
+  // Draw a subtle radial vignette
+  const grad = ctx.createRadialGradient(width/2, height/2, height/4, width/2, height/2, height);
+  grad.addColorStop(0, 'transparent');
+  grad.addColorStop(1, 'rgba(0,0,0,0.4)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,width,height);
+}
+
+function drawPlayer() {
+  // Player trails/movement logic
+  const pX = mouse.x;
+  const pY = mouse.y;
+  
+  // Visual link to Inspector (Simulated tether)
+  // This is purely visual, drawn from canvas edge to player to suggest connection
+  if (pX < width - 320) {
+    ctx.beginPath();
+    ctx.moveTo(pX + 20, pY);
+    ctx.lineTo(width, pY);
+    ctx.strokeStyle = 'rgba(14, 165, 233, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Player Entity
+  ctx.save();
+  ctx.translate(pX, pY);
+  
+  // Pulse effect
+  const scale = 1 + Math.sin(time * 2) * 0.05;
+  ctx.scale(scale, scale);
+
+  // Outer glow
+  ctx.shadowColor = CONFIG.colors.playerGlow;
+  ctx.shadowBlur = 20;
+  
+  // Main circle
+  ctx.beginPath();
+  ctx.arc(0, 0, 6, 0, Math.PI*2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  
+  // Blue ring
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI*2);
+  ctx.strokeStyle = CONFIG.colors.player;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  // Crosshair lines
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.6)';
+  ctx.lineWidth = 1;
+  
+  // Horizontal
+  ctx.beginPath();
+  ctx.moveTo(-16, 0); ctx.lineTo(-8, 0);
+  ctx.moveTo(8, 0); ctx.lineTo(16, 0);
+  ctx.stroke();
+  
+  // Vertical
+  ctx.beginPath();
+  ctx.moveTo(0, -16); ctx.lineTo(0, -8);
+  ctx.moveTo(0, 8); ctx.lineTo(0, 16);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // Update UI
+  posDisplay.innerText = `${Math.floor(pX).toString().padStart(3, '0')}, ${Math.floor(pY).toString().padStart(3, '0')}`;
+  coordDisplay.innerText = `X:${Math.floor(pX).toString().padStart(3, '0')} Y:${Math.floor(pY).toString().padStart(3, '0')}`;
+}
+
+function loop(timestamp) {
+  time = timestamp * 0.001;
+  
+  // Clear
+  ctx.fillStyle = CONFIG.colors.bg;
+  ctx.fillRect(0, 0, width, height);
+  
+  drawGrid();
+
+  // Update & Draw Enemies
+  enemies.forEach(e => {
+    e.update(mouse, walls);
+    e.draw(ctx);
+  });
+
+  // Update & Draw Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].draw(ctx);
+    if (particles[i].life <= 0) particles.splice(i, 1);
+  }
+
+  // Draw Walls (over grid, under player)
+  walls.forEach(w => w.draw(ctx));
+
+  drawPlayer();
+
+  requestAnimationFrame(loop);
+}
+
+// --- UI INTERACTION ---
+
+window.toggleLayer = (layer) => {
+  layers[layer] = !layers[layer];
+  const btns = document.querySelectorAll('.toggle-btn');
+  if (layer === 'paths') btns[0].classList.toggle('active');
+  if (layer === 'fov') btns[1].classList.toggle('active');
+  if (layer === 'labels') btns[2].classList.toggle('active');
+};
+
+window.resetSimulation = () => {
+  generateMap();
+  particles = [];
+};
+
+// Start
+init();
+
+</script>
+</body>
+</html>

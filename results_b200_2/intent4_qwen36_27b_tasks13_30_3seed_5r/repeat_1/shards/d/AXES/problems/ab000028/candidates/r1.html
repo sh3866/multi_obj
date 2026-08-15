@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpine Descent | Visual Simulation</title>
+<style>
+    :root {
+        --c-bg-sky-top: #020617;
+        --c-bg-sky-bot: #1e293b;
+        --c-cliff-shadow: #020617;
+        --c-cliff-highlight: #334155;
+        --c-accent: #f59e0b;
+        --c-accent-bright: #fbbf24;
+        --c-text-main: #f8fafc;
+        --c-text-muted: #94a3b8;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+        background-color: var(--c-bg-sky-top);
+        color: var(--c-text-main);
+        font-family: var(--font-sans);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: block;
+    }
+
+    /* --- SCENE CONTAINER --- */
+    .scene-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        /* Deep atmospheric sky gradient */
+        background: linear-gradient(to bottom, var(--c-bg-sky-top) 0%, var(--c-bg-sky-bot) 100%);
+    }
+
+    .scene-svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    /* --- OVERLAY UI --- */
+    .ui-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none; /* Let clicks pass through to canvas if needed */
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 3rem;
+        z-index: 10;
+    }
+
+    /* Header */
+    .header {
+        pointer-events: auto;
+        max-width: 600px;
+        text-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    }
+
+    .tag {
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--c-accent);
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .tag::before {
+        content: '';
+        display: block;
+        width: 30px;
+        height: 2px;
+        background: var(--c-accent);
+        box-shadow: 0 0 10px var(--c-accent);
+    }
+
+    h1 {
+        font-size: clamp(3rem, 6vw, 6rem);
+        line-height: 0.9;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: white;
+        margin-bottom: 1rem;
+    }
+
+    p.lead {
+        font-size: 1.125rem;
+        line-height: 1.5;
+        color: rgba(255,255,255,0.8);
+        max-width: 400px;
+        font-weight: 300;
+        border-left: 1px solid rgba(255,255,255,0.3);
+        padding-left: 1.5rem;
+    }
+
+    /* Footer / Dashboard */
+    .dashboard {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 4rem;
+        pointer-events: auto;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 1.5rem 2rem;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.1);
+        max-width: 800px;
+        margin-left: auto; /* Push to right */
+    }
+
+    .metrics {
+        display: flex;
+        gap: 3rem;
+    }
+
+    .metric {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .metric-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--c-text-muted);
+        margin-bottom: 0.25rem;
+    }
+
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: white;
+    }
+
+    .metric-unit {
+        font-size: 0.875rem;
+        color: var(--c-text-muted);
+        font-weight: 400;
+        margin-left: 0.25rem;
+    }
+
+    /* Slider Control */
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        min-width: 200px;
+    }
+
+    .slider-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .slider-label {
+        font-size: 0.75rem;
+        color: var(--c-text-muted);
+        white-space: nowrap;
+    }
+
+    input[type="range"] {
+        flex-grow: 1;
+        height: 2px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 2px;
+        appearance: none;
+        outline: none;
+        cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--c-accent);
+        box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+        cursor: pointer;
+        transition: transform 0.1s;
+    }
+    
+    input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+    }
+
+</style>
+</head>
+<body>
+
+    <div class="scene-container" id="scene">
+        <svg class="scene-svg" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1200 800">
+            <defs>
+                <!-- Filters -->
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="8" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+                <filter id="heavyBlur" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="40" />
+                </filter>
+
+                <!-- Gradients -->
+                <linearGradient id="cliffGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#020617" />
+                    <stop offset="70%" stop-color="#0f172a" />
+                    <stop offset="100%" stop-color="#1e293b" />
+                </linearGradient>
+
+                <linearGradient id="canopyGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#fbbf24" />
+                    <stop offset="100%" stop-color="#d97706" />
+                </linearGradient>
+
+                <radialGradient id="atmosphere" cx="0.5" cy="0.8" r="0.6">
+                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.1" />
+                    <stop offset="100%" stop-color="#020617" stop-opacity="0" />
+                </radialGradient>
+            </defs>
+
+            <!-- 1. Background Depth -->
+            <rect width="100%" height="100%" fill="url(#atmosphere)" />
+
+            <!-- Distant Mountains (Atmospheric Perspective) -->
+            <g opacity="0.3" fill="#475569">
+                <path d="M0,600 Q300,550 600,650 T1200,600 L1200,800 L0,800 Z" />
+                <path d="M0,650 Q400,600 800,700 T1200,650 L1200,800 L0,800 Z" opacity="0.7" fill="#334155" />
+            </g>
+
+            <!-- 2. The Main Cliff (Foreground Left) -->
+            <g id="cliff-group">
+                <!-- Main Silhouette -->
+                <path d="M0,0 L350,0 L350,100 L400,100 L380,150 L420,180 L400,250 L450,300 L420,400 L480,500 L450,600 L500,800 L0,800 Z" 
+                      fill="url(#cliffGrad)" />
+                
+                <!-- Strata / Texture Lines (Geological detail) -->
+                <g stroke="#020617" stroke-width="3" opacity="0.6">
+                    <path d="M350,100 L400,100 L380,150" fill="none" />
+                    <path d="M420,180 L400,250 L450,300" fill="none" />
+                    <path d="M420,400 L480,500" fill="none" />
+                    <path d="M450,600 L500,800" fill="none" />
+                </g>
+                <!-- Jagged Edge Highlight -->
+                <path d="M350,100 L400,100 L380,150 L420,180 L400,250 L450,300 L420,400 L480,500 L450,600 L500,800" 
+                      stroke="#334155" stroke-width="2" fill="none" />
+            </g>
+
+            <!-- 3. Parachutist Group -->
+            <g id="parachutist" transform="translate(600, 400)">
+                
+                <!-- Dynamic Wind Lines (Motion Cues) -->
+                <g id="wind-lines" stroke="rgba(255,255,255,0.15)" stroke-width="2" stroke-linecap="round">
+                    <!-- Lines are generated dynamically in JS for better flow, but static placeholders here -->
+                    <path d="M200,-50 L350,-50" />
+                    <path d="M150,50 L400,50" />
+                    <path d="M250,150 L450,150" />
+                </g>
+
+                <!-- Canopy Shadow (Visual Anchor) -->
+                <ellipse cx="-50" cy="600" rx="100" ry="30" fill="#000" opacity="0.3" filter="url(#heavyBlur)" />
+
+                <!-- Taut Harness Lines -->
+                <g id="lines" stroke="#cbd5e1" stroke-width="1.5" fill="none" opacity="0.8">
+                    <!-- Lines will be animated via JS -->
+                    <path d="M-120,-150 L0,100 L120,-150" />
+                    <path d="M-90,-150 L0,100 L90,-150" />
+                    <path d="M-60,-150 L0,100 L60,-150" />
+                    <path d="M-30,-150 L0,100 L30,-150" />
+                    <path d="M0,-150 L0,100" />
+                </g>
+
+                <!-- The Canopy -->
+                <g id="canopy-group">
+                    <!-- Main Shape -->
+                    <path id="canopy" d="M-140,-150 Q0,-300 140,-150 Q0,-220 -140,-150 Z" fill="url(#canopyGrad)" filter="url(#glow)" />
+                    
+                    <!-- Canopy Folds / Ribs (Detail) -->
+                    <g stroke="#b45309" stroke-width="1.5" opacity="0.4" fill="none">
+                        <path d="M-140,-150 Q-70,-220 0,-180 Q70,-220 140,-150" />
+                        <path d="M-100,-150 Q-50,-250 0,-200 Q50,-250 100,-150" />
+                        <path d="M-60,-150 Q-30,-280 0,-220 Q30,-280 60,-150" />
+                        <!-- Vertical ribs -->
+                        <path d="M-100,-150 L-50,-200" />
+                        <path d="M100,-150 L50,-200" />
+                        <path d="M-50,-150 L0,-220" />
+                        <path d="M50,-150 L0,-220" />
+                    </g>
+                </g>
+
+                <!-- The Human Figure -->
+                <g id="human">
+                    <!-- Backpack (Rig) -->
+                    <rect x="-18" y="85" width="36" height="45" rx="4" fill="#1e293b" stroke="#334155" stroke-width="1" />
+                    <rect x="-18" y="85" width="36" height="10" fill="#0f172a" /> <!-- Top flap -->
+
+                    <!-- Body (Silhouette) -->
+                    <path d="M0,100 L-12,165 L12,165 Z" fill="#020617" />
+                    
+                    <!-- Limbs (Dynamic Pose - Tension) -->
+                    <g stroke="#020617" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
+                        <!-- Legs -->
+                        <path d="M-12,165 L-25,205 L-18,220" /> <!-- Left Leg -->
+                        <path d="M12,165 L30,195 L20,215" />  <!-- Right Leg -->
+                        
+                        <!-- Arms (Holding toggles) -->
+                        <path d="M-5,105 L-35,130 L-25,140" /> <!-- Left Arm -->
+                        <path d="M5,105 L35,130 L25,140" />  <!-- Right Arm -->
+                    </g>
+
+                    <!-- Helmet -->
+                    <circle cx="0" cy="92" r="11" fill="#cbd5e1" />
+                    <path d="M-11,92 Q0,80 11,92" fill="#94a3b8" opacity="0.5" /> <!-- Visor reflection -->
+                </g>
+            </g>
+        </svg>
+
+        <!-- UI Overlay -->
+        <div class="ui-overlay">
+            <div class="header">
+                <div class="tag">Operation: High Altitude</div>
+                <h1>Controlled<br>Descent.</h1>
+                <p class="lead">
+                    Navigating the vertical gap between geological permanence and human fragility.
+                </p>
+            </div>
+
+            <div class="dashboard">
+                <div class="metrics">
+                    <div class="metric">
+                        <span class="metric-label">Altitude</span>
+                        <span class="metric-value" id="alt-val">4,200</span><span class="metric-unit">ft</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Wind Speed</span>
+                        <span class="metric-value" id="wind-val">24</span><span class="metric-unit">mph</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Canopy Load</span>
+                        <span class="metric-value">12</span><span class="metric-unit">kg</span>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <div class="slider-wrapper">
+                        <span class="slider-label">SIMULATION SPEED</span>
+                        <input type="range" id="speedControl" min="0" max="100" value="30">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const parachuteGroup = document.getElementById('parachutist');
+            const canopy = document.getElementById('canopy');
+            const lines = document.getElementById('lines');
+            const human = document.getElementById('human');
+            const windLines = document.getElementById('wind-lines');
+            
+            const altVal = document.getElementById('alt-val');
+            const windVal = document.getElementById('wind-val');
+            const speedControl = document.getElementById('speedControl');
+            
+            let time = 0;
+            let speed = 30;
+            let altitude = 4200;
+
+            // Mouse interaction for parallax
+            const scene = document.getElementById('scene');
+            let mouseX = 0;
+            let mouseY = 0;
+
+            // Normalize mouse position -0.5 to 0.5
+            scene.addEventListener('mousemove', (e) => {
+                mouseX = (e.clientX / window.innerWidth) - 0.5;
+                mouseY = (e.clientY / window.innerHeight) - 0.5;
+            });
+
+            // Slider interaction
+            speedControl.addEventListener('input', (e) => {
+                speed = parseInt(e.target.value);
+                // Update wind speed display based on slider for feedback
+                const baseWind = 24;
+                const extraWind = (speed / 100) * 10;
+                windVal.innerText = Math.floor(baseWind + extraWind);
+            });
+
+            // Generate random wind lines
+            const windPaths = [];
+            for(let i=0; i<8; i++) {
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("stroke", `rgba(255,255,255,${Math.random() * 0.2 + 0.05})`);
+                path.setAttribute("stroke-width", Math.random() * 2 + 1);
+                path.setAttribute("stroke-linecap", "round");
+                windLines.appendChild(path);
+                windPaths.push({
+                    el: path,
+                    x: Math.random() * 600,
+                    y: Math.random() * 400 - 100,
+                    length: Math.random() * 100 + 50,
+                    speed: Math.random() * 0.5 + 0.2
+                });
+            }
+
+            function animate() {
+                time += 0.01 * (speed / 30);
+                
+                // 1. Floating Motion (Sine waves)
+                // The parachute sways gently
+                const swayX = Math.sin(time) * 25;
+                const swayY = Math.cos(time * 0.5) * 15;
+                
+                // 2. Pendulum Physics (Human swings opposite to canopy)
+                // Using a secondary sine wave with phase shift for natural lag
+                const swing = Math.sin(time * 0.9) * 12;
+                
+                // 3. Breathing/Canopy Flex
+                const flex = Math.sin(time * 4) * 8;
+
+                // Apply transforms
+                // Base position + Mouse Parallax + Sway
+                const baseX = 600 + (mouseX * 60) + swayX;
+                const baseY = 400 + (mouseY * 60) + swayY;
+                
+                parachuteGroup.setAttribute('transform', `translate(${baseX}, ${baseY})`);
+
+                // Swing the human figure relative to the canopy center
+                // We rotate around the connection point (0, 100 in local space)
+                human.setAttribute('transform', `rotate(${swing}, 0, 100)`);
+
+                // Flex the canopy shape slightly
+                const topY = -300 + flex;
+                const botY = -220 + (flex * 0.5);
+                canopy.setAttribute('d', `M-140,-150 Q0,${topY} 140,-150 Q0,${botY} -140,-150 Z`);
+
+                // Animate Wind Lines (Speed Cues)
+                windPaths.forEach(w => {
+                    w.x -= w.speed * (speed / 10);
+                    if (w.x < -200) w.x = 600; // Reset position
+                    
+                    // Draw line moving left
+                    w.el.setAttribute('d', `M${w.x},${w.y} L${w.x + w.length},${w.y}`);
+                });
+
+                // Simulate Altitude Drop based on speed
+                if (speed > 10) {
+                    altitude -= (speed * 0.1);
+                    if (altitude < 1000) altitude = 4500; // Reset
+                }
+                altVal.innerText = Math.floor(altitude).toLocaleString();
+
+                requestAnimationFrame(animate);
+            }
+
+            animate();
+        });
+    </script>
+</body>
+</html>

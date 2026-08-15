@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bouncy & Bolt - The Great Spring Adventure</title>
+    <style>
+        :root {
+            --c-sky-top: #29B6F6;
+            --c-sky-bot: #E1F5FE;
+            --c-ground-dark: #3E2723;
+            --c-ground-mid: #5D4037;
+            --c-grass: #66BB6A;
+            --c-grass-light: #AED581;
+            --c-primary: #FF6F00; /* Bouncy Orange */
+            --c-primary-light: #FFB74D;
+            --c-accent: #0288D1; /* Bolt Blue */
+            --c-gold: #FFD700;
+            --c-text: #263238;
+            --c-white: #FFFFFF;
+            --font-display: 'Impact', 'Arial Black', sans-serif;
+            --font-ui: 'Verdana', 'Segoe UI', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-ui);
+            background: #000;
+            color: var(--c-text);
+        }
+
+        /* CANVAS LAYER */
+        #world-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* UI LAYER */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Allow clicks on canvas, re-enable on children */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .interactive { pointer-events: auto; cursor: pointer; }
+
+        /* --- HEADER (Top Center Title + Top Right Stats) --- */
+        .top-bar {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 40px;
+            width: 100%;
+            position: relative;
+        }
+
+        .game-title {
+            text-align: center;
+            transform: rotate(-3deg);
+            filter: drop-shadow(0 10px 0 rgba(0,0,0,0.2));
+            animation: float-title 4s ease-in-out infinite;
+        }
+
+        .game-title h1 {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            line-height: 0.9;
+            color: var(--c-white);
+            /* The Critique Request: Thick Orange Outline */
+            -webkit-text-stroke: 3px var(--c-primary); 
+            text-shadow: 6px 6px 0px rgba(0,0,0,0.3);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .game-title h2 {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            color: var(--c-accent);
+            background: var(--c-white);
+            display: inline-block;
+            padding: 5px 20px;
+            border-radius: 20px;
+            margin-top: 10px;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.1);
+            transform: rotate(2deg);
+        }
+
+        /* Top Right Stats */
+        .stats-container {
+            position: absolute;
+            right: 40px;
+            top: 40px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .stat-badge {
+            background: var(--c-white);
+            border-radius: 30px;
+            padding: 5px 15px 5px 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.1);
+            border: 2px solid var(--c-text);
+            font-weight: bold;
+            font-size: 1.1rem;
+            transform: rotate(2deg);
+        }
+
+        /* --- LEFT: WORLD MAP (Tree Structure) --- */
+        .world-map {
+            position: absolute;
+            left: 50px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+        }
+
+        .map-path {
+            width: 4px;
+            height: 40px;
+            background: repeating-linear-gradient(to bottom, var(--c-white) 0, var(--c-white) 10px, transparent 10px, transparent 20px);
+            opacity: 0.7;
+        }
+
+        .map-node {
+            width: 80px;
+            height: 80px;
+            background: var(--c-white);
+            border: 4px solid var(--c-text);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+
+        .map-node.active {
+            border-color: var(--c-primary);
+            background: var(--c-primary-light);
+            transform: scale(1.1);
+            z-index: 2;
+        }
+
+        .map-node.locked {
+            background: #CFD8DC;
+            filter: grayscale(1);
+        }
+
+        .map-node:hover { transform: scale(1.15); }
+        .map-node.active:hover { transform: scale(1.2); }
+
+        /* Icons inside nodes (CSS shapes) */
+        .icon-cloud {
+            width: 40px; height: 20px; background: var(--c-white); border-radius: 20px; position: relative;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.1);
+        }
+        .icon-cloud::after {
+            content: ''; position: absolute; top: -10px; left: 10px; width: 20px; height: 20px;
+            background: var(--c-white); border-radius: 50%;
+        }
+        
+        .icon-sand {
+            width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 30px solid #FFCA28;
+        }
+        .icon-sand::after {
+            content: ''; position: absolute; top: 30px; left: -20px; width: 40px; height: 5px; background: #FFCA28;
+        }
+
+        .icon-mountain {
+            width: 0; height: 0; border-left: 20px solid transparent; border-right: 20px solid transparent; border-bottom: 40px solid #90A4AE;
+        }
+
+        .map-label {
+            position: absolute;
+            left: 90px;
+            background: var(--c-white);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            white-space: nowrap;
+            border: 2px solid var(--c-text);
+        }
+
+        /* --- RIGHT: CONTROLS (Eye Level) --- */
+        .controls-group {
+            position: absolute;
+            right: 40px;
+            top: 55%; /* Approx eye level relative to hero on ground */
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(5px);
+            padding: 15px;
+            border-radius: 15px;
+            border: 2px solid var(--c-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .controls-title {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--c-text);
+            margin-bottom: 5px;
+        }
+
+        .key-row { display: flex; gap: 5px; }
+        
+        .key {
+            width: 40px; height: 40px;
+            background: var(--c-white);
+            border: 2px solid var(--c-text);
+            border-radius: 8px;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold;
+            box-shadow: 0 3px 0 var(--c-text);
+            font-family: var(--font-display);
+        }
+        
+        .key.large { width: 100px; background: var(--c-primary); color: white; border-color: #E65100; box-shadow: 0 3px 0 #E65100; }
+        .key:active { transform: translateY(3px); box-shadow: none; }
+
+        /* --- CENTER: HERO & START BUTTON (Ground Level) --- */
+        .ground-interaction-area {
+            position: absolute;
+            bottom: 0; /* Anchored to bottom of screen, aligns with canvas ground */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            height: 35%; /* Matches the 40% ground rule visually */
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 40px; /* Distance from very bottom edge */
+            gap: 60px;
+        }
+
+        /* HERO (CSS Composition) */
+        .hero-wrapper {
+            position: relative;
+            width: 140px; height: 180px;
+            animation: hero-bounce 1.5s infinite ease-in-out;
+            z-index: 10;
+        }
+
+        .hero-spring-base {
+            width: 60px; height: 30px;
+            background: #78909C;
+            border-radius: 5px;
+            position: absolute; bottom: 0; left: 40px;
+            border: 3px solid var(--c-text);
+            z-index: 1;
+            overflow: hidden;
+        }
+        .spring-coil {
+            width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, transparent, transparent 6px, #37474F 6px, #37474F 10px);
+        }
+
+        .hero-body {
+            width: 110px; height: 110px;
+            background: radial-gradient(circle at 30% 30%, #FF8A65, var(--c-primary));
+            border-radius: 50%;
+            position: absolute; bottom: 25px; left: 15px;
+            border: 3px solid var(--c-text);
+            z-index: 2;
+        }
+
+        .hero-face {
+            width: 60px; height: 35px;
+            background: var(--c-white);
+            border-radius: 30px 30px 10px 10px;
+            position: absolute; top: 25px; left: 25px;
+            border: 2px solid var(--c-text);
+            overflow: hidden;
+        }
+        .eye { width: 8px; height: 12px; background: var(--c-text); border-radius: 50%; position: absolute; top: 10px; animation: blink 3s infinite; }
+        .eye.l { left: 12px; } .eye.r { right: 12px; }
+        
+        .hero-mouth {
+            width: 20px; height: 10px; border-bottom: 3px solid var(--c-text); border-radius: 0 0 10px 10px;
+            position: absolute; bottom: 8px; left: 20px;
+        }
+
+        /* START BUTTON (Physical Object) */
+        .btn-start-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 11;
+        }
+
+        .btn-start {
+            /* Physical button styling */
+            background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-primary-light) 100%);
+            color: var(--c-white);
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            text-transform: uppercase;
+            padding: 15px 50px;
+            border: 4px solid var(--c-text);
+            border-radius: 100px;
+            cursor: pointer;
+            box-shadow: 0 10px 0 var(--c-text), 0 15px 20px rgba(0,0,0,0.2);
+            transition: all 0.1s;
+            position: relative;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+            animation: pulse-btn 2s infinite;
+        }
+
+        .btn-start::before {
+            /* Glossy reflection */
+            content: ''; position: absolute; top: 5px; left: 10px; right: 10px; height: 40%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.6), transparent);
+            border-radius: 50px;
+        }
+
+        .btn-start:hover { transform: translateY(-2px); }
+        .btn-start:active {
+            transform: translateY(10px);
+            box-shadow: 0 0 0 var(--c-text), 0 0 10px rgba(0,0,0,0.2);
+        }
+
+        .btn-shadow {
+            width: 140px; height: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 50%;
+            margin-top: -10px;
+            z-index: -1;
+            filter: blur(5px);
+        }
+
+        /* ANIMATIONS */
+        @keyframes hero-bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        @keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+        @keyframes float-title { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-10px) rotate(-3deg); } }
+        @keyframes pulse-btn { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        /* Responsive tweaks */
+        @media (max-width: 800px) {
+            .game-title h1 { font-size: 3rem; }
+            .world-map { left: 10px; }
+            .map-node { width: 50px; height: 50px; }
+            .controls-group { right: 10px; }
+            .ground-interaction-area { gap: 20px; }
+            .btn-start { font-size: 1.2rem; padding: 10px 30px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- VISUAL WORLD (CANVAS) -->
+    <canvas id="world-canvas"></canvas>
+
+    <!-- UI OVERLAY -->
+    <div id="ui-layer">
+        
+        <!-- HEADER: Title & Stats -->
+        <div class="top-bar">
+            <div class="game-title">
+                <h1>Bouncy<br>& Bolt</h1>
+                <h2>The Great Spring Adventure</h2>
+            </div>
+            
+            <div class="stats-container interactive">
+                <div class="stat-badge">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="#FFD700" stroke="#F57F17" stroke-width="2">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path d="M12 6v12M6 12h12" stroke="none"/>
+                        <circle cx="12" cy="12" r="5" fill="#FFF" opacity="0.5"/>
+                    </svg>
+                    <span>1,240</span>
+                </div>
+                <div class="stat-badge">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="#D32F2F">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                    <span>x 5</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- LEFT: World Map Tree -->
+        <div class="world-map interactive">
+            <div class="map-node active">
+                <div class="icon-cloud"></div>
+                <div class="map-label">Spring Valley</div>
+            </div>
+            <div class="map-path"></div>
+            <div class="map-node locked">
+                <div class="icon-sand"></div>
+                <div class="map-label">Sand Springs</div>
+            </div>
+            <div class="map-path"></div>
+            <div class="map-node locked">
+                <div class="icon-mountain"></div>
+                <div class="map-label">Cloud Peak</div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Controls (Eye Level) -->
+        <div class="controls-group interactive">
+            <div class="controls-title">CONTROLS</div>
+            <div class="key-row">
+                <div class="key">W</div>
+            </div>
+            <div class="key-row">
+                <div class="key">A</div>
+                <div class="key">S</div>
+                <div class="key">D</div>
+            </div>
+            <div class="key large">SPACE</div>
+        </div>
+
+        <!-- BOTTOM: Hero & Start Button -->
+        <div class="ground-interaction-area">
+            <!-- Hero -->
+            <div class="hero-wrapper">
+                <div class="hero-body">
+                    <div class="hero-face">
+                        <div class="eye l"></div>
+                        <div class="eye r"></div>
+                        <div class="hero-mouth"></div>
+                    </div>
+                </div>
+                <div class="hero-spring-base"><div class="spring-coil"></div></div>
+            </div>
+
+            <!-- Start Button -->
+            <div class="btn-start-container interactive">
+                <button class="btn-start" onclick="alert('Level Starting!')">Start Adventure</button>
+                <div class="btn-shadow"></div>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    /**
+     * CANVAS ENGINE - REVISED
+     * Focus: Layered Ground Structure (Bottom 40%)
+     */
+    const canvas = document.getElementById('world-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    let frame = 0;
+
+    // Resize Logic
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- DRAWING HELPERS ---
+
+    function drawGroundLayer(yStart, colorTop, colorBot, grassColor, patternType) {
+        // Solid Base
+        let grad = ctx.createLinearGradient(0, yStart, 0, height);
+        grad.addColorStop(0, colorTop);
+        grad.addColorStop(1, colorBot);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, yStart, width, height - yStart);
+
+        // Grass Top
+        ctx.fillStyle = grassColor;
+        ctx.fillRect(0, yStart, width, 15);
+        
+        // Grass Highlight
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillRect(0, yStart, width, 4);
+
+        // Dirt Pattern (Simple noise simulation)
+        ctx.fillStyle = "rgba(0,0,0,0.1)";
+        if (patternType === 'mid') {
+            for(let i=0; i<width; i+=80) {
+                ctx.beginPath(); ctx.arc(i + Math.sin(frame*0.01)*5, yStart + 40, 10, 0, Math.PI*2); ctx.fill();
+            }
+        }
+    }
+
+    function drawCloud(x, y, s) {
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.beginPath();
+        ctx.arc(x, y, 30*s, 0, Math.PI*2);
+        ctx.arc(x+25*s, y-10*s, 35*s, 0, Math.PI*2);
+        ctx.arc(x+50*s, y, 30*s, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    function drawBlock(x, y, s) {
+        ctx.fillStyle = "#8D6E63"; // Block body
+        ctx.fillRect(x, y, s, s);
+        ctx.strokeStyle = "#3E2723"; ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, s, s);
+        
+        // Highlight
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        ctx.fillRect(x, y, s, 5);
+        ctx.fillRect(x, y, 5, s);
+    }
+
+    function drawCoin(x, y) {
+        const pulse = Math.sin(frame * 0.1) * 2;
+        ctx.fillStyle = "#FFD700";
+        ctx.beginPath();
+        ctx.arc(x, y, 10 + pulse, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = "#F57F17";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function drawEnemy(x, y, s) {
+        // Simple slime
+        ctx.fillStyle = "#E53935";
+        ctx.beginPath();
+        ctx.arc(x, y, 15*s, Math.PI, 0); // Top half circle
+        ctx.lineTo(x + 15*s, y + 10*s);
+        ctx.lineTo(x - 15*s, y + 10*s);
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = "#FFF";
+        ctx.beginPath(); ctx.arc(x-5*s, y-2*s, 4*s, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x+5*s, y-2*s, 4*s, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#000";
+        ctx.beginPath(); ctx.arc(x-5*s, y-2*s, 1.5*s, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x+5*s, y-2*s, 1.5*s, 0, Math.PI*2); ctx.fill();
+    }
+
+    function drawGoal(x, y) {
+        // Pole
+        ctx.fillStyle = "#B0BEC5";
+        ctx.fillRect(x, y, 6, 200);
+        // Flag
+        ctx.fillStyle = "#FF5722";
+        ctx.beginPath();
+        ctx.moveTo(x+6, y+10);
+        ctx.lineTo(x+60, y+30);
+        ctx.lineTo(x+6, y+50);
+        ctx.fill();
+    }
+
+    // --- SCENE RENDERING ---
+
+    function loop() {
+        frame++;
+        ctx.clearRect(0, 0, width, height);
+
+        // 1. SKY (Top 60%)
+        let skyGrad = ctx.createLinearGradient(0, 0, 0, height * 0.6);
+        skyGrad.addColorStop(0, "#29B6F6");
+        skyGrad.addColorStop(1, "#E1F5FE");
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, width, height * 0.6);
+
+        // 2. BACKGROUND LAYER (Distant)
+        // Clouds
+        drawCloud(100 + Math.sin(frame*0.005)*20, 150, 1);
+        drawCloud(400 + Math.sin(frame*0.003+1)*20, 100, 0.8);
+        drawCloud(800 + Math.sin(frame*0.004+2)*20, 180, 1.2);
+        
+        // Distant Mountains (Soft)
+        ctx.fillStyle = "rgba(179, 229, 252, 0.5)";
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.6);
+        ctx.quadraticCurveTo(width*0.3, height*0.3, width*0.5, height*0.6);
+        ctx.quadraticCurveTo(width*0.7, height*0.4, width, height*0.6);
+        ctx.lineTo(width, height); ctx.lineTo(0, height);
+        ctx.fill();
+
+        // 3. MID-GROUND (The Main Stage - Starts at 60% down)
+        // This is where the Hero stands
+        const midY = height * 0.6;
+        
+        // Draw Mid Ground Base
+        drawGroundLayer(midY, "#5D4037", "#3E2723", "#66BB6A", 'mid');
+        
+        // Platforms on Mid Ground
+        const p1x = width * 0.3; 
+        drawBlock(p1x, midY - 100, 50);
+        drawBlock(p1x + 60, midY - 100, 50);
+        drawCoin(p1x + 35, midY - 130);
+
+        // Enemies on Mid Ground
+        drawEnemy(width * 0.7, midY - 15, 1.2);
+
+        // 4. FOREGROUND (Bottom 15% - creates depth)
+        const foreY = height * 0.85;
+        drawGroundLayer(foreY, "#4E342E", "#261411", "#4CAF50", 'bg');
+        
+        // Foreground decorative elements
+        ctx.fillStyle = "#388E3C"; // Darker grass clumps
+        ctx.beginPath(); ctx.arc(width*0.1, foreY, 30, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(width*0.9, foreY, 40, 0, Math.PI*2); ctx.fill();
+
+        // 5. Distant Goal (Right side, mid-ground)
+        drawGoal(width * 0.85, midY - 200);
+
+        requestAnimationFrame(loop);
+    }
+
+    loop();
+</script>
+</body>
+</html>

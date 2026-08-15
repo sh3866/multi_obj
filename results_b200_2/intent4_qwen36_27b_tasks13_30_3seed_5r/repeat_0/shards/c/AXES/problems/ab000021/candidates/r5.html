@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Information Flow</title>
+    <style>
+        :root {
+            /* Palette - Technical Circuit Board */
+            --bg-dark: #0a0b10;
+            --bg-panel: #15171e;
+            --grid-line: #1f222e;
+            
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-accent: #cbd5e1;
+
+            /* Signal Colors */
+            --c-data: #06b6d4;       /* Cyan - Data */
+            --c-instr: #d946ef;      /* Magenta - Instructions */
+            --c-control: #10b981;    /* Emerald - Control */
+            --c-io: #f59e0b;         /* Amber - I/O */
+
+            /* Dimensions */
+            --node-w: 140px;
+            --node-h: 90px;
+            --cpu-w: 220px;
+            --cpu-h: 160px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Background Grid - Subtle & Low Contrast */
+        .bg-grid {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.15; /* Reduced opacity per critique */
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Header */
+        header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            z-index: 10;
+            background: rgba(10, 11, 16, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--grid-line);
+        }
+
+        .header-left h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.03em;
+            margin-bottom: 0.25rem;
+        }
+        .header-left p {
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Legend - Top Right for immediate decoding */
+        .legend {
+            display: flex;
+            gap: 1.5rem;
+            background: var(--bg-panel);
+            border: 1px solid var(--grid-line);
+            padding: 0.5rem 1.25rem;
+            border-radius: 6px;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.02em;
+        }
+
+        .legend-icon {
+            width: 24px;
+            height: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Legend Visuals - Updated Styles */
+        .l-solid { height: 3px; width: 100%; background: var(--c-data); border-radius: 2px; }
+        .l-dashed { height: 0; width: 100%; border-top: 2px dashed var(--c-instr); }
+        .l-dotted { height: 0; width: 100%; border-top: 2px dotted var(--c-control); }
+        .l-thick { height: 6px; width: 100%; background: var(--c-io); border-radius: 2px; opacity: 0.8; }
+
+        /* Main Diagram Area */
+        main {
+            flex: 1;
+            position: relative;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        /* SVG Layer */
+        svg#connections-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Zones (Grouping) */
+        .zone {
+            position: absolute;
+            border: 1px dashed var(--grid-line);
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 16px;
+            z-index: 0;
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+        
+        .zone-label {
+            position: absolute;
+            top: -10px;
+            left: 20px;
+            background: var(--bg-dark);
+            padding: 2px 10px;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 700;
+            border: 1px solid var(--grid-line);
+            border-radius: 4px;
+        }
+
+        /* Nodes - Unified Grammar */
+        .node {
+            position: absolute;
+            background: var(--bg-panel);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            width: var(--node-w);
+            height: var(--node-h);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            z-index: 2;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .node:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            border-color: #475569;
+        }
+
+        /* Node Content */
+        .node-icon {
+            width: 32px;
+            height: 32px;
+            margin-bottom: 0.75rem;
+            stroke-width: 1.5;
+            color: var(--text-secondary);
+        }
+        .node-label {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+        .node-desc {
+            font-size: 0.7rem;
+            font-family: 'Menlo', 'Consolas', monospace;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            opacity: 0.8;
+        }
+
+        /* CPU - High Fidelity Treatment */
+        .node.cpu {
+            width: var(--cpu-w);
+            height: var(--cpu-h);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            z-index: 3;
+            box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.1), 0 0 40px rgba(6, 182, 212, 0.15);
+        }
+        .node.cpu::before {
+            /* Inner Core Glow */
+            content: '';
+            position: absolute;
+            inset: 16px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 4px;
+            box-shadow: inset 0 0 20px rgba(6, 182, 212, 0.05);
+        }
+        .node.cpu::after {
+            /* Corner Accents */
+            content: '';
+            position: absolute;
+            inset: 8px;
+            border: 1px dashed rgba(6, 182, 212, 0.15);
+            border-radius: 4px;
+        }
+        .node.cpu .node-icon {
+            color: var(--c-data);
+            width: 48px;
+            height: 48px;
+            filter: drop-shadow(0 0 10px rgba(6, 182, 212, 0.4));
+        }
+
+        /* GPU - Secondary but distinct */
+        .node.gpu {
+            border-color: #475569;
+            background: #0f1115;
+        }
+        .node.gpu .node-icon { 
+            color: var(--c-instr); 
+            filter: drop-shadow(0 0 5px rgba(217, 70, 239, 0.3));
+        }
+
+        /* I/O Nodes - Unified style, but maybe a subtle tint */
+        .node.io-node {
+            /* No yellow borders per critique, but distinct icon color */
+        }
+        .node.io-node .node-icon {
+            color: var(--c-io);
+        }
+
+        /* SVG Path Styles */
+        /* PCB Trace aesthetic: Sharp angles, but we will use smooth curves with specific styling for elegance */
+        .path-active {
+            fill: none;
+            stroke-width: 2px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Line Types */
+        .type-data { 
+            stroke: var(--c-data); 
+            stroke-width: 2.5px; 
+            filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.3));
+        }
+        .type-instruction { 
+            stroke: var(--c-instr); 
+            stroke-dasharray: 6, 6; 
+            stroke-width: 2px;
+            filter: drop-shadow(0 0 4px rgba(217, 70, 239, 0.3));
+            animation: flow 1.5s linear infinite;
+        }
+        .type-control { 
+            stroke: var(--c-control); 
+            stroke-dasharray: 2, 5; /* Dotted */
+            stroke-width: 2px;
+            filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.4));
+            animation: flow 2s linear infinite;
+        }
+        .type-io { 
+            stroke: var(--c-io); 
+            stroke-width: 4px; 
+            stroke-linecap: round;
+            opacity: 0.9;
+        }
+
+        /* Animations */
+        @keyframes flow {
+            to { stroke-dashoffset: -16; }
+        }
+
+        /* Labels on Lines - Pill Style */
+        .path-label-group {
+            pointer-events: none;
+        }
+        .path-label-bg {
+            fill: var(--bg-dark);
+            stroke: var(--grid-line);
+            stroke-width: 1px;
+            rx: 100px; /* Pill shape */
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+        }
+        .path-label {
+            font-size: 10px;
+            font-family: 'Menlo', 'Consolas', monospace;
+            fill: var(--text-secondary);
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="bg-grid"></div>
+
+    <header>
+        <div class="header-left">
+            <h1>System Architecture</h1>
+            <p>Information Flow & Hardware Topology</p>
+        </div>
+        <!-- Legend moved to top-right for better hierarchy -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-icon"><div class="l-solid"></div></div> Data
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon"><div class="l-dashed"></div></div> Instr
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon"><div class="l-dotted"></div></div> Control
+            </div>
+            <div class="legend-item">
+                <div class="legend-icon"><div class="l-thick"></div></div> I/O
+            </div>
+        </div>
+    </header>
+
+    <main id="diagram-area">
+        
+        <!-- Zones -->
+        <!-- Processing Core: Center -->
+        <div class="zone" id="zone-processing" style="top: 15%; left: 35%; width: 30%; height: 40%;">
+            <span class="zone-label">Processing Core</span>
+        </div>
+
+        <!-- Storage & Memory: Bottom -->
+        <div class="zone" id="zone-storage" style="top: 65%; left: 25%; width: 50%; height: 30%;">
+            <span class="zone-label">Storage & Memory Subsystem</span>
+        </div>
+
+        <!-- SVG Layer -->
+        <svg id="connections-layer" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- Arrowheads: Unified Geometry (Filled Triangles) -->
+                <marker id="arrow-data" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 Z" fill="var(--c-data)" />
+                </marker>
+                <marker id="arrow-instr" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 Z" fill="var(--c-instr)" />
+                </marker>
+                <marker id="arrow-control" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 Z" fill="var(--c-control)" />
+                </marker>
+                <marker id="arrow-io" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 Z" fill="var(--c-io)" />
+                </marker>
+            </defs>
+        </svg>
+
+        <!-- Components -->
+        <!-- Layout: Left-to-Right Flow (Input -> CPU -> Output) -->
+        <!-- Memory/Storage: Bottom Foundation -->
+        
+        <!-- Input (Left) -->
+        <div id="input" class="node io-node" style="top: 35%; left: 5%;">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 12h-4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2z"/><path d="M6 12H2v4h4"/><path d="M6 20H2v-4h4"/><path d="M6 8H2v4h4"/><path d="M18 8h-4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2z"/></svg>
+            <div class="node-label">Input</div>
+            <div class="node-desc">Events</div>
+        </div>
+
+        <!-- Network (Top Right - Connected to CPU) -->
+        <div id="network" class="node" style="top: 5%; left: 70%;">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+            <div class="node-label">Network</div>
+            <div class="node-desc">Packets</div>
+        </div>
+
+        <!-- GPU (Top Center - Subordinate to CPU) -->
+        <div id="gpu" class="node gpu" style="top: 5%; left: 50%; transform: translateX(-50%);">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/></svg>
+            <div class="node-label">GPU</div>
+            <div class="node-desc">Render Accel</div>
+        </div>
+
+        <!-- CPU (Center - Focal Point) -->
+        <div id="cpu" class="node cpu" style="top: 30%; left: 50%; transform: translate(-50%, -50%);">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+            <div class="node-label">CPU</div>
+            <div class="node-desc">Control Unit</div>
+        </div>
+
+        <!-- RAM (Bottom Left) -->
+        <div id="ram" class="node" style="top: 70%; left: 35%; transform: translateX(-50%);">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 18v2"/><path d="M10 18v2"/><path d="M14 18v2"/><path d="M18 18v2"/><path d="M6 10h12"/></svg>
+            <div class="node-label">Memory</div>
+            <div class="node-desc">Volatile RAM</div>
+        </div>
+
+        <!-- Storage (Bottom Right) -->
+        <div id="storage" class="node" style="top: 70%; left: 65%; transform: translateX(-50%);">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+            <div class="node-label">Storage</div>
+            <div class="node-desc">NVMe SSD</div>
+        </div>
+
+        <!-- Output (Far Right) -->
+        <div id="output" class="node io-node" style="top: 35%; left: 90%;">
+            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <div class="node-label">Output</div>
+            <div class="node-desc">Display</div>
+        </div>
+
+    </main>
+
+    <script>
+        // Configuration for connections
+        // Updated to satisfy critique:
+        // 1. Control signals (Dotted) from CPU to GPU and RAM.
+        // 2. Network connected bidirectionally to CPU.
+        // 3. Input to Memory (Buffering) added.
+        // 4. GPU to Output added.
+        const connectionsConfig = [
+            // Input -> CPU (I/O)
+            { from: 'input', to: 'cpu', type: 'io', label: 'Events' },
+            
+            // Input -> RAM (Buffering)
+            { from: 'input', to: 'ram', type: 'data', label: 'Buffer' },
+
+            // Network <-> CPU (Bidirectional)
+            { from: 'network', to: 'cpu', type: 'data', label: 'Packets In' },
+            { from: 'cpu', to: 'network', type: 'control', label: 'Tx Ctrl' },
+            
+            // CPU -> RAM (Control/Write) - Dotted per Critique
+            { from: 'cpu', to: 'ram', type: 'control', label: 'Mgmt' },
+            
+            // RAM -> CPU (Instruction Fetch) - Dashed per Critique
+            { from: 'ram', to: 'cpu', type: 'instruction', label: 'Fetch' },
+            
+            // CPU -> GPU (Data Render)
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Render Cmds' },
+            
+            // CPU -> GPU (Control) - Dotted per Critique
+            { from: 'cpu', to: 'gpu', type: 'control', label: 'Sync' },
+
+            // GPU -> Output (I/O Stream)
+            { from: 'gpu', to: 'output', type: 'io', label: 'Pixels' },
+            
+            // CPU <-> Storage (High Bandwidth)
+            { from: 'storage', to: 'cpu', type: 'data', label: 'Load' },
+            { from: 'cpu', to: 'storage', type: 'control', label: 'Persist' }
+        ];
+
+        const svgLayer = document.getElementById('connections-layer');
+        
+        const markers = {
+            'data': 'url(#arrow-data)',
+            'instruction': 'url(#arrow-instr)',
+            'control': 'url(#arrow-control)',
+            'io': 'url(#arrow-io)'
+        };
+
+        function getCenter(element) {
+            const rect = element.getBoundingClientRect();
+            const mainRect = document.getElementById('diagram-area').getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - mainRect.left,
+                y: rect.top + rect.height / 2 - mainRect.top,
+                w: rect.width,
+                h: rect.height
+            };
+        }
+
+        // Calculate intersection with the rectangle edge
+        function getEdgePoint(center, targetCenter) {
+            const dx = targetCenter.x - center.x;
+            const dy = targetCenter.y - center.y;
+            const angle = Math.atan2(dy, dx);
+            
+            // Use a slightly smaller hit box for the intersection so arrows don't overlap the border
+            // Adjusted for the larger CPU node
+            const hitBoxW = center.w * 0.9; 
+            const hitBoxH = center.h * 0.9;
+            
+            const absCos = Math.abs(Math.cos(angle));
+            const absSin = Math.abs(Math.sin(angle));
+            
+            let x, y;
+            // Determine if we hit the vertical or horizontal side first
+            if (hitBoxW * absSin < hitBoxH * absCos) {
+                // Hit vertical side (Left or Right)
+                const signX = Math.sign(Math.cos(angle));
+                const halfW = hitBoxW / 2;
+                x = center.x + signX * halfW;
+                y = center.y + Math.tan(angle) * signX * halfW;
+            } else {
+                // Hit horizontal side (Top or Bottom)
+                const signY = Math.sign(Math.sin(angle));
+                const halfH = hitBoxH / 2;
+                y = center.y + signY * halfH;
+                x = center.x + (1 / Math.tan(angle)) * signY * halfH;
+            }
+            return { x, y };
+        }
+
+        function drawConnections() {
+            // Clear existing paths but keep defs
+            const defs = svgLayer.querySelector('defs').outerHTML;
+            svgLayer.innerHTML = defs;
+
+            connectionsConfig.forEach(conn => {
+                const startEl = document.getElementById(conn.from);
+                const endEl = document.getElementById(conn.to);
+                
+                if (!startEl || !endEl) return;
+
+                const startC = getCenter(startEl);
+                const endC = getCenter(endEl);
+
+                const startPoint = getEdgePoint(startC, endC);
+                const endPoint = getEdgePoint(endC, startC);
+
+                // Calculate Bezier Control Points
+                const dx = endPoint.x - startPoint.x;
+                const dy = endPoint.y - startPoint.y;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                
+                // Adjust curvature based on distance for cleaner lines
+                // For horizontal connections, pull control points horizontally
+                // For vertical, pull vertically
+                const curvature = Math.min(distance * 0.4, 120); 
+
+                let cp1x = startPoint.x;
+                let cp1y = startPoint.y;
+                let cp2x = endPoint.x;
+                let cp2y = endPoint.y;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    cp1x += dx * 0.5;
+                    cp2x -= dx * 0.5;
+                } else {
+                    cp1y += dy * 0.5;
+                    cp2y -= dy * 0.5;
+                }
+
+                const pathD = `M ${startPoint.x} ${startPoint.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endPoint.x} ${endPoint.y}`;
+
+                // 1. Active Flow Line
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", pathD);
+                path.setAttribute("class", `path-active type-${conn.type}`);
+                path.setAttribute("marker-end", markers[conn.type]);
+                svgLayer.appendChild(path);
+
+                // 2. Label Logic
+                // Calculate midpoint of Bezier curve
+                const midX = (startPoint.x + cp1x + cp2x + endPoint.x) / 4;
+                const midY = (startPoint.y + cp1y + cp2y + endPoint.y) / 4;
+
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.setAttribute("class", "path-label-group");
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", midX);
+                text.setAttribute("y", midY);
+                text.setAttribute("class", "path-label");
+                text.textContent = conn.label;
+
+                g.appendChild(text);
+                svgLayer.appendChild(g);
+
+                // Get bounding box of text (must be in DOM to measure)
+                const bbox = text.getBBox();
+                
+                // Create rect background (Pill shape)
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", bbox.x - 8);
+                rect.setAttribute("y", bbox.y - 4);
+                rect.setAttribute("width", bbox.width + 16);
+                rect.setAttribute("height", bbox.height + 8);
+                rect.setAttribute("class", "path-label-bg");
+                
+                // Insert rect before text in the group
+                g.insertBefore(rect, text);
+            });
+        }
+
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(drawConnections, 100);
+        });
+
+        // Initial Draw
+        window.addEventListener('load', drawConnections);
+        if (document.readyState === "complete") {
+            drawConnections();
+        }
+
+    </script>
+</body>
+</html>

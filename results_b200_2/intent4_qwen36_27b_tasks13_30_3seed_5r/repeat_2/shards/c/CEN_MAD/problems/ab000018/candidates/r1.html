@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road - Design Revision</title>
+    <style>
+        :root {
+            --ui-bg: #333;
+            --ui-accent: #f1c40f;
+            --pad-color: rgba(255, 255, 255, 0.15);
+            --pad-active: rgba(255, 255, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #222;
+            font-family: 'Courier New', Courier, monospace; /* Retro feel */
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        /* Canvas Layer */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* HUD: Retro Pixel Style */
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 12px;
+            pointer-events: none;
+        }
+
+        .hud-box {
+            background: #2c3e50;
+            border: 4px solid #fff;
+            box-shadow: 4px 4px 0px #000;
+            padding: 8px 16px;
+            color: #fff;
+            text-align: center;
+            min-width: 80px;
+            position: relative;
+        }
+
+        .hud-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #bdc3c7;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        .hud-val {
+            font-size: 24px;
+            font-weight: 900;
+            line-height: 1;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .hud-val.best {
+            color: var(--ui-accent);
+        }
+
+        /* Controls: Bottom Left, Opaque, Distinct */
+        .controls-area {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            pointer-events: auto;
+            width: 180px;
+            height: 180px;
+        }
+
+        .d-pad {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .btn {
+            position: absolute;
+            width: 56px;
+            height: 56px;
+            background: var(--ui-bg);
+            border: 2px solid #555;
+            border-bottom: 6px solid #111; /* 3D depth */
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.1s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btn:active, .btn.active {
+            transform: translateY(4px);
+            border-bottom: 2px solid #111;
+            background: var(--ui-accent);
+            border-color: #d35400;
+        }
+
+        /* D-Pad Layout */
+        .btn-up { top: 0; left: 62px; }
+        .btn-left { top: 62px; left: 0; }
+        .btn-down { top: 62px; left: 62px; }
+        .btn-right { top: 62px; left: 124px; }
+
+        /* Arrows */
+        .arrow {
+            width: 0; 
+            height: 0; 
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 14px solid #fff;
+        }
+        .btn-up .arrow { transform: rotate(0deg); margin-top: 4px; }
+        .btn-down .arrow { transform: rotate(180deg); margin-bottom: 4px; }
+        .btn-left .arrow { transform: rotate(-90deg); margin-left: 4px; }
+        .btn-right .arrow { transform: rotate(90deg); margin-right: 4px; }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <!-- HUD -->
+        <div class="hud-container">
+            <div class="hud-box">
+                <div class="hud-label">Score</div>
+                <div class="hud-val" id="score">0</div>
+            </div>
+            <div class="hud-box">
+                <div class="hud-label">Best</div>
+                <div class="hud-val best" id="best">12</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-area">
+            <div class="d-pad">
+                <div class="btn btn-up" id="btn-up" ontouchstart="handleInput(0, -1, event)" onmousedown="handleInput(0, -1, event)">
+                    <div class="arrow"></div>
+                </div>
+                <div class="btn btn-left" id="btn-left" ontouchstart="handleInput(-1, 0, event)" onmousedown="handleInput(-1, 0, event)">
+                    <div class="arrow"></div>
+                </div>
+                <div class="btn btn-down" id="btn-down" ontouchstart="handleInput(0, 1, event)" onmousedown="handleInput(0, 1, event)">
+                    <div class="arrow"></div>
+                </div>
+                <div class="btn btn-right" id="btn-right" ontouchstart="handleInput(1, 0, event)" onmousedown="handleInput(1, 0, event)">
+                    <div class="arrow"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * REVISED DESIGN IMPLEMENTATION
+         * Focus: 2.5D Perspective, Clear Legibility, Playful Aesthetics
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- Configuration ---
+        const CONFIG = {
+            // Adjusted for a more zoomed-in, standard perspective
+            fov: 400, 
+            cameraHeight: 180, // Lower camera for better depth perception
+            blockSize: 100,
+            lanes: 20,
+            drawDistance: 25,
+            horizonY: 0.35, // Horizon at 35% of screen height
+            colors: {
+                skyTop: [79, 172, 254],
+                skyBot: [220, 240, 255],
+                grassLight: [168, 224, 99],
+                grassDark: [120, 180, 60], // Less neon, more natural
+                road: [60, 60, 70], // Darker, distinct road
+                roadLine: [241, 196, 15],
+                water: [41, 128, 185],
+                waterLight: [109, 213, 250],
+                treeTrunk: [101, 67, 33],
+                treeLeaves: [76, 175, 80]
+            }
+        };
+
+        // --- State ---
+        let camera = { z: 0, y: 0 };
+        let player = { 
+            x: 0, y: 0, z: 0, 
+            targetY: 0, 
+            squish: 1, 
+            rot: 0, 
+            targetRot: 0,
+            color: '#FFFFFF' 
+        };
+        let lanes = [];
+        let score = 0;
+        let time = 0;
+
+        // --- Resize Handling ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            // Recalculate horizon
+            CONFIG.horizonY = height * 0.35;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math Helpers ---
+        // 2.5D Projection Logic
+        const project = (x, y, z) => {
+            // Relative Z to camera
+            const zRel = z - camera.z;
+            // Prevent clipping behind camera
+            if (zRel < -CONFIG.fov + 50) return null;
+
+            // Scale based on depth
+            const scale = CONFIG.fov / (CONFIG.fov + zRel);
+            
+            // Project to 2D
+            const x2d = (x * scale) + (width / 2);
+            // Invert Y because canvas Y is down, world Y is up
+            const y2d = CONFIG.horizonY - (y * scale) + (height / 2); 
+
+            return { x: x2d, y: y2d, scale: scale };
+        };
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+
+        // --- Classes ---
+
+        class Lane {
+            constructor(zIndex) {
+                this.z = zIndex * CONFIG.blockSize;
+                this.type = this.determineType(zIndex);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+
+                // Content Generation
+                if (this.type === 'road') {
+                    const count = Math.floor(rand(2, 4));
+                    // Ensure lanes have direction based on index to create traffic flow
+                    const direction = (Math.floor(zIndex / 2) % 2 === 0) ? 1 : -1;
+                    
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(4, 8) * direction,
+                            color: Math.random() > 0.5 ? '#e74c3c' : '#f39c12', // Red or Orange for visibility
+                            width: rand(60, 90),
+                            height: rand(40, 60),
+                            depth: rand(50, 70)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = Math.floor(rand(2, 3));
+                    const direction = (zIndex % 2 === 0) ? 1 : -1;
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-1500, 1500),
+                            speed: rand(1, 3) * direction,
+                            length: rand(200, 400)
+                        });
+                    }
+                } else {
+                    // Grass decorations
+                    const count = Math.floor(rand(4, 10));
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            x: rand(-1200, 1200),
+                            type: Math.random() > 0.6 ? 'tree' : 'bush',
+                            scale: rand(0.9, 1.2)
+                        });
+                    }
+                }
+            }
+
+            determineType(z) {
+                if (z < 5) return 'grass';
+                // Rhythmic Pattern: Grass -> Road -> Road -> Water -> Grass
+                const mod = z % 5;
+                if (mod === 1 || mod === 2) return 'road';
+                if (mod === 3) return 'water';
+                return 'grass';
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    // Wrap around logic for infinite traffic
+                    if (v.speed > 0 && v.x > 2000) v.x = -2000;
+                    if (v.speed < 0 && v.x < -2000) v.x = 2000;
+                });
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    if (l.speed > 0 && l.x > 2000) l.x = -2000;
+                    if (l.speed < 0 && l.x < -2000) l.x = 2000;
+                });
+            }
+
+            draw() {
+                // Check visibility
+                if (this.z - camera.z < -CONFIG.fov || this.z - camera.z > CONFIG.drawDistance * CONFIG.blockSize) return;
+
+                // Draw Ground Plane (Trapezoid)
+                // We draw slightly wider than screen to avoid edge gaps
+                const w = 3000; 
+                const pStart = project(-w, 0, this.z);
+                const pEnd = project(w, 0, this.z);
+                const pStartNext = project(-w, 0, this.z + CONFIG.blockSize);
+                const pEndNext = project(w, 0, this.z + CONFIG.blockSize);
+
+                if (!pStart || !pEnd) return;
+
+                ctx.beginPath();
+                ctx.moveTo(pStart.x, pStart.y);
+                ctx.lineTo(pEnd.x, pEnd.y);
+                ctx.lineTo(pEndNext.x, pEndNext.y);
+                ctx.lineTo(pStartNext.x, pStartNext.y);
+                ctx.closePath();
+
+                // Base Colors
+                if (this.type === 'grass') {
+                    ctx.fillStyle = (Math.floor(this.z / CONFIG.blockSize) % 2 === 0) 
+                        ? `rgb(${CONFIG.colors.grassLight.join(',')})` 
+                        : `rgb(${CONFIG.colors.grassDark.join(',')})`;
+                } else if (this.type === 'road') {
+                    ctx.fillStyle = `rgb(${CONFIG.colors.road.join(',')})`;
+                } else if (this.type === 'water') {
+                    ctx.fillStyle = `rgb(${CONFIG.colors.water.join(',')})`;
+                }
+                ctx.fill();
+
+                // Details
+                if (this.type === 'road') {
+                    // Dashed Lines
+                    ctx.beginPath();
+                    const lineStart = project(-w/3, 0, this.z);
+                    const lineEnd = project(w/3, 0, this.z);
+                    
+                    // Only draw if we are on a multi-lane road logic (simplified here to single dashed line)
+                    ctx.moveTo(lineStart.x, lineStart.y);
+                    ctx.lineTo(lineEnd.x, lineEnd.y);
+                    ctx.strokeStyle = `rgba(255, 255, 255, 0.3)`;
+                    ctx.lineWidth = 4 * pStart.scale;
+                    ctx.setLineDash([20 * pStart.scale, 20 * pStart.scale]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (this.type === 'water') {
+                    // Water Ripples
+                    ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
+                    ctx.lineWidth = 2 * pStart.scale;
+                    for(let i=-1; i<=1; i+=0.5) {
+                        const s = project(i * (w/4), 0, this.z);
+                        const e = project(i * (w/4) + 100, 0, this.z);
+                        ctx.beginPath();
+                        ctx.moveTo(s.x, s.y);
+                        ctx.lineTo(e.x, e.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- Drawing Helpers (Pseudo-3D Cuboids) ---
+        
+        function drawBox(x, y, z, w, h, d, color) {
+            const p = project(x, y, z);
+            if(!p) return;
+            const scale = p.scale;
+            
+            const hw = w * scale / 2;
+            const hh = h * scale;
+            const hd = d * scale / 2;
+
+            // 1. Top Face
+            ctx.fillStyle = lighten(color, 15);
+            ctx.beginPath();
+            ctx.moveTo(p.x - hw, p.y - hh); // Bottom Left (of top face)
+            ctx.lineTo(p.x - hw + hd, p.y - hh - hd); // Top Left
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd); // Top Right
+            ctx.lineTo(p.x + hw, p.y - hh); // Bottom Right
+            ctx.fill();
+
+            // 2. Front Face
+            ctx.fillStyle = color;
+            ctx.fillRect(p.x - hw, p.y - hh, hw*2, hh);
+
+            // 3. Right Face (Shadow)
+            ctx.fillStyle = darken(color, 15);
+            ctx.beginPath();
+            ctx.moveTo(p.x + hw, p.y - hh);
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw + hd, p.y - hd);
+            ctx.lineTo(p.x + hw, p.y);
+            ctx.fill();
+        }
+
+        // Simple color manipulation without external libs
+        function lighten(hex, percent) {
+            return hex; // Simplified for demo, returning base or logic could go here
+        }
+        function darken(hex, percent) {
+            return hex;
+        }
+
+        // --- Input Handling ---
+        function handleInput(dx, dy, event) {
+            if(event) event.preventDefault();
+            game.movePlayer(dx, dy);
+        }
+
+        // --- The Game Object ---
+
+        const game = {
+            init: () => {
+                // Initial Lanes
+                for(let i=0; i<CONFIG.drawDistance; i++) {
+                    lanes.push(new Lane(i));
+                }
+                
+                // Keyboard Input
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp' || e.key === 'w') game.movePlayer(0, -1);
+                    if(e.key === 'ArrowDown' || e.key === 's') game.movePlayer(0, 1);
+                    if(e.key === 'ArrowLeft' || e.key === 'a') game.movePlayer(-1, 0);
+                    if(e.key === 'ArrowRight' || e.key === 'd') game.movePlayer(1, 0);
+                });
+
+                requestAnimationFrame(game.loop);
+            },
+
+            movePlayer: (dx, dy) => {
+                const currentLaneIdx = Math.round(player.z / CONFIG.blockSize);
+                
+                // Visual Feedback for Buttons
+                const btnId = dy === -1 ? 'btn-up' : dy === 1 ? 'btn-down' : dx === -1 ? 'btn-left' : 'btn-right';
+                const btn = document.getElementById(btnId);
+                if(btn) {
+                    btn.classList.add('active');
+                    setTimeout(() => btn.classList.remove('active'), 150);
+                }
+
+                // Logic
+                if (dy === -1) { // Forward
+                    player.z += CONFIG.blockSize;
+                    player.squish = 0.7; 
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    
+                    // Camera follow
+                    camera.z += CONFIG.blockSize;
+                    
+                    // Generate new lane
+                    lanes.push(new Lane(lanes.length));
+                    lanes.shift(); 
+                } 
+                else if (dy === 1) { // Back
+                    if(player.z > 0) {
+                        player.z -= CONFIG.blockSize;
+                        camera.z -= CONFIG.blockSize;
+                        player.squish = 0.7;
+                    }
+                }
+                else if (dx !== 0) { // Side
+                    player.x += dx * 100; // Grid step
+                    // Clamp X
+                    if(player.x > 1000) player.x = 1000;
+                    if(player.x < -1000) player.x = -1000;
+                    
+                    player.targetRot = dx * 0.2;
+                    player.squish = 0.8;
+                }
+            },
+
+            update: () => {
+                time += 16;
+                
+                // Smooth Physics
+                player.squish = lerp(player.squish, 1, 0.1);
+                player.rot = lerp(player.rot, player.targetRot, 0.1);
+                player.targetRot = lerp(player.targetRot, 0, 0.05);
+
+                lanes.forEach(lane => lane.update());
+
+                // Water Logic
+                const currentLane = lanes.find(l => Math.abs(l.z - player.z) < 10);
+                if (currentLane && currentLane.type === 'water') {
+                    let onLog = false;
+                    currentLane.logs.forEach(log => {
+                        if (player.x > log.x - log.length/2 && player.x < log.x + log.length/2) {
+                            onLog = true;
+                            player.x += log.speed; 
+                        }
+                    });
+                    // If not on log, we would fall (reset game), but for visual demo we just stay
+                }
+            },
+
+            draw: () => {
+                // 1. Sky (Gradient)
+                const grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, `rgb(${CONFIG.colors.skyTop.join(',')})`);
+                grad.addColorStop(1, `rgb(${CONFIG.colors.skyBot.join(',')})`);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                // 2. Prepare Draw List (Painter's Algorithm)
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    drawables.push({ type: 'lane', obj: l, z: l.z });
+                    l.decorations.forEach(d => drawables.push({ type: 'deco', obj: d, z: l.z }));
+                    l.vehicles.forEach(v => drawables.push({ type: 'vehicle', obj: v, z: l.z }));
+                    l.logs.forEach(lg => drawables.push({ type: 'log', obj: lg, z: l.z }));
+                });
+
+                drawables.push({ type: 'player', z: player.z });
+                drawables.sort((a, b) => a.z - b.z);
+
+                // 3. Render Loop
+                drawables.forEach(item => {
+                    if (item.type === 'lane') item.obj.draw();
+                    
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        if (d.type === 'tree') {
+                            // Trunk
+                            drawBox(d.x, 0, item.z, 20, 60, 20, `rgb(${CONFIG.colors.treeTrunk.join(',')})`);
+                            // Leaves (Two blocks for style)
+                            drawBox(d.x, 50, item.z, 60, 60, 60, `rgb(${CONFIG.colors.treeLeaves.join(',')})`);
+                            drawBox(d.x, 90, item.z, 40, 40, 40, `rgb(${CONFIG.colors.treeLeaves.join(',')})`);
+                        } else {
+                            // Bush
+                            drawBox(d.x, 0, item.z, 40, 30, 40, `rgb(${CONFIG.colors.treeLeaves.join(',')})`);
+                        }
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        // Car Body
+                        drawBox(v.x, 0, item.z, v.width, v.height, v.depth, v.color);
+                        // Roof (Lighter)
+                        drawBox(v.x, v.height, item.z, v.width * 0.8, v.height * 0.6, v.depth * 0.8, v.color);
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        drawBox(l.x, 0, item.z, l.length, 25, 25, '#8d6e63');
+                    }
+
+                    if (item.type === 'player') {
+                        const p = project(player.x, 0, player.z);
+                        if(!p) return;
+                        
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        
+                        // Shadow
+                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 25*p.scale, 12*p.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        // Squish Scale
+                        const scaleY = player.squish;
+                        const scaleX = 1 + (1 - player.squish) * 0.6;
+                        ctx.scale(scaleX, scaleY);
+
+                        // --- Drawing the "Charming Animal" (Chicken) ---
+                        const s = p.scale;
+                        
+                        // Legs (Orange)
+                        ctx.fillStyle = '#f39c12';
+                        ctx.fillRect(-10*s, -25*s, 8*s, 25*s);
+                        ctx.fillRect(2*s, -25*s, 8*s, 25*s);
+
+                        // Body (White Cube)
+                        // We draw this relative to 0,0 which is ground level
+                        drawBoxLocal(0, -25*s, 0, 35*s, 35*s, 35*s, '#FFFFFF');
+
+                        // Comb (Red)
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.fillRect(-2*s, -65*s, 10*s, 10*s);
+
+                        // Beak (Yellow)
+                        ctx.fillStyle = '#f1c40f';
+                        ctx.beginPath();
+                        ctx.moveTo(17*s, -50*s);
+                        ctx.lineTo(28*s, -45*s);
+                        ctx.lineTo(17*s, -40*s);
+                        ctx.fill();
+
+                        // Eyes (Black dots)
+                        ctx.fillStyle = '#000';
+                        ctx.beginPath();
+                        ctx.arc(12*s, -55*s, 3*s, 0, Math.PI*2); // Right eye
+                        ctx.arc(12*s, -45*s, 3*s, 0, Math.PI*2); // Left eye (perspective trick)
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        // Helper to draw a box locally (relative to translated context)
+        function drawBoxLocal(x, y, z, w, h, d, color) {
+            // Top
+            ctx.fillStyle = lighten(color, 15);
+            ctx.fillRect(x - w/2, y - h, w, h/2); // Simplified top
+            
+            // Front
+            ctx.fillStyle = color;
+            ctx.fillRect(x - w/2, y - h, w, h);
+            
+            // Side
+            ctx.fillStyle = darken(color, 20);
+            ctx.fillRect(x + w/2, y - h, d/2, h);
+        }
+
+        // Start
+        game.init();
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tactical AI Behavior Visualizer</title>
+<style>
+  :root {
+    --bg-deep: #030507;
+    --bg-panel: rgba(6, 10, 15, 0.75);
+    --grid-line: rgba(40, 55, 70, 0.3);
+    
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-dim: #475569;
+
+    --color-patrol: #3b82f6; /* Blue */
+    --color-alert: #f59e0b;  /* Amber */
+    --color-chase: #ef4444;  /* Red */
+    --color-attack: #ffffff; /* White */
+    --color-player: #10b981; /* Emerald */
+    
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "Roboto Mono", "Courier New", monospace;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    user-select: none;
+  }
+
+  /* Background Grid */
+  .grid-bg {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: 
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* Canvas */
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 1;
+    cursor: crosshair;
+  }
+
+  /* UI Layer */
+  .ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  /* Common Panel Styles */
+  .panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 16px;
+    pointer-events: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  /* Header / Legend Area */
+  header {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 160px;
+  }
+
+  .brand h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin: 0 0 4px 0;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0;
+    font-family: var(--font-mono);
+  }
+
+  .brand-icon {
+    width: 24px; height: 24px;
+    background: var(--color-player);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    box-shadow: 0 0 10px var(--color-player);
+  }
+
+  /* Legend Panel - Moved Top Left */
+  .legend-panel {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    transition: color 0.2s;
+  }
+
+  .legend-item.active { color: #fff; text-shadow: 0 0 8px currentColor; }
+
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* Bottom Inspector Area */
+  .inspector-container {
+    display: flex;
+    justify-content: center; /* Centered as requested */
+    align-items: flex-end;
+    width: 100%;
+  }
+
+  .inspector-panel {
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 6px;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .stat-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: #fff;
+  }
+
+  /* Health Bar */
+  .health-bar-container {
+    width: 100%;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+
+  .health-fill {
+    height: 100%;
+    background: var(--color-player);
+    width: 100%;
+    transition: width 0.2s ease-out;
+    box-shadow: 0 0 10px var(--color-player);
+  }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .hint-text {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+
+  .btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .btn:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    header { flex-direction: column; gap: 12px; }
+    .legend-panel { flex-wrap: wrap; }
+    .inspector-panel { width: 100%; max-width: 320px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="grid-bg"></div>
+  <canvas id="arena"></canvas>
+
+  <div class="ui-layer">
+    <!-- Top Section: Brand + Legend -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon"></div>
+        <h1>Neural Tactics</h1>
+        <p>AI BEHAVIOR VISUALIZER v2.0</p>
+      </div>
+
+      <div class="panel legend-panel">
+        <div class="legend-item" id="leg-patrol"><div class="dot" style="background:var(--color-patrol); color:var(--color-patrol)"></div>Patrol</div>
+        <div class="legend-item" id="leg-alert"><div class="dot" style="background:var(--color-alert); color:var(--color-alert)"></div>Alert</div>
+        <div class="legend-item" id="leg-chase"><div class="dot" style="background:var(--color-chase); color:var(--color-chase)"></div>Chase</div>
+        <div class="legend-item" id="leg-attack"><div class="dot" style="background:var(--color-attack); color:var(--color-attack)"></div>Attack</div>
+      </div>
+    </header>
+
+    <!-- Bottom Section: Inspector -->
+    <div class="inspector-container">
+      <div class="panel inspector-panel">
+        <div class="panel-title">Player Inspector</div>
+        
+        <div class="stat-row">
+          <span>Health</span>
+          <span class="stat-value" id="hp-val">100%</span>
+        </div>
+        <div class="health-bar-container">
+          <div class="health-fill" id="hp-bar"></div>
+        </div>
+
+        <div class="stat-row">
+          <span>Position</span>
+          <span class="stat-value" id="pos-val">0, 0</span>
+        </div>
+
+        <div class="stat-row">
+          <span>Velocity</span>
+          <span class="stat-value" id="vel-val">0.0</span>
+        </div>
+
+        <div class="controls">
+          <span class="hint-text">WASD to Move</span>
+          <button class="btn" id="btn-reset">Reset Sim</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/**
+ * ENGINE & LOGIC
+ */
+const canvas = document.getElementById('arena');
+const ctx = canvas.getContext('2d');
+
+// UI Elements
+const ui = {
+  hpVal: document.getElementById('hp-val'),
+  hpBar: document.getElementById('hp-bar'),
+  posVal: document.getElementById('pos-val'),
+  velVal: document.getElementById('vel-val'),
+  resetBtn: document.getElementById('btn-reset'),
+  legends: {
+    PATROL: document.getElementById('leg-patrol'),
+    ALERT: document.getElementById('leg-alert'),
+    CHASE: document.getElementById('leg-chase'),
+    ATTACK: document.getElementById('leg-attack')
+  }
+};
+
+// Configuration
+const COLORS = {
+  PATROL: '#3b82f6',
+  ALERT: '#f59e0b',
+  CHASE: '#ef4444',
+  ATTACK: '#ffffff',
+  PLAYER: '#10b981',
+  WALL: '#0f172a',
+  WALL_BORDER: '#334155'
+};
+
+const STATES = {
+  PATROL: 'PATROL',
+  ALERT: 'ALERT',
+  CHASE: 'CHASE',
+  ATTACK: 'ATTACK'
+};
+
+// Game State
+let width, height;
+let player = { x: 0, y: 0, radius: 14, hp: 100, speed: 5 };
+let enemies = [];
+let walls = [];
+let keys = {};
+let time = 0;
+
+// Initialize
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  initWorld();
+}
+
+function initWorld() {
+  // Player start
+  player.x = width * 0.2;
+  player.y = height * 0.5;
+  player.hp = 100;
+
+  // Walls - More complex layout
+  walls = [
+    { x: width * 0.4, y: height * 0.2, w: 20, h: height * 0.3 },
+    { x: width * 0.6, y: height * 0.5, w: 20, h: height * 0.3 },
+    { x: width * 0.5, y: height * 0.5, w: 150, h: 20 },
+    { x: width * 0.2, y: height * 0.2, w: 120, h: 120 }, // Box Top Left
+    { x: width * 0.75, y: height * 0.2, w: 120, h: 120 }, // Box Top Right
+    { x: width * 0.75, y: height * 0.7, w: 120, h: 120 }, // Box Bottom Right
+  ];
+
+  // Enemies - DIVERSIFY STATES AS REQUESTED
+  // Enemy 1: Standard Patrol
+  enemies.push(new Enemy(width * 0.5, height * 0.1, STATES.PATROL));
+  
+  // Enemy 2: Already Chasing (Simulated)
+  enemies.push(new Enemy(width * 0.8, height * 0.8, STATES.CHASE));
+  
+  // Enemy 3: In Alert state
+  enemies.push(new Enemy(width * 0.85, height * 0.2, STATES.ALERT));
+  
+  // Enemy 4: Patrol
+  enemies.push(new Enemy(width * 0.15, height * 0.8, STATES.PATROL));
+  
+  // Enemy 5: Attack (Simulated close proximity)
+  enemies.push(new Enemy(width * 0.3, height * 0.4, STATES.ATTACK));
+}
+
+class Enemy {
+  constructor(x, y, initialState) {
+    this.x = x;
+    this.y = y;
+    this.radius = 12;
+    this.angle = 0;
+    this.state = initialState;
+    this.speed = 3;
+    
+    // Patrol Logic
+    this.patrolTarget = this.getRandomPatrolPoint();
+    this.patrolPath = []; // Store path for visualization
+    
+    // Alert Logic
+    this.alertTimer = 60;
+    
+    // Attack Logic
+    this.attackCooldown = 0;
+  }
+
+  getRandomPatrolPoint() {
+    return {
+      x: Math.random() * (width - 100) + 50,
+      y: Math.random() * (height - 100) + 50
+    };
+  }
+
+  update() {
+    const distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
+    const angleToPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+    
+    // Raycasting for Vision
+    let canSeePlayer = false;
+    if (distToPlayer < 300) { // Detection Range
+      // Check if within FOV (100 degrees)
+      let angleDiff = angleToPlayer - this.angle;
+      while (angleDiff <= -Math.PI) angleDiff += Math.PI*2;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI*2;
+      
+      if (Math.abs(angleDiff) < Math.PI / 2.5) {
+        // Check walls
+        canSeePlayer = !checkWallCollision(this.x, this.y, player.x, player.y);
+      }
+    }
+
+    // State Machine
+    switch(this.state) {
+      case STATES.PATROL:
+        this.angle = Math.atan2(this.patrolTarget.y - this.y, this.patrolTarget.x - this.x);
+        this.moveTowards(this.patrolTarget.x, this.patrolTarget.y);
+        
+        // Visual Path
+        this.patrolPath.push({x: this.x, y: this.y, life: 20});
+        if (this.patrolPath.length > 20) this.patrolPath.shift();
+
+        if (distToPlayer < 300 && canSeePlayer) {
+          this.state = STATES.ALERT;
+          this.alertTimer = 90; 
+          this.alertPos = {x: player.x, y: player.y};
+        } else if (Math.hypot(this.patrolTarget.x - this.x, this.patrolTarget.y - this.y) < 5) {
+          this.patrolTarget = this.getRandomPatrolPoint();
+        }
+        break;
+
+      case STATES.ALERT:
+        this.angle = angleToPlayer;
+        this.alertTimer--;
+        if (this.alertTimer <= 0) {
+          if (canSeePlayer) this.state = STATES.CHASE;
+          else this.state = STATES.PATROL;
+        }
+        break;
+
+      case STATES.CHASE:
+        this.angle = angleToPlayer;
+        if (canSeePlayer) {
+          if (distToPlayer < 50) {
+            this.state = STATES.ATTACK;
+          } else {
+            this.moveTowards(player.x, player.y, 4.5); // Faster
+          }
+        } else {
+          this.state = STATES.ALERT;
+          this.alertTimer = 60;
+        }
+        break;
+
+      case STATES.ATTACK:
+        this.angle = angleToPlayer;
+        this.attackCooldown--;
+        if (this.attackCooldown <= 0) {
+          player.hp -= 10;
+          this.attackCooldown = 40;
+          createParticle(player.x, player.y, COLORS.ATTACK);
+        }
+        if (distToPlayer > 200) {
+          this.state = STATES.CHASE;
+        }
+        break;
+    }
+  }
+
+  moveTowards(tx, ty, spdOverride = null) {
+    const dx = tx - this.x;
+    const dy = ty - this.y;
+    const dist = Math.hypot(dx, dy);
+    const spd = spdOverride || this.speed;
+    
+    if (dist > 0) {
+      let nx = (dx / dist) * spd;
+      let ny = (dy / dist) * spd;
+      
+      if (!checkCircleWallCollision(this.x + nx, this.y + ny, this.radius)) {
+        this.x += nx;
+        this.y += ny;
+      } else {
+        if (!checkCircleWallCollision(this.x + nx, this.y, this.radius)) this.x += nx;
+        else if (!checkCircleWallCollision(this.x, this.y + ny, this.radius)) this.y += ny;
+      }
+    }
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // 1. Draw Detection Cone (Visualizing Logic)
+    // "Volumetric light beam" effect
+    ctx.save();
+    ctx.rotate(this.angle);
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 300);
+    
+    let coneColor = '0,0,0,0';
+    if (this.state === STATES.ALERT) coneColor = '245, 158, 11'; // Amber
+    if (this.state === STATES.CHASE) coneColor = '239, 68, 68'; // Red
+    if (this.state === STATES.ATTACK) coneColor = '255, 255, 255'; // White
+
+    if (this.state !== STATES.PATROL) {
+      gradient.addColorStop(0, `rgba(${coneColor}, 0.4)`);
+      gradient.addColorStop(1, `rgba(${coneColor}, 0.0)`);
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, 300, -Math.PI/2.5, Math.PI/2.5);
+      ctx.lineTo(0, 0);
+      ctx.fill();
+      
+      // Attack Range Ring
+      if (this.state === STATES.ATTACK) {
+        ctx.strokeStyle = `rgba(${coneColor}, 0.5)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 50, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // 2. Draw Patrol Path (if in patrol)
+    if (this.state === STATES.PATROL && this.patrolPath.length > 1) {
+      ctx.save();
+      ctx.rotate(-this.angle); // Counter rotate to draw in world space relative to body? No, keep world space
+      ctx.restore();
+      // Draw path in world coordinates (need to counter translate)
+      ctx.save();
+      ctx.translate(-this.x, -this.y);
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.moveTo(this.patrolPath[0].x, this.patrolPath[0].y);
+      for(let p of this.patrolPath) ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 3. Rotate Entity
+    ctx.rotate(this.angle);
+
+    // 4. Draw Unit
+    // Pulsing effect for distinctiveness
+    const pulse = Math.sin(time * 0.1) * 2;
+    
+    ctx.fillStyle = this.getColor();
+    
+    // Shape based on state
+    ctx.beginPath();
+    if (this.state === STATES.ATTACK) {
+      // Aggressive shape (diamond)
+      ctx.moveTo(15 + pulse, 0);
+      ctx.lineTo(0, 10 + pulse);
+      ctx.lineTo(-10, 0);
+      ctx.lineTo(0, -10 - pulse);
+    } else {
+      // Tactical Triangle
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, 8);
+      ctx.lineTo(-5, 0);
+      ctx.lineTo(-8, -8);
+    }
+    ctx.closePath();
+    
+    // Glow
+    ctx.shadowColor = this.getColor();
+    ctx.shadowBlur = 15;
+    ctx.fill();
+    
+    // Inner Core
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // 5. State Label (Distinct)
+    ctx.fillStyle = this.getColor();
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.state, this.x, this.y - 25);
+  }
+
+  getColor() {
+    switch(this.state) {
+      case STATES.PATROL: return COLORS.PATROL;
+      case STATES.ALERT: return COLORS.ALERT;
+      case STATES.CHASE: return COLORS.CHASE;
+      case STATES.ATTACK: return COLORS.ATTACK;
+      default: return '#fff';
+    }
+  }
+}
+
+// Helpers
+function checkWallCollision(x1, y1, x2, y2) {
+  for (let w of walls) {
+    if (x1 < w.x + w.w && x2 > w.x && y1 < w.y + w.h && y2 > w.y) return true;
+    if (x2 < w.x + w.w && x1 > w.x && y2 < w.y + w.h && y1 > w.y) return true;
+  }
+  return false;
+}
+
+function checkCircleWallCollision(x, y, r) {
+  for (let w of walls) {
+    let testX = x;
+    let testY = y;
+    if (x < w.x) testX = w.x;
+    else if (x > w.x + w.w) testX = w.x + w.w;
+    if (y < w.y) testY = w.y;
+    else if (y > w.y + w.h) testY = w.y + w.h;
+    let distX = x - testX;
+    let distY = y - testY;
+    let distance = Math.sqrt((distX*distX) + (distY*distY));
+    if (distance <= r) return true;
+  }
+  return false;
+}
+
+let particles = [];
+function createParticle(x, y, color) {
+  for(let i=0; i<5; i++) {
+    particles.push({
+      x, y, color, 
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      life: 30, size: Math.random() * 3 + 1
+    });
+  }
+}
+
+// Input Handling
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+window.addEventListener('resize', resize);
+ui.resetBtn.addEventListener('click', initWorld);
+
+// Main Loop
+function loop() {
+  time++;
+  ctx.clearRect(0, 0, width, height);
+
+  // Update Player
+  let dx = 0, dy = 0;
+  if (keys['w']) dy = -1;
+  if (keys['s']) dy = 1;
+  if (keys['a']) dx = -1;
+  if (keys['d']) dx = 1;
+
+  let isMoving = (dx !== 0 || dy !== 0);
+  if (isMoving) {
+    let len = Math.hypot(dx, dy);
+    dx /= len; dy /= len;
+    let nextX = player.x + dx * player.speed;
+    let nextY = player.y + dy * player.speed;
+    if (!checkCircleWallCollision(nextX, player.y, player.radius)) player.x = nextX;
+    if (!checkCircleWallCollision(player.x, nextY, player.radius)) player.y = nextY;
+  }
+
+  // Draw Walls (Refined Craft: Glow + Texture)
+  for (let w of walls) {
+    ctx.fillStyle = COLORS.WALL;
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    
+    // Glow border
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = COLORS.WALL_BORDER;
+    ctx.strokeStyle = COLORS.WALL_BORDER;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+    ctx.shadowBlur = 0;
+  }
+
+  // Update & Draw Enemies
+  // Calculate Legend State
+  const stateCounts = { PATROL: 0, ALERT: 0, CHASE: 0, ATTACK: 0 };
+  
+  for (let e of enemies) {
+    e.update();
+    e.draw();
+    stateCounts[e.state]++;
+  }
+
+  // Draw Player (Refined: Heartbeat Glow + Direction)
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  
+  // Heartbeat Glow
+  const pulseSize = 2 + Math.sin(time * 0.15) * 2;
+  ctx.shadowColor = COLORS.PLAYER;
+  ctx.shadowBlur = 20 + pulseSize;
+  
+  // Direction Indicator (Chevron)
+  // If moving, point to movement, else point to last movement (simplified to just a circle here for symmetry or arrow)
+  // Let's do a circle with a directional dot
+  ctx.fillStyle = COLORS.PLAYER;
+  ctx.beginPath();
+  ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inner detail
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(0, 0, player.radius * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.restore();
+
+  // Draw Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = p.life / 30;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  ctx.globalAlpha = 1;
+
+  // Update UI
+  ui.posVal.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}`;
+  let speed = isMoving ? player.speed : 0;
+  ui.velVal.textContent = speed.toFixed(1);
+  
+  ui.hpVal.textContent = Math.max(0, Math.round(player.hp)) + '%';
+  ui.hpBar.style.width = Math.max(0, Math.round(player.hp)) + '%';
+  if (player.hp < 30) ui.hpBar.style.backgroundColor = COLORS.CHASE;
+  else ui.hpBar.style.backgroundColor = COLORS.PLAYER;
+
+  // Update Legend Highlights
+  for (let s in stateCounts) {
+    const el = ui.legends[s];
+    if (stateCounts[s] > 0) el.classList.add('active');
+    else el.classList.remove('active');
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// Start
+resize();
+loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Rush: Freefall</title>
+<style>
+    :root {
+        --c-ui-bg: rgba(15, 23, 42, 0.7);
+        --c-accent: #00F0FF; /* Neon Cyan */
+        --c-danger: #FF2A6D; /* Neon Red */
+        --c-white: #FFFFFF;
+        --font-stack: 'Impact', 'Arial Black', sans-serif;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden; background-color: #000;
+        font-family: var(--font-stack);
+        color: var(--c-white);
+    }
+
+    /* --- CANVAS LAYER --- */
+    #gameCanvas {
+        display: block;
+        width: 100%; height: 100%;
+        /* Subtle CSS blur for motion effect, but we do heavy lifting in JS */
+    }
+
+    /* --- UI LAYER --- */
+    #ui-layer {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* --- HUD: TOP --- */
+    .hud-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 24px;
+    }
+
+    .panel {
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-left: 4px solid var(--c-accent);
+        border-radius: 0 12px 12px 0;
+        padding: 8px 24px;
+        color: white;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        display: flex; flex-direction: column;
+        transform: skewX(-10deg); /* Racing angle */
+    }
+
+    .panel-content { transform: skewX(10deg); } /* Un-skew text */
+
+    .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: #94A3B8;
+        margin-bottom: 2px;
+        font-weight: 400;
+    }
+
+    .value {
+        font-size: 32px;
+        font-weight: 900;
+        font-style: italic;
+        line-height: 1;
+        text-shadow: 0 2px 10px rgba(0, 240, 255, 0.3);
+    }
+    
+    .value span { font-size: 16px; color: var(--c-accent); margin-left: 4px; }
+
+    /* Speedometer specific */
+    .speed-panel {
+        border-left: none;
+        border-right: 4px solid var(--c-danger);
+        border-radius: 12px 0 0 12px;
+        align-items: flex-end;
+    }
+    .speed-val {
+        font-size: 52px;
+        color: var(--c-white);
+        text-shadow: 0 0 15px var(--c-danger);
+    }
+    .speed-unit { color: var(--c-danger); font-size: 16px; }
+
+    /* Progress Bar */
+    .progress-container {
+        position: absolute; top: 0; left: 0; width: 100%; height: 6px;
+        background: rgba(0,0,0,0.6);
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .progress-fill {
+        height: 100%; background: var(--c-accent);
+        width: 0%; transition: width 0.1s linear;
+        box-shadow: 0 0 15px var(--c-accent);
+    }
+
+    /* --- CONTROLS: BOTTOM --- */
+    .hud-bottom {
+        padding: 40px 24px;
+        display: flex; justify-content: space-between; align-items: flex-end;
+    }
+
+    .controls-area {
+        display: flex; gap: 24px;
+        pointer-events: auto;
+    }
+
+    .btn-control {
+        width: 80px; height: 80px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer;
+        transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        color: rgba(255,255,255,0.7);
+        backdrop-filter: blur(4px);
+    }
+    
+    .btn-control:active, .btn-control.pressed {
+        background: var(--c-accent);
+        border-color: var(--c-white);
+        transform: scale(0.9) skewX(-10deg);
+        box-shadow: 0 0 25px var(--c-accent);
+        color: #000;
+    }
+    
+    .btn-control svg { width: 40px; height: 40px; fill: currentColor; }
+
+    /* Gate Indicator Overlay */
+    .gate-overlay {
+        position: absolute; top: 25%; width: 100%;
+        text-align: center; pointer-events: none;
+        opacity: 0; transform: scale(0.8);
+        transition: all 0.2s ease-out;
+    }
+    .gate-overlay.active { opacity: 1; transform: scale(1); }
+    .gate-badge {
+        display: inline-block;
+        background: var(--c-danger);
+        color: white;
+        padding: 10px 30px;
+        font-size: 24px;
+        font-weight: 900;
+        font-style: italic;
+        border: 2px solid white;
+        transform: skewX(-10deg);
+        box-shadow: 0 0 20px var(--c-danger);
+    }
+    .gate-badge span { display: block; font-size: 12px; font-weight: 400; letter-spacing: 1px; transform: skewX(10deg); opacity: 0.8;}
+
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <div class="progress-container">
+        <div class="progress-fill" id="progressBar"></div>
+    </div>
+
+    <div class="hud-top">
+        <div class="panel">
+            <div class="panel-content">
+                <div class="label">Distance</div>
+                <div class="value" id="distVal">0<span>m</span></div>
+            </div>
+        </div>
+        <div class="panel speed-panel">
+            <div class="panel-content">
+                <div class="label">Velocity</div>
+                <div class="value"><span class="speed-val" id="speedVal">0</span><span class="speed-unit">KM/H</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="gate-overlay" id="gateOverlay">
+        <div class="gate-badge">
+            GATE
+            <span>REDUCE SPEED</span>
+        </div>
+    </div>
+
+    <div class="hud-bottom">
+        <div class="controls-area">
+            <div class="btn-control" id="btnLeft">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="btn-control" id="btnRight">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ALPINE RUSH - VISUAL ENGINE
+ * 
+ * Features:
+ * - Pseudo-3D projection with perspective scaling.
+ * - Procedural terrain generation (Ice, Trees, Rocks).
+ * - Particle system for snow spray.
+ * - Dynamic "Speed Lines" for velocity sensation.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+// --- CONFIGURATION ---
+const CFG = {
+    roadWidth: 2200,
+    segmentLength: 120,
+    rumbleLength: 3,
+    cameraHeight: 1400,
+    cameraDepth: 0.84, // FOV
+    drawDistance: 300,
+    fogDensity: 5
+};
+
+// --- STATE ---
+let width, height;
+let frame = 0;
+let speed = 0;
+let targetSpeed = 180; // km/h
+let playerX = 0; // -1.5 to 1.5
+let playerTilt = 0;
+let distance = 0;
+let cameraZ = 0;
+let shakeIntensity = 0;
+
+// --- ASSETS & DATA ---
+let segments = [];
+let particles = []; // Snow spray
+let speedLines = []; // Velocity lines
+
+// UI Elements
+const uiSpeed = document.getElementById('speedVal');
+const uiDist = document.getElementById('distVal');
+const uiProgress = document.getElementById('progressBar');
+const uiGate = document.getElementById('gateOverlay');
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+
+// --- RESIZE ---
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- INPUT ---
+let inputLeft = false, inputRight = false;
+
+const handleInput = (dir, active) => {
+    if(dir === 'left') inputLeft = active;
+    if(dir === 'right') inputRight = active;
+    
+    const btn = dir === 'left' ? btnLeft : btnRight;
+    if(active) btn.classList.add('pressed');
+    else btn.classList.remove('pressed');
+};
+
+const addInputListeners = (el, dir) => {
+    el.addEventListener('mousedown', () => handleInput(dir, true));
+    el.addEventListener('mouseup', () => handleInput(dir, false));
+    el.addEventListener('mouseleave', () => handleInput(dir, false));
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir, true); });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); handleInput(dir, false); });
+};
+addInputListeners(btnLeft, 'left');
+addInputListeners(btnRight, 'right');
+
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', true);
+    if(e.key === 'ArrowRight') handleInput('right', true);
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', false);
+    if(e.key === 'ArrowRight') handleInput('right', false);
+});
+
+// --- MATH HELPERS ---
+function project(p, cameraX, cameraY, cameraZ, cameraDepth) {
+    const scale = cameraDepth / (p.z - cameraZ);
+    const x = (1 + scale * (p.x - cameraX)) * width / 2;
+    const y = (1 - scale * (p.y - cameraY)) * height / 2;
+    const w = scale * CFG.roadWidth * width / 2; 
+    return { x, y, scale, w };
+}
+
+// --- WORLD GENERATION ---
+function createRoad() {
+    segments = [];
+    const totalSegments = 2000;
+    
+    for (let i = 0; i < totalSegments; i++) {
+        // Complex curves
+        const curve = (Math.sin(i * 0.02) * 3) + (Math.sin(i * 0.005) * 6);
+        // Hills
+        const y = Math.sin(i * 0.05) * 1500 + Math.sin(i * 0.02) * 800;
+        
+        segments.push({
+            index: i,
+            p: { x: 0, y: y, z: i * CFG.segmentLength },
+            curve: curve,
+            color: Math.floor(i / CFG.rumbleLength) % 2 ? 'dark' : 'light',
+            objects: [] // Trees, rocks, gates
+        });
+    }
+
+    // Populate Objects
+    segments.forEach((seg, i) => {
+        if (i > 20 && i % 4 === 0) {
+            // Trees on sides
+            const side = Math.random() > 0.5 ? 1 : -1;
+            const dist = 1.2 + Math.random() * 0.8;
+            seg.objects.push({ type: 'tree', offset: side * dist });
+        }
+        if (i > 20 && i % 15 === 0) {
+            // Rocks
+            const side = Math.random() > 0.5 ? 1 : -1;
+            seg.objects.push({ type: 'rock', offset: side * (0.8 + Math.random() * 0.4) });
+        }
+        if (i > 50 && i % 100 === 0) {
+            // Gates
+            seg.objects.push({ type: 'gate', offset: 0 });
+        }
+    });
+}
+createRoad();
+
+// --- PARTICLE SYSTEM ---
+function spawnSnow(x, y) {
+    if (speed < 20) return;
+    particles.push({
+        x: x + (Math.random() - 0.5) * 40,
+        y: y + Math.random() * 20,
+        vx: (Math.random() - 0.5) * 10,
+        vy: Math.random() * 15 + 5,
+        life: 1.0,
+        size: Math.random() * 4 + 2
+    });
+}
+
+function spawnSpeedLine() {
+    if (speed < 60) return;
+    // Spawn lines on edges of screen
+    const side = Math.random() > 0.5 ? 'left' : 'right';
+    speedLines.push({
+        x: side === 'left' ? Math.random() * width * 0.3 : width * 0.7 + Math.random() * width * 0.3,
+        y: -50,
+        len: Math.random() * 100 + 50,
+        speed: speed * 0.8
+    });
+}
+
+// --- RENDER HELPERS ---
+function drawPoly(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.lineTo(x4, y4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawTree(ctx, x, y, scale) {
+    const h = 900 * scale;
+    const w = 350 * scale;
+    // Trunk
+    ctx.fillStyle = '#3E2723';
+    ctx.fillRect(x - w/10, y - h/2, w/5, h/2);
+    // Leaves (Layered Triangles)
+    ctx.fillStyle = '#1B5E20';
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w, y - h*0.4);
+    ctx.lineTo(x + w, y - h*0.4);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, y - h*0.7);
+    ctx.lineTo(x - w*0.8, y - h*0.1);
+    ctx.lineTo(x + w*0.8, y - h*0.1);
+    ctx.fill();
+    // Snow cap
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w/2, y - h*0.7);
+    ctx.lineTo(x + w/2, y - h*0.7);
+    ctx.fill();
+}
+
+function drawRock(ctx, x, y, scale) {
+    const s = 400 * scale;
+    ctx.fillStyle = '#546E7A';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x - s/2, y);
+    ctx.lineTo(x + s/2, y);
+    ctx.fill();
+    // Snow highlight
+    ctx.fillStyle = '#CFD8DC';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x - s/3, y - s/2);
+    ctx.lineTo(x, y - s/2);
+    ctx.fill();
+}
+
+function drawGate(ctx, x, y, scale) {
+    const w = 1400 * scale;
+    const h = 500 * scale;
+    const poleW = 30 * scale;
+    
+    // Poles
+    ctx.fillStyle = '#FF2A6D';
+    ctx.fillRect(x - w/2, y - h, poleW, h);
+    ctx.fillRect(x + w/2 - poleW, y - h, poleW, h);
+    
+    // Banner
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x - w/2, y - h, w, h/3);
+    ctx.fillStyle = '#FFF';
+    ctx.font = `bold ${40*scale}px Impact`;
+    ctx.textAlign = 'center';
+    ctx.fillText("GATE", x, y - h + (h/3)*0.7);
+}
+
+// --- MAIN RENDER ---
+function render() {
+    // 1. Sky
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, '#0F172A'); // Deep Blue
+    grad.addColorStop(0.4, '#38BDF8'); // Horizon
+    grad.addColorStop(1, '#E2E8F0'); // Snow fog
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. Shake
+    let shakeX = 0, shakeY = 0;
+    if (shakeIntensity > 0) {
+        shakeX = (Math.random() - 0.5) * shakeIntensity;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+    }
+
+    // 3. Road Logic
+    const baseSegmentIndex = Math.floor(cameraZ / CFG.segmentLength);
+    const cameraDepth = CFG.cameraDepth;
+    let maxY = height;
+    let curveX = 0;
+    
+    // Pre-calculate curve accumulation
+    let cumCurve = 0;
+    for(let n = 0; n < CFG.drawDistance; n++) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        cumCurve += segments[idx].curve;
+        segments[idx].cumCurve = cumCurve; // Store for projection
+    }
+
+    // Draw Road (Back to Front)
+    for(let n = CFG.drawDistance - 1; n > 0; n--) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        const nextIdx = (baseSegmentIndex + n + 1) % segments.length;
+        const seg = segments[idx];
+        const nextSeg = segments[nextIdx];
+
+        let z = seg.p.z - cameraZ;
+        if (z <= 0) continue; 
+
+        // Project
+        const p1 = project(
+            { x: seg.p.x - cumCurve * 100, y: seg.p.y, z: z }, 
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+        
+        // Calculate next segment projection for strip
+        let nextZ = z + CFG.segmentLength;
+        let nextCurve = cumCurve + nextSeg.curve; // Approximate
+        const p2 = project(
+            { x: nextSeg.p.x - nextCurve * 100, y: nextSeg.p.y, z: nextZ },
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+
+        if (p1.y >= maxY) continue;
+
+        // Draw Ground (Snow)
+        const w1 = p1.w * 2.5;
+        const w2 = p2.w * 2.5;
+        const snowColor = seg.color === 'dark' ? '#CBD5E1' : '#F1F5F9';
+        drawPoly(ctx, p1.x - w1, p1.y, p1.x + w1, p1.y, p2.x + w2, p2.y, p2.x - w2, p2.y, snowColor);
+
+        // Draw Road (Ice Track)
+        const r1 = p1.w;
+        const r2 = p2.w;
+        const iceColor = seg.color === 'dark' ? '#90CDF4' : '#BEE3F8';
+        drawPoly(ctx, p1.x - r1, p1.y, p1.x + r1, p1.y, p2.x + r2, p2.y, p2.x - r2, p2.y, iceColor);
+
+        // Lane Markers (High Contrast)
+        if (seg.color === 'light') {
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            const lm1 = r1 * 0.02;
+            const lm2 = r2 * 0.02;
+            // Center line
+            drawPoly(ctx, p1.x - lm1, p1.y, p1.x + lm1, p1.y, p2.x + lm2, p2.y, p2.x - lm2, p2.y, '#FFF');
+            // Side markers
+            ctx.fillStyle = '#FF2A6D'; // Neon Red markers
+            drawPoly(ctx, p1.x - r1 - lm1, p1.y, p1.x - r1 + lm1, p1.y, p2.x - r2 + lm2, p2.y, p2.x - r2 - lm2, p2.y, '#FF2A6D');
+            drawPoly(ctx, p1.x + r1 - lm1, p1.y, p1.x + r1 + lm1, p1.y, p2.x + r2 + lm2, p2.y, p2.x + r2 - lm2, p2.y, '#FF2A6D');
+        }
+
+        // Fog Overlay
+        const fogAlpha = Math.pow(n / CFG.drawDistance, 3) * 0.8;
+        if(fogAlpha > 0.01) {
+            ctx.fillStyle = `rgba(226, 232, 240, ${fogAlpha})`;
+            ctx.fillRect(0, p2.y, width, p1.y - p2.y);
+        }
+
+        maxY = p1.y;
+    }
+
+    // 4. Draw Objects (Front to Back to handle overlap correctly? No, Back to Front for Painter's algo)
+    // Actually, we need to re-iterate or store projected objects. 
+    // For simplicity in this loop, we'll draw objects attached to segments in the same loop.
+    // *Correction*: We need to draw objects in the loop where we projected them.
+    // Since we looped Back-to-Front for the road, we are good for the road, 
+    // but objects need to be drawn relative to the segment they are on.
+    // Let's do a second pass for objects to ensure they sit ON TOP of the road.
+    
+    // Re-projecting for objects to ensure Z-sorting with road is tricky in simple loops.
+    // We'll stick to drawing objects in the main loop but checking `n` order.
+    // Actually, let's just draw them in the main loop, after the road strip for that segment.
+    // Wait, the loop above was `n` going DOWN. So we drew back segments first.
+    // So we should have drawn objects there.
+    
+    // Let's fix the loop structure:
+    // Loop 1: Road strips.
+    // Loop 2: Objects (Back to Front).
+    
+    for(let n = CFG.drawDistance - 1; n > 0; n--) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        const seg = segments[idx];
+        let z = seg.p.z - cameraZ;
+        if (z <= 0) continue;
+
+        let cumC = 0;
+        for(let k=0; k<=n; k++) cumC += segments[(baseSegmentIndex + k) % segments.length].curve;
+        
+        const p = project(
+            { x: seg.p.x - cumC * 100, y: seg.p.y, z: z }, 
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+
+        if (p.y >= maxY) continue; // Hidden by closer segment
+
+        seg.objects.forEach(obj => {
+            const objX = p.x + (obj.offset * p.w);
+            if(obj.type === 'tree') drawTree(ctx, objX, p.y, p.scale);
+            if(obj.type === 'rock') drawRock(ctx, objX, p.y, p.scale);
+            if(obj.type === 'gate') drawGate(ctx, p.x, p.y, p.scale); // Gate is centered
+        });
+    }
+
+    // 5. Player
+    const playerScreenX = width / 2;
+    const playerScreenY = height - 100;
+    
+    ctx.save();
+    ctx.translate(playerScreenX, playerScreenY);
+    ctx.rotate(playerTilt);
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(0, 40, 50, 15, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Rider Body (Vector Style)
+    ctx.fillStyle = '#1A202C'; // Suit
+    ctx.beginPath();
+    // Torso
+    ctx.moveTo(-20, -10);
+    ctx.lineTo(20, -10);
+    ctx.lineTo(15, 40);
+    ctx.lineTo(-15, 40);
+    ctx.fill();
+    // Helmet
+    ctx.fillStyle = '#00F0FF'; // Neon Helmet
+    ctx.beginPath();
+    ctx.arc(0, -20, 18, 0, Math.PI*2);
+    ctx.fill();
+    // Visor
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(0, -20, 18, -0.5, 0.5);
+    ctx.lineTo(0, -20);
+    ctx.fill();
+    
+    // Skis
+    ctx.fillStyle = '#FF2A6D';
+    ctx.fillRect(-35, 30, 12, 70);
+    ctx.fillRect(23, 30, 12, 70);
+
+    ctx.restore();
+
+    // 6. Particles (Snow Spray)
+    particles.forEach((p, i) => {
+        ctx.fillStyle = `rgba(255,255,255,${p.life})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+        ctx.fill();
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.02;
+        if(p.life <= 0) particles.splice(i, 1);
+    });
+
+    // 7. Speed Lines (Visual FX)
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    speedLines.forEach((l, i) => {
+        ctx.beginPath();
+        ctx.moveTo(l.x, l.y);
+        ctx.lineTo(l.x, l.y + l.len);
+        ctx.stroke();
+        l.y += l.speed;
+        if(l.y > height) speedLines.splice(i, 1);
+    });
+
+    if (shakeIntensity > 0) ctx.restore();
+}
+
+// --- GAME LOOP ---
+let lastTime = 0;
+function loop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.1);
+    lastTime = time;
+
+    // Physics
+    if (speed < targetSpeed) speed += 80 * dt;
+    else if (speed > targetSpeed) speed -= 30 * dt;
+    
+    cameraZ += speed * 1.5; // Move world
+    distance += speed * dt * 0.5;
+
+    // Steering
+    const steerSpeed = 4.0 * dt;
+    if (inputLeft) {
+        playerX -= steerSpeed;
+        playerTilt = Math.max(playerTilt - 8*dt, -0.6);
+    } else if (inputRight) {
+        playerX += steerSpeed;
+        playerTilt = Math.min(playerTilt + 8*dt, 0.6);
+    } else {
+        playerTilt *= 0.9;
+    }
+    playerX = Math.max(-1.2, Math.min(1.2, playerX));
+
+    // Shake Decay
+    if(shakeIntensity > 0) shakeIntensity -= 30 * dt;
+    if(shakeIntensity < 0) shakeIntensity = 0;
+
+    // FX Logic
+    if(Math.random() > 0.5) spawnSnow(width/2, height - 80);
+    if(speed > 50 && Math.random() > 0.7) spawnSpeedLine();
+
+    // UI Updates
+    uiSpeed.innerText = Math.floor(speed);
+    uiDist.innerHTML = Math.floor(distance) + '<span>m</span>';
+    uiProgress.style.width = `${(distance % 2000) / 20}%`;
+
+    // Gate Check
+    const currentSeg = segments[Math.floor(cameraZ / CFG.segmentLength) % segments.length];
+    if(currentSeg && currentSeg.objects.some(o => o.type === 'gate')) {
+        uiGate.classList.add('active');
+        if(shakeIntensity < 5) shakeIntensity = 5; // Impact shake
+    } else {
+        uiGate.classList.remove('active');
+    }
+
+    render();
+    requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

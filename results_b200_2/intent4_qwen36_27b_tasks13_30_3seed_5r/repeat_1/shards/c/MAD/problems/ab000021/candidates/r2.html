@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            /* Background & Layout */
+            --bg-color: #0b0e14;
+            --surface-color: #151a23;
+            --border-color: #2d3748;
+            --cluster-bg: rgba(30, 41, 59, 0.4);
+            --cluster-border: rgba(71, 85, 105, 0.5);
+            
+            /* Typography */
+            --text-main: #f7fafc;
+            --text-muted: #a0aec0;
+            --text-dim: #718096;
+            
+            /* Signal Colors (Semantics) */
+            --col-data: #00d4ff;      /* Cyan - Solid */
+            --col-instr: #f6ad55;     /* Amber - Dashed */
+            --col-ctrl: #68d391;      /* Emerald - Dotted */
+            
+            /* Component Colors (Identity) */
+            --col-cpu: #ffffff;       
+            --col-gpu: #9f7aea;       
+            --col-mem: #4fd1c5;       
+            --col-stor: #fc8181;      
+            --col-net: #63b3ed;       
+            --col-in: #ed8936;        
+            --col-out: #48bb78;       
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11, 14, 20, 0.95);
+            z-index: 10;
+        }
+
+        .header-title h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .header-title .meta {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 24px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .line-sample {
+            width: 30px;
+            height: 2px; /* Standard width */
+            border-radius: 1px;
+        }
+        
+        .legend-item[data-type="data"] .line-sample {
+            background: var(--col-data);
+        }
+        .legend-item[data-type="instr"] .line-sample {
+            background: transparent;
+            border-top: 2px dashed var(--col-instr);
+        }
+        .legend-item[data-type="ctrl"] .line-sample {
+            background: transparent;
+            border-top: 2px dotted var(--col-ctrl);
+        }
+
+        /* Main Canvas Area */
+        main {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Grid Background */
+            background-image: 
+                radial-gradient(circle at 1px 1px, var(--border-color) 1px, transparent 0);
+            background-size: 40px 40px;
+            background-position: center center;
+            opacity: 1;
+        }
+        
+        /* Fade edges */
+        main::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle at center, transparent 40%, var(--bg-color) 95%);
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            max-width: 1400px;
+            max-height: 900px;
+            position: relative;
+            z-index: 5;
+        }
+
+        /* SVG Styles */
+        
+        /* Nodes */
+        .node-box {
+            fill: var(--surface-color);
+            stroke-width: 2px;
+            rx: 8px; /* Standardized */
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+            transition: filter 0.3s ease;
+        }
+
+        .node-label {
+            fill: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-weight: 700; /* Bold Titles */
+            font-size: 16px;
+            text-anchor: middle;
+            letter-spacing: 0.5px;
+            pointer-events: none;
+        }
+
+        .node-sub {
+            fill: var(--text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            text-anchor: middle;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        /* Paths */
+        .link-path {
+            fill: none;
+            stroke-width: 2px; /* Uniform width */
+            opacity: 0.6;
+        }
+
+        /* Line Styles (Critical Standardization) */
+        .style-data {
+            stroke: var(--col-data);
+            stroke-dasharray: none; /* Solid */
+        }
+        .style-instr {
+            stroke: var(--col-instr);
+            stroke-dasharray: 8 4; /* Dashed */
+        }
+        .style-ctrl {
+            stroke: var(--col-ctrl);
+            stroke-dasharray: 2 4; /* Dotted */
+        }
+
+        /* Animations */
+        @keyframes flow {
+            0% { stroke-dashoffset: 24; }
+            100% { stroke-dashoffset: 0; }
+        }
+
+        .flow-particle {
+            fill: none;
+            stroke-width: 2px;
+            stroke-dasharray: 2 22; /* Small particle */
+            animation: flow 1.2s linear infinite;
+        }
+
+        /* Core Cluster */
+        .cluster-bg {
+            fill: var(--cluster-bg);
+            stroke: var(--cluster-border);
+            stroke-width: 1px;
+            rx: 16px;
+        }
+        
+        .cluster-label {
+            fill: var(--text-dim);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.6;
+        }
+
+        /* Line Labels */
+        .label-bg {
+            fill: rgba(15, 23, 42, 0.85); /* Semi-transparent dark overlay */
+            stroke: none;
+            rx: 4px;
+        }
+        
+        .line-label {
+            fill: var(--text-main);
+            font-size: 11px;
+            text-anchor: middle;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        /* Icons */
+        .icon-shape {
+            stroke-width: 1.5px; /* Uniform stroke width */
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>System Architecture</h1>
+            <div class="meta">Fig 1.0 // Data, Instruction & Control Flow Topology</div>
+        </div>
+        <div class="legend">
+            <div class="legend-item" data-type="data">
+                <div class="line-sample"></div>
+                <span>Data</span>
+            </div>
+            <div class="legend-item" data-type="instr">
+                <div class="line-sample"></div>
+                <span>Instructions</span>
+            </div>
+            <div class="legend-item" data-type="ctrl">
+                <div class="line-sample"></div>
+                <span>Control</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="canvas-container">
+        <!-- SVG injected here by JS -->
+    </main>
+
+    <script>
+        // Configuration
+        const colors = {
+            data: '#00d4ff',
+            instr: '#f6ad55',
+            ctrl: '#68d391',
+            cpu: '#ffffff',
+            gpu: '#9f7aea',
+            mem: '#4fd1c5',
+            stor: '#fc8181',
+            net: '#63b3ed',
+            inp: '#ed8936',
+            out: '#48bb78'
+        };
+
+        // Layout Definitions (1200x800 Grid)
+        // Restructured for L-to-R Flow: Input/Storage (L) -> CPU/RAM (C) -> Output/Net (R)
+        // Hierarchy: CPU/RAM are larger.
+        const components = {
+            // Left Column (Inputs)
+            inp:  { x: 80,  y: 250, w: 180, h: 120, label: "INPUT", sub: "Peripherals" },
+            stor: { x: 80,  y: 480, w: 180, h: 120, label: "STORAGE", sub: "NVMe SSD" },
+            
+            // Center Cluster (Core) - Larger Dimensions
+            mem:  { x: 400, y: 150, w: 280, h: 160, label: "MEMORY", sub: "System RAM" },
+            cpu:  { x: 400, y: 400, w: 280, h: 200, label: "CPU", sub: "Central Processor" },
+            
+            // Right Column (Outputs)
+            gpu:  { x: 820, y: 250, w: 240, h: 160, label: "GPU", sub: "Graphics Engine" },
+            out:  { x: 820, y: 480, w: 200, h: 120, label: "OUTPUT", sub: "Display" },
+            net:  { x: 820, y: 680, w: 200, h: 120, label: "NETWORK", sub: "Interface Card" }
+        };
+
+        // Connections
+        const connections = [
+            // INPUT -> CPU
+            { from: 'inp', to: 'cpu', type: 'ctrl', label: 'User Events' },
+            
+            // STORAGE -> CPU
+            { from: 'stor', to: 'cpu', type: 'data', label: 'File I/O' },
+            { from: 'stor', to: 'cpu', type: 'instr', label: 'Executables' },
+            
+            // CPU <-> MEMORY (Core Loop)
+            { from: 'cpu', to: 'mem', type: 'data', label: 'Read/Write' },
+            { from: 'mem', to: 'cpu', type: 'instr', label: 'Fetch' },
+            
+            // CPU <-> GPU
+            { from: 'cpu', to: 'gpu', type: 'data', label: 'Command Buffer' },
+            { from: 'cpu', to: 'gpu', type: 'ctrl', label: 'Sync' },
+            
+            // GPU -> OUTPUT
+            { from: 'gpu', to: 'out', type: 'data', label: 'Video Signal' },
+            
+            // CPU <-> NETWORK
+            { from: 'cpu', to: 'net', type: 'data', label: 'TX Packets' },
+            { from: 'net', to: 'cpu', type: 'data', label: 'RX Packets' },
+        ];
+
+        // Helper to calculate center
+        const getCenter = (id) => {
+            const c = components[id];
+            return { x: c.x + c.w/2, y: c.y + c.h/2 };
+        };
+
+        // Orthogonal Path Generator
+        const createOrthoPath = (c1, c2) => {
+            const p1 = { x: c1.x + c1.w/2, y: c1.y + c1.h/2 };
+            const p2 = { x: c2.x + c2.w/2, y: c2.y + c2.h/2 };
+            
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            
+            let start = { ...p1 };
+            let end = { ...p2 };
+            
+            // Determine edge points
+            if (Math.abs(dx) > Math.abs(dy)) {
+                start.x = dx > 0 ? c1.x + c1.w : c1.x;
+                end.x = dx > 0 ? c2.x : c2.x + c2.w;
+            } else {
+                start.y = dy > 0 ? c1.y + c1.h : c1.y;
+                end.y = dy > 0 ? c2.y : c2.y + c2.h;
+            }
+
+            // Kink point logic
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+
+            // Path Data: Start -> MidX -> End
+            const d = `M ${start.x} ${start.y} 
+                       L ${midX} ${start.y} 
+                       L ${midX} ${end.y} 
+                       L ${end.x} ${end.y}`;
+            
+            return { d, start, end, midX, midY };
+        };
+
+        const createSVG = () => {
+            const ns = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(ns, "svg");
+            svg.setAttribute("viewBox", "0 0 1200 850");
+
+            // Defs
+            const defs = document.createElementNS(ns, "defs");
+            const createMarker = (id, color) => {
+                const marker = document.createElementNS(ns, "marker");
+                marker.setAttribute("id", id);
+                marker.setAttribute("markerWidth", "10");
+                marker.setAttribute("markerHeight", "7");
+                marker.setAttribute("refX", "9");
+                marker.setAttribute("refY", "3.5");
+                marker.setAttribute("orient", "auto");
+                const polygon = document.createElementNS(ns, "polygon");
+                polygon.setAttribute("points", "0 0, 10 3.5, 0 7");
+                polygon.setAttribute("fill", color);
+                marker.appendChild(polygon);
+                return marker;
+            };
+            defs.appendChild(createMarker('arrow-data', colors.data));
+            defs.appendChild(createMarker('arrow-instr', colors.instr));
+            defs.appendChild(createMarker('arrow-ctrl', colors.ctrl));
+            svg.appendChild(defs);
+
+            // 1. Draw Core Cluster Background
+            const clusterGroup = document.createElementNS(ns, "g");
+            // Bounds for CPU + MEM
+            const minX = 380, minY = 130, maxX = 700, maxY = 620;
+            const rect = document.createElementNS(ns, "rect");
+            rect.setAttribute("x", minX);
+            rect.setAttribute("y", minY);
+            rect.setAttribute("width", maxX - minX);
+            rect.setAttribute("height", maxY - minY);
+            rect.setAttribute("class", "cluster-bg");
+            clusterGroup.appendChild(rect);
+            
+            const cLabel = document.createElementNS(ns, "text");
+            cLabel.setAttribute("x", minX + 16);
+            cLabel.setAttribute("y", minY + 24);
+            cLabel.setAttribute("class", "cluster-label");
+            cLabel.textContent = "Core Cluster";
+            clusterGroup.appendChild(cLabel);
+            
+            svg.appendChild(clusterGroup);
+
+            // 2. Draw Connections
+            const linksGroup = document.createElementNS(ns, "g");
+
+            connections.forEach((conn) => {
+                const c1 = components[conn.from];
+                const c2 = components[conn.to];
+                const { d, midX, midY } = createOrthoPath(c1, c2);
+                const color = colors[conn.type];
+                const markerId = `arrow-${conn.type}`;
+                const styleClass = `style-${conn.type}`;
+
+                // Base Path
+                const path = document.createElementNS(ns, "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `link-path ${styleClass}`);
+                path.setAttribute("marker-end", `url(#${markerId})`);
+                linksGroup.appendChild(path);
+
+                // Animated Particle
+                const particle = document.createElementNS(ns, "path");
+                particle.setAttribute("d", d);
+                particle.setAttribute("stroke", color);
+                particle.setAttribute("class", "flow-particle");
+                particle.style.animationDelay = `${Math.random() * -2}s`;
+                linksGroup.appendChild(particle);
+
+                // Label with Semi-transparent Overlay
+                const gLabel = document.createElementNS(ns, "g");
+                
+                // Position label at the kink point (midX, midY)
+                // We need to offset slightly so it doesn't sit exactly on the line intersection if possible
+                // But for orthogonal 90deg turns, center is usually cleanest.
+                const labelY = midY;
+                const labelX = midX;
+                
+                const bgRect = document.createElementNS(ns, "rect");
+                const textLen = conn.label.length * 6.5 + 16; // Estimate width
+                bgRect.setAttribute("x", labelX - textLen/2);
+                bgRect.setAttribute("y", labelY - 9);
+                bgRect.setAttribute("width", textLen);
+                bgRect.setAttribute("height", 18);
+                bgRect.setAttribute("class", "label-bg");
+                
+                const text = document.createElementNS(ns, "text");
+                text.setAttribute("x", labelX);
+                text.setAttribute("y", labelY + 4);
+                text.setAttribute("class", "line-label");
+                text.textContent = conn.label;
+                
+                gLabel.appendChild(bgRect);
+                gLabel.appendChild(text);
+                linksGroup.appendChild(gLabel);
+            });
+            svg.appendChild(linksGroup);
+
+            // 3. Draw Components
+            const nodesGroup = document.createElementNS(ns, "g");
+            
+            Object.keys(components).forEach(key => {
+                const comp = components[key];
+                const g = document.createElementNS(ns, "g");
+                g.setAttribute("id", key);
+                g.setAttribute("transform", `translate(${comp.x}, ${comp.y})`);
+
+                // Box
+                const rect = document.createElementNS(ns, "rect");
+                rect.setAttribute("width", comp.w);
+                rect.setAttribute("height", comp.h);
+                rect.setAttribute("class", "node-box");
+                rect.setAttribute("stroke", colors[key]);
+                g.appendChild(rect);
+
+                // Iconography
+                const iconG = document.createElementNS(ns, "g");
+                iconG.setAttribute("transform", `translate(${comp.w/2}, ${comp.h/2 - 20})`);
+                
+                // Standardized Icon Drawing (Stroke 1.5)
+                if (key === 'cpu') {
+                    const outer = document.createElementNS(ns, "rect");
+                    outer.setAttribute("x", -20); outer.setAttribute("y", -20);
+                    outer.setAttribute("width", 40); outer.setAttribute("height", 40);
+                    outer.setAttribute("class", "icon-shape");
+                    outer.setAttribute("stroke", colors.cpu);
+                    
+                    const inner = document.createElementNS(ns, "rect");
+                    inner.setAttribute("x", -10); inner.setAttribute("y", -10);
+                    inner.setAttribute("width", 20); inner.setAttribute("height", 20);
+                    inner.setAttribute("class", "icon-shape");
+                    inner.setAttribute("stroke", colors.cpu);
+
+                    // Pins
+                    for(let i=-1; i<=1; i++) {
+                        const p = document.createElementNS(ns, "line");
+                        p.setAttribute("x1", i*8); p.setAttribute("y1", -20); p.setAttribute("x2", i*8); p.setAttribute("y2", -28);
+                        p.setAttribute("class", "icon-shape"); p.setAttribute("stroke", colors.cpu);
+                        iconG.appendChild(p);
+                        const p2 = p.cloneNode();
+                        p2.setAttribute("y1", 20); p2.setAttribute("y2", 28);
+                        iconG.appendChild(p2);
+                    }
+                    iconG.appendChild(outer);
+                    iconG.appendChild(inner);
+                } 
+                else if (key === 'gpu') {
+                    const tri = document.createElementNS(ns, "polygon");
+                    tri.setAttribute("points", "0,-22 22,15 -22,15");
+                    tri.setAttribute("class", "icon-shape");
+                    tri.setAttribute("stroke", colors.gpu);
+                    // Internal lines for tech look
+                    const line = document.createElementNS(ns, "line");
+                    line.setAttribute("x1", 0); line.setAttribute("y1", -22); line.setAttribute("x2", 0); line.setAttribute("y2", 15);
+                    line.setAttribute("class", "icon-shape"); line.setAttribute("stroke", colors.gpu);
+                    iconG.appendChild(tri);
+                    iconG.appendChild(line);
+                }
+                else if (key === 'mem') {
+                    for(let i=0; i<3; i++) {
+                        const r = document.createElementNS(ns, "rect");
+                        r.setAttribute("x", -22); r.setAttribute("y", -12 + (i*12));
+                        r.setAttribute("width", 44); r.setAttribute("height", 8);
+                        r.setAttribute("class", "icon-shape");
+                        r.setAttribute("stroke", colors.mem);
+                        iconG.appendChild(r);
+                    }
+                }
+                else if (key === 'stor') {
+                    for(let i=0; i<3; i++) {
+                        const ov = document.createElementNS(ns, "ellipse");
+                        ov.setAttribute("cx", 0); ov.setAttribute("cy", -12 + (i*10));
+                        ov.setAttribute("rx", 22); ov.setAttribute("ry", 6);
+                        ov.setAttribute("class", "icon-shape");
+                        ov.setAttribute("stroke", colors.stor);
+                        iconG.appendChild(ov);
+                    }
+                }
+                else if (key === 'inp') {
+                    const kb = document.createElementNS(ns, "rect");
+                    kb.setAttribute("x", -25); kb.setAttribute("y", -15);
+                    kb.setAttribute("width", 50); kb.setAttribute("height", 30);
+                    kb.setAttribute("rx", 4);
+                    kb.setAttribute("class", "icon-shape");
+                    kb.setAttribute("stroke", colors.inp);
+                    
+                    // Keys
+                    for(let r=0; r<2; r++) {
+                        for(let c=0; c<4; c++) {
+                            const k = document.createElementNS(ns, "rect");
+                            k.setAttribute("x", -18 + c*10); k.setAttribute("y", -8 + r*12);
+                            k.setAttribute("width", 6); k.setAttribute("height", 4);
+                            k.setAttribute("fill", colors.inp); k.setAttribute("opacity", "0.6");
+                            iconG.appendChild(k);
+                        }
+                    }
+                    iconG.appendChild(kb);
+                }
+                else if (key === 'out') {
+                    const scr = document.createElementNS(ns, "rect");
+                    scr.setAttribute("x", -25); scr.setAttribute("y", -20);
+                    scr.setAttribute("width", 50); scr.setAttribute("height", 30);
+                    scr.setAttribute("rx", 2);
+                    scr.setAttribute("class", "icon-shape");
+                    scr.setAttribute("stroke", colors.out);
+                    
+                    const stand = document.createElementNS(ns, "path");
+                    stand.setAttribute("d", "M -8 10 L -8 22 L 8 22 L 8 10");
+                    stand.setAttribute("class", "icon-shape");
+                    stand.setAttribute("stroke", colors.out);
+                    
+                    iconG.appendChild(scr);
+                    iconG.appendChild(stand);
+                }
+                else if (key === 'net') {
+                    const circ = document.createElementNS(ns, "circle");
+                    circ.setAttribute("cx", 0); circ.setAttribute("cy", 0);
+                    circ.setAttribute("r", 22);
+                    circ.setAttribute("class", "icon-shape");
+                    circ.setAttribute("stroke", colors.net);
+                    
+                    const hLine = document.createElementNS(ns, "ellipse");
+                    hLine.setAttribute("cx", 0); hLine.setAttribute("cy", 0);
+                    hLine.setAttribute("rx", 22); hLine.setAttribute("ry", 8);
+                    hLine.setAttribute("class", "icon-shape");
+                    hLine.setAttribute("stroke", colors.net);
+                    
+                    const vLine = document.createElementNS(ns, "ellipse");
+                    vLine.setAttribute("cx", 0); vLine.setAttribute("cy", 0);
+                    vLine.setAttribute("rx", 8); vLine.setAttribute("ry", 22);
+                    vLine.setAttribute("class", "icon-shape");
+                    vLine.setAttribute("stroke", colors.net);
+                    
+                    iconG.appendChild(circ);
+                    iconG.appendChild(hLine);
+                    iconG.appendChild(vLine);
+                }
+                
+                g.appendChild(iconG);
+
+                // Text Labels
+                const textMain = document.createElementNS(ns, "text");
+                textMain.setAttribute("x", comp.w/2);
+                textMain.setAttribute("y", comp.h - 35);
+                textMain.setAttribute("class", "node-label");
+                textMain.textContent = comp.label;
+                g.appendChild(textMain);
+
+                const textSub = document.createElementNS(ns, "text");
+                textSub.setAttribute("x", comp.w/2);
+                textSub.setAttribute("y", comp.h - 15);
+                textSub.setAttribute("class", "node-sub");
+                textSub.textContent = comp.sub;
+                g.appendChild(textSub);
+
+                nodesGroup.appendChild(g);
+            });
+            svg.appendChild(nodesGroup);
+
+            return svg;
+        };
+
+        // Initialize
+        const container = document.getElementById('canvas-container');
+        const svgElement = createSVG();
+        container.appendChild(svgElement);
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Cube | Pro</title>
+<style>
+  :root {
+    --bg-dark: #050508;
+    --bg-panel: rgba(255, 255, 255, 0.03);
+    --bg-panel-hover: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.08);
+    
+    --accent: #00f0ff;
+    --accent-dim: rgba(0, 240, 255, 0.15);
+    --text-main: #ffffff;
+    --text-muted: #8892b0;
+    
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+
+    /* Cube Geometry */
+    --cube-size: 280px;
+    --gap: 4px;
+    /* Calculated dynamically in JS */
+    --sticker-size: 88px; 
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-ui);
+    background-color: var(--bg-dark);
+    background-image: 
+      radial-gradient(circle at 50% 30%, #161b22 0%, #050508 70%),
+      linear-gradient(to bottom, rgba(0,0,0,0) 60%, #000 100%);
+    color: var(--text-main);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* --- Header --- */
+  header {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(5, 5, 8, 0.8);
+    backdrop-filter: blur(12px);
+    z-index: 10;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+  }
+
+  .brand-icon {
+    width: 24px; height: 24px;
+    background: conic-gradient(from 0deg, var(--accent), #00a8ff, var(--accent));
+    border-radius: 6px;
+    position: relative;
+  }
+  .brand-icon::after {
+    content:''; position:absolute; inset:2px; background: #050508; border-radius: 4px;
+  }
+
+  /* --- Layout --- */
+  .main-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 20px;
+    perspective: 1200px; /* Increased for better depth */
+  }
+
+  /* --- HUD (Stats) --- */
+  .hud {
+    position: absolute;
+    top: 30px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 24px;
+    display: flex;
+    gap: 32px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 5;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 60px;
+  }
+  .stat:not(:last-child) { border-right: 1px solid var(--border); padding-right: 32px; }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+
+  .stat-val {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+  .stat-val.timer { color: var(--accent); text-shadow: 0 0 10px var(--accent-dim); font-size: 24px; }
+
+  /* --- 3D Stage --- */
+  .stage {
+    width: 100%;
+    height: 450px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+  }
+
+  /* Realistic Floor Shadow */
+  .stage::before {
+    content: '';
+    position: absolute;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(0,0,0,0.6) 0%, transparent 70%);
+    transform: rotateX(90deg) translateZ(-150px);
+    filter: blur(30px);
+    opacity: 0.8;
+    pointer-events: none;
+  }
+
+  .cube-wrapper {
+    width: var(--cube-size);
+    height: var(--cube-size);
+    position: relative;
+    transform-style: preserve-3d;
+    transform: rotateX(-25deg) rotateY(-35deg);
+    transition: transform 0.1s linear; /* Smooth drag */
+    cursor: grab;
+  }
+  .cube-wrapper:active { cursor: grabbing; }
+  
+  .cube-wrapper.auto-spin {
+    animation: spin 60s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotateX(-20deg) rotateY(0deg); }
+    to { transform: rotateX(-20deg) rotateY(360deg); }
+  }
+
+  /* Faces */
+  .face {
+    position: absolute;
+    width: var(--cube-size);
+    height: var(--cube-size);
+    background: #0a0a0a; /* Black plastic body */
+    border-radius: 12px;
+    display: grid;
+    gap: var(--gap);
+    padding: var(--gap);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+    border: 1px solid rgba(255,255,255,0.05);
+    backface-visibility: hidden; /* Performance & realism */
+  }
+
+  /* Face Positions */
+  .face-front  { transform: rotateY(0deg) translateZ(calc(var(--cube-size) / 2)); }
+  .face-back   { transform: rotateY(180deg) translateZ(calc(var(--cube-size) / 2)); }
+  .face-right  { transform: rotateY(90deg) translateZ(calc(var(--cube-size) / 2)); }
+  .face-left   { transform: rotateY(-90deg) translateZ(calc(var(--cube-size) / 2)); }
+  .face-top    { transform: rotateX(90deg) translateZ(calc(var(--cube-size) / 2)); }
+  .face-bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-size) / 2)); }
+
+  /* Stickers - The "Glossy" Look */
+  .sticker {
+    width: var(--sticker-size);
+    height: var(--sticker-size);
+    border-radius: 6px;
+    position: relative;
+    transition: background-color 0.3s ease;
+    box-shadow: 
+      inset 0 0 0 1px rgba(0,0,0,0.1), /* Border */
+      inset 2px 2px 5px rgba(255,255,255,0.4), /* Top-left highlight */
+      inset -2px -2px 5px rgba(0,0,0,0.2), /* Bottom-right shadow */
+      0 2px 3px rgba(0,0,0,0.5); /* Drop shadow */
+  }
+
+  /* Gloss Overlay */
+  .sticker::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.1) 40%, rgba(0,0,0,0) 100%);
+    pointer-events: none;
+  }
+
+  /* Colors */
+  .sticker.white { background: #ffffff; }
+  .sticker.yellow { background: #f1c40f; }
+  .sticker.green { background: #2ecc71; }
+  .sticker.blue { background: #3498db; }
+  .sticker.red { background: #e74c3c; }
+  .sticker.orange { background: #e67e22; }
+
+  /* Hint State */
+  .sticker.hint-active {
+    animation: pulse 1.2s infinite ease-in-out;
+    box-shadow: 0 0 15px var(--accent), inset 0 0 10px #fff;
+    z-index: 10;
+  }
+  @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+  /* --- Controls Area --- */
+  .controls-area {
+    width: 100%;
+    max-width: 800px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 20px;
+    z-index: 10;
+  }
+
+  /* Size Selector - Pill Style */
+  .size-selector {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    padding: 6px;
+    border-radius: 14px;
+    display: flex;
+    gap: 6px;
+  }
+
+  .size-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .size-btn:hover { color: var(--text-main); }
+  .size-btn.active {
+    background: var(--accent);
+    color: #000;
+    box-shadow: 0 0 12px var(--accent-dim);
+  }
+
+  /* Action Buttons */
+  .actions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 28px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    backdrop-filter: blur(5px);
+  }
+  .btn:hover {
+    background: var(--bg-panel-hover);
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.2);
+  }
+  .btn:active { transform: translateY(0); }
+  
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    box-shadow: 0 0 20px var(--accent-dim);
+  }
+  .btn-primary:hover { background: #fff; box-shadow: 0 0 25px var(--accent); }
+
+  .btn-danger { color: #ff4757; border-color: rgba(255, 71, 87, 0.3); }
+  .btn-danger:hover { background: rgba(255, 71, 87, 0.1); }
+
+  .btn svg { width: 18px; height: 18px; }
+
+  /* --- Formula Panel --- */
+  .panel {
+    width: 100%;
+    max-width: 600px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    margin-top: auto;
+    margin-bottom: 20px;
+  }
+
+  .panel-header {
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .panel-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; }
+  
+  .panel-content {
+    padding: 16px 20px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  .formula-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .formula-tag {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: 0.2s;
+    border: 1px solid transparent;
+  }
+  .formula-tag:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    :root { --cube-size: 200px; --sticker-size: 56px; }
+    .hud { top: 10px; padding: 8px 16px; gap: 16px; width: 90%; justify-content: space-between; }
+    .stat:not(:last-child) { border-right: none; padding-right: 0; }
+    .stat-val { font-size: 16px; }
+    .stat-val.timer { font-size: 20px; }
+    .stage { height: 350px; }
+    .btn span { display: none; } /* Icon only on mobile */
+    .btn { padding: 12px; border-radius: 50%; width: 48px; height: 48px; justify-content: center; }
+    .btn-primary { border-radius: 12px; width: auto; padding: 12px 24px; }
+    .btn-primary span { display: inline; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-icon"></div>
+    <span>THE CUBE</span>
+  </div>
+  <div style="font-size:11px; color:var(--text-muted); font-weight:600; letter-spacing:1px; border:1px solid var(--border); padding:4px 8px; border-radius:4px;">PRO</div>
+</header>
+
+<div class="main-container">
+  
+  <!-- Stats HUD -->
+  <div class="hud">
+    <div class="stat">
+      <div class="stat-label">Moves</div>
+      <div class="stat-val" id="moveCount">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Time</div>
+      <div class="stat-val timer" id="timer">00:00</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Best</div>
+      <div class="stat-val" id="bestTime">--:--</div>
+    </div>
+  </div>
+
+  <!-- 3D Stage -->
+  <div class="stage">
+    <div class="cube-wrapper auto-spin" id="cubeScene">
+      <!-- Faces injected by JS -->
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-area">
+    
+    <div class="size-selector">
+      <button class="size-btn" data-size="2">2×2</button>
+      <button class="size-btn active" data-size="3">3×3</button>
+      <button class="size-btn" data-size="4">4×4</button>
+      <button class="size-btn" data-size="5">5×5</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnScramble">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l-5 5M4 4l5 5"/></svg>
+        <span>Scramble</span>
+      </button>
+      <button class="btn" id="btnUndo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+        <span>Undo</span>
+      </button>
+      <button class="btn" id="btnHint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Hint</span>
+      </button>
+      <button class="btn btn-danger" id="btnReset">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>Reset</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Formula Panel -->
+  <div class="panel">
+    <div class="panel-header" id="panelToggle">
+      <span class="panel-title">Scramble Formula</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </div>
+    <div class="panel-content" id="panelContent">
+      <div class="formula-list" id="formulaList">
+        <span style="color:var(--text-muted); font-size:12px; padding:4px;">Ready to scramble</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  // --- CONFIG ---
+  let cubeSize = 3;
+  let moveCount = 0;
+  let timerInterval = null;
+  let startTime = null;
+  let scrambleMoves = [];
+  let moveHistory = [];
+  let cubeState = null;
+  
+  // Interaction
+  let isDragging = false;
+  let rotX = -25;
+  let rotY = -35;
+  let lastMouse = { x: 0, y: 0 };
+  let isPlaying = false;
+
+  const FACE_NAMES = ['U', 'D', 'F', 'B', 'R', 'L'];
+  const FACE_COLORS = {
+    U: 'white', D: 'yellow', F: 'green', B: 'blue', R: 'red', L: 'orange'
+  };
+
+  function init() {
+    cubeState = createSolvedState(cubeSize);
+    buildCube();
+    renderCubeState();
+    setupEvents();
+  }
+
+  function createSolvedState(n) {
+    const state = {};
+    FACE_NAMES.forEach((face, fi) => {
+      state[face] = [];
+      for (let i = 0; i < n * n; i++) state[face].push(fi);
+    });
+    return state;
+  }
+
+  function cloneState(state) {
+    const clone = {};
+    FACE_NAMES.forEach(f => clone[f] = [...state[f]]);
+    return clone;
+  }
+
+  function buildCube() {
+    const scene = document.getElementById('cubeScene');
+    scene.innerHTML = '';
+    
+    // Dynamic sizing
+    const size = 280; // Fixed visual size
+    const totalGap = (cubeSize - 1) * 4; // 4px gap
+    const sSize = (size - totalGap) / cubeSize;
+    
+    document.documentElement.style.setProperty('--cube-size', size + 'px');
+    document.documentElement.style.setProperty('--sticker-size', sSize + 'px');
+
+    FACE_NAMES.forEach((faceName) => {
+      const faceEl = document.createElement('div');
+      faceEl.className = `face face-${faceName.toLowerCase()}`;
+      faceEl.style.gridTemplateColumns = `repeat(${cubeSize}, var(--sticker-size))`;
+      faceEl.style.gridTemplateRows = `repeat(${cubeSize}, var(--sticker-size))`;
+
+      for (let i = 0; i < cubeSize * cubeSize; i++) {
+        const sticker = document.createElement('div');
+        sticker.className = 'sticker';
+        sticker.dataset.face = faceName;
+        sticker.dataset.index = i;
+        updateStickerColor(sticker, cubeState[faceName][i]);
+        faceEl.appendChild(sticker);
+      }
+      scene.appendChild(faceEl);
+    });
+  }
+
+  function updateStickerColor(sticker, faceIdx) {
+    sticker.className = 'sticker ' + FACE_COLORS[FACE_NAMES[faceIdx]];
+  }
+
+  function renderCubeState() {
+    const stickers = document.querySelectorAll('.sticker');
+    stickers.forEach(s => {
+      const face = s.dataset.face;
+      const idx = parseInt(s.dataset.index);
+      updateStickerColor(s, cubeState[face][idx]);
+    });
+  }
+
+  // --- LOGIC ---
+  function rotateFace(state, face, clockwise) {
+    const n = cubeSize;
+    const result = cloneState(state);
+
+    // 1. Rotate face stickers
+    const faceArr = result[face].slice();
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const idx = r * n + c;
+        let nr, nc;
+        if (clockwise) { nr = c; nc = n - 1 - r; }
+        else { nr = n - 1 - c; nc = r; }
+        result[face][nr * n + nc] = faceArr[idx];
+      }
+    }
+
+    // 2. Rotate Edges
+    // Simplified: For 2x2/3x3 logic applies fully. For 4x4/5x5, we simulate outer layer moves only for visual demo purposes in this single-file constraint.
+    rotateEdges3x3(result, face, clockwise);
+
+    return result;
+  }
+
+  function rotateEdges3x3(state, face, clockwise) {
+    const n = cubeSize; // Note: This logic assumes standard layer mapping. For 4x4/5x5, a full solver requires 3D coordinate mapping which is too heavy for this snippet. We use the 3x3 edge logic to demonstrate the visual change.
+    
+    const getStrip = (f, type) => {
+      const arr = [];
+      for(let i=0; i<n; i++) {
+        if(type==='top') arr.push(state[f][i]);
+        else if(type==='bottom') arr.push(state[f][(n-1)*n + i]);
+        else if(type==='left') arr.push(state[f][i*n]);
+        else if(type==='right') arr.push(state[f][i*n + (n-1)]);
+      }
+      return arr;
+    };
+
+    const setStrip = (f, type, arr) => {
+      for(let i=0; i<n; i++) {
+        if(type==='top') state[f][i] = arr[i];
+        else if(type==='bottom') state[f][(n-1)*n + i] = arr[i];
+        else if(type==='left') state[f][i*n] = arr[i];
+        else if(type==='right') state[f][i*n + (n-1)] = arr[i];
+      }
+    };
+
+    if (face === 'R') {
+      const t1=getStrip('U','right'), t2=getStrip('F','right'), t3=getStrip('D','right'), t4=getStrip('B','left').reverse();
+      if(clockwise) { setStrip('U','right', t4); setStrip('F','right', t1); setStrip('D','right', t2); setStrip('B','left', t3.reverse()); }
+      else { setStrip('U','right', t2); setStrip('F','right', t3); setStrip('D','right', t4); setStrip('B','left', t1.reverse()); }
+    } 
+    else if (face === 'L') {
+      const t1=getStrip('U','left'), t2=getStrip('F','left'), t3=getStrip('D','left'), t4=getStrip('B','right').reverse();
+      if(clockwise) { setStrip('U','left', t4); setStrip('F','left', t1); setStrip('D','left', t2); setStrip('B','right', t3.reverse()); }
+      else { setStrip('U','left', t2); setStrip('F','left', t3); setStrip('D','left', t4); setStrip('B','right', t1.reverse()); }
+    }
+    else if (face === 'U') {
+      const t1=getStrip('F','top'), t2=getStrip('R','top'), t3=getStrip('B','top'), t4=getStrip('L','top');
+      if(clockwise) { setStrip('F','top', t4); setStrip('R','top', t1); setStrip('B','top', t2); setStrip('L','top', t3); }
+      else { setStrip('F','top', t2); setStrip('R','top', t3); setStrip('B','top', t4); setStrip('L','top', t1); }
+    }
+    else if (face === 'D') {
+      const t1=getStrip('F','bottom'), t2=getStrip('R','bottom'), t3=getStrip('B','bottom'), t4=getStrip('L','bottom');
+      if(clockwise) { setStrip('F','bottom', t2); setStrip('R','bottom', t3); setStrip('B','bottom', t4); setStrip('L','bottom', t1); }
+      else { setStrip('F','bottom', t4); setStrip('R','bottom', t1); setStrip('B','bottom', t2); setStrip('L','bottom', t3); }
+    }
+    else if (face === 'F') {
+      const t1=getStrip('U','bottom').reverse(), t2=getStrip('R','left').reverse(), t3=getStrip('D','top'), t4=getStrip('L','right');
+      if(clockwise) { setStrip('U','bottom', t4.reverse()); setStrip('R','left', t1.reverse()); setStrip('D','top', t2); setStrip('L','right', t3); }
+      else { setStrip('U','bottom', t2.reverse()); setStrip('R','left', t3.reverse()); setStrip('D','top', t4); setStrip('L','right', t1); }
+    }
+    else if (face === 'B') {
+      const t1=getStrip('U','top'), t2=getStrip('R','right'), t3=getStrip('D','bottom').reverse(), t4=getStrip('L','left');
+      if(clockwise) { setStrip('U','top', t2); setStrip('R','right', t3); setStrip('D','bottom', t4.reverse()); setStrip('L','left', t1); }
+      else { setStrip('U','top', t4); setStrip('R','right', t1); setStrip('D','bottom', t2.reverse()); setStrip('L','left', t3); }
+    }
+  }
+
+  function generateScramble(n) {
+    const moves = [];
+    const faces = ['U', 'D', 'F', 'B', 'R', 'L'];
+    const mods = ['', "'", '2'];
+    const count = n === 2 ? 8 : n === 3 ? 20 : n === 4 ? 30 : 35;
+    let lastFace = '';
+    
+    for (let i = 0; i < count; i++) {
+      let face;
+      do { face = faces[Math.floor(Math.random() * faces.length)]; } while (face === lastFace);
+      lastFace = face;
+      moves.push(face + mods[Math.floor(Math.random() * mods.length)]);
+    }
+    return moves;
+  }
+
+  function applyMove(state, moveStr) {
+    const face = moveStr[0];
+    const mod = moveStr.slice(1);
+    let clockwise = mod !== "'";
+    let times = mod === '2' ? 2 : 1;
+    
+    let res = state;
+    for(let i=0; i<times; i++) res = rotateFace(res, face, clockwise);
+    return res;
+  }
+
+  function scramble() {
+    stopTimer();
+    cubeState = createSolvedState(cubeSize);
+    scrambleMoves = generateScramble(cubeSize);
+    moveHistory = [];
+    moveCount = 0;
+    updateUI();
+
+    scrambleMoves.forEach(m => cubeState = applyMove(cubeState, m));
+    renderCubeState();
+    updateFormula();
+    startTimer();
+  }
+
+  function undoMove() {
+    if (moveHistory.length === 0) return;
+    const last = moveHistory.pop();
+    const face = last[0];
+    const mod = last.slice(1);
+    let clockwise = (mod === "'"); 
+    let times = mod === '2' ? 2 : 1;
+    
+    let state = cubeState;
+    for(let i=0; i<times; i++) state = rotateFace(state, face, clockwise);
+    
+    cubeState = state;
+    moveCount = moveHistory.length;
+    updateUI();
+    renderCubeState();
+  }
+
+  function resetCube() {
+    stopTimer();
+    cubeState = createSolvedState(cubeSize);
+    scrambleMoves = [];
+    moveHistory = [];
+    moveCount = 0;
+    updateUI();
+    buildCube();
+    renderCubeState();
+    updateFormula();
+    resetTimer();
+  }
+
+  function showHint() {
+    document.querySelectorAll('.sticker').forEach(s => s.classList.remove('hint-active'));
+    const stickers = document.querySelectorAll('.sticker');
+    const random = stickers[Math.floor(Math.random() * stickers.length)];
+    if(random) random.classList.add('hint-active');
+  }
+
+  // --- TIMER ---
+  function startTimer() {
+    stopTimer();
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+      const diff = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(diff/60).toString().padStart(2,'0');
+      const s = (diff%60).toString().padStart(2,'0');
+      document.getElementById('timer').textContent = `${m}:${s}`;
+    }, 100);
+  }
+
+  function stopTimer() {
+    if(timerInterval) clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  function resetTimer() {
+    stopTimer();
+    document.getElementById('timer').textContent = "00:00";
+  }
+
+  function updateUI() {
+    document.getElementById('moveCount').textContent = moveCount;
+  }
+
+  function updateFormula() {
+    const list = document.getElementById('formulaList');
+    list.innerHTML = '';
+    if(scrambleMoves.length === 0) {
+      list.innerHTML = '<span style="color:var(--text-muted); font-size:12px; padding:4px;">Ready to scramble</span>';
+      return;
+    }
+    scrambleMoves.forEach((m, i) => {
+      const tag = document.createElement('div');
+      tag.className = 'formula-tag';
+      tag.textContent = m;
+      tag.onclick = () => playScramble(i);
+      list.appendChild(tag);
+    });
+  }
+
+  async function playScramble(index) {
+    if(isPlaying) return;
+    isPlaying = true;
+    cubeState = createSolvedState(cubeSize);
+    moveHistory = [];
+    moveCount = 0;
+    
+    for(let i=0; i<=index; i++) {
+      cubeState = applyMove(cubeState, scrambleMoves[i]);
+      moveHistory.push(scrambleMoves[i]);
+      moveCount++;
+      renderCubeState();
+      updateUI();
+      await new Promise(r => setTimeout(r, 200));
+    }
+    isPlaying = false;
+  }
+
+  // --- EVENTS ---
+  function setupEvents() {
+    const scene = document.getElementById('cubeScene');
+    
+    const onDown = (e) => {
+      isDragging = true;
+      lastMouse = { x: e.clientX || e.touches[0].clientX, y: e.clientY || e.touches[0].clientY };
+      scene.classList.remove('auto-spin');
+    };
+    
+    const onMove = (e) => {
+      if(!isDragging) return;
+      const x = e.clientX || e.touches[0].clientX;
+      const y = e.clientY || e.touches[0].clientY;
+      const dx = x - lastMouse.x;
+      const dy = y - lastMouse.y;
+      rotY += dx * 0.5;
+      rotX -= dy * 0.5;
+      rotX = Math.max(-89, Math.min(89, rotX));
+      scene.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+      lastMouse = { x, y };
+    };
+    
+    const onUp = () => { isDragging = false; };
+
+    scene.addEventListener('mousedown', onDown);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    scene.addEventListener('touchstart', onDown);
+    document.addEventListener('touchmove', onMove);
+    document.addEventListener('touchend', onUp);
+
+    document.getElementById('btnScramble').onclick = scramble;
+    document.getElementById('btnUndo').onclick = undoMove;
+    document.getElementById('btnReset').onclick = resetCube;
+    document.getElementById('btnHint').onclick = showHint;
+
+    document.querySelectorAll('.size-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        cubeSize = parseInt(btn.dataset.size);
+        resetCube();
+      };
+    });
+
+    const panel = document.getElementById('panelContent');
+    document.getElementById('panelToggle').onclick = () => {
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    };
+  }
+
+  init();
+
+})();
+</script>
+</body>
+</html>

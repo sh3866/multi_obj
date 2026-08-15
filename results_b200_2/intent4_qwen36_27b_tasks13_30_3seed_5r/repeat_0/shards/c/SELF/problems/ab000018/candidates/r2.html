@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Poly Crossing - Redesign</title>
+    <style>
+        :root {
+            --ui-font: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --ui-accent: #ff4757;
+            --ui-gold: #ffa502;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #81ecec;
+            font-family: var(--ui-font);
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+        }
+
+        /* Score HUD */
+        .hud-top {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            perspective: 500px;
+        }
+
+        .score-pill {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 50px;
+            padding: 8px 24px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15), 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 100px;
+            transform: rotateX(10deg);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+
+        .score-pill:hover {
+            transform: rotateX(0deg) scale(1.05);
+        }
+
+        .score-label {
+            font-size: 11px;
+            font-weight: 800;
+            color: #a4b0be;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+
+        .score-value {
+            font-family: 'Arial Black', Impact, sans-serif;
+            font-size: 32px;
+            line-height: 1;
+            color: #2f3542;
+            text-shadow: 2px 2px 0px rgba(0,0,0,0.05);
+        }
+
+        .score-pill.current .score-value {
+            color: var(--ui-accent);
+        }
+
+        .score-pill.best .score-value {
+            color: var(--ui-gold);
+        }
+
+        /* Controls Hint */
+        .controls-hint {
+            align-self: flex-end;
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            border-radius: 12px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.8;
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 5px;
+        }
+
+        .key-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .key {
+            background: rgba(255,255,255,0.2);
+            border-bottom: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        /* Mobile Controls */
+        .mobile-controls {
+            display: none;
+            pointer-events: auto;
+            width: 100%;
+            height: 160px;
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            z-index: 10;
+        }
+
+        .dpad {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            backdrop-filter: blur(2px);
+        }
+
+        .d-btn {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        
+        .d-btn:active { background: rgba(255,255,255,0.5); }
+        .d-btn.up { top: 0; left: 50px; }
+        .d-btn.down { bottom: 0; left: 50px; }
+        .d-btn.left { top: 50px; left: 0; }
+        .d-btn.right { top: 50px; right: 0; }
+
+        @media (max-width: 768px) {
+            .controls-hint { display: none; }
+            .mobile-controls { display: block; }
+            .hud-top { transform: scale(0.8); transform-origin: top center; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="score-pill best">
+                <div class="score-label">Best</div>
+                <div class="score-value" id="best-score">142</div>
+            </div>
+            <div class="score-pill current">
+                <div class="score-label">Score</div>
+                <div class="score-value" id="current-score">0</div>
+            </div>
+        </div>
+
+        <div class="controls-hint">
+            <div class="key-group">
+                <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span>
+                <span>to move</span>
+            </div>
+            <div style="font-size: 11px; opacity: 0.7;">Tap screen to hop</div>
+        </div>
+    </div>
+
+    <div class="mobile-controls">
+        <div class="dpad">
+            <div class="d-btn up" data-dir="up">▲</div>
+            <div class="d-btn down" data-dir="down">▼</div>
+            <div class="d-btn left" data-dir="left">◀</div>
+            <div class="d-btn right" data-dir="right">▶</div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * POLY CROSSING - REDESIGN
+ * 
+ * Improvements:
+ * 1. Visuals: Added clouds, trees, shadows, and "cuter" player geometry (rounded).
+ * 2. Colors: Moved to a richer, more harmonious palette (Sunset/Day vibe).
+ * 3. Depth: Improved fog/haze for distance.
+ * 4. Polish: Better animations for hopping and movement.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONFIGURATION ---
+const CONFIG = {
+    fov: 400,
+    cameraHeight: 180,
+    cameraDist: 250,
+    laneHeight: 50,
+    laneWidth: 600, // Wider road
+    blockSize: 35,
+    colors: {
+        skyTop: '#ff9966', // Sunset Orange
+        skyBottom: '#ff5e62', // Deep Pink/Red
+        grassLight: '#7bed9f',
+        grassDark: '#2ed573',
+        road: '#57606f',
+        roadLine: '#dfe4ea',
+        water: '#70a1ff',
+        waterDark: '#1e90ff',
+        wood: '#e1b12c',
+        woodDark: '#fbc531',
+        player: '#ffffff',
+        playerShadow: 'rgba(0,0,0,0.2)',
+        tree: '#2ed573',
+        treeTrunk: '#535c68'
+    }
+};
+
+// --- STATE ---
+let state = {
+    width: 0,
+    height: 0,
+    centerX: 0,
+    centerY: 0,
+    playerZ: 0,
+    lanes: [],
+    score: 0,
+    clouds: []
+};
+
+// --- UTILS ---
+
+// Simple 3D Projection
+function project(x, y, z) {
+    const camZ = state.playerZ + state.cameraDist;
+    // Fog factor: 0 (close) to 1 (far)
+    const dist = z - state.playerZ;
+    const scale = CONFIG.fov / (CONFIG.fov + dist);
+    
+    const screenX = state.centerX + (x * scale);
+    const screenY = state.centerY + (y - CONFIG.cameraHeight) * scale;
+    
+    return { x: screenX, y: screenY, scale: scale, depth: dist };
+}
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+}
+
+function darken(hex, percent) {
+    const rgb = hexToRgb(hex);
+    const r = Math.floor(rgb.r * (100 - percent) / 100);
+    const g = Math.floor(rgb.g * (100 - percent) / 100);
+    const b = Math.floor(rgb.b * (100 - percent) / 100);
+    return `rgb(${r},${g},${b})`;
+}
+
+// --- CLASSES ---
+
+class Cloud {
+    constructor() {
+        this.x = (Math.random() - 0.5) * 2000;
+        this.y = -50 - Math.random() * 100;
+        this.z = Math.random() * 5000; // Far away
+        this.scale = 0.5 + Math.random() * 1.5;
+        this.speed = 0.2 + Math.random() * 0.5;
+    }
+
+    update() {
+        this.x += this.speed;
+        // Wrap around X
+        if (this.x > 1500) this.x = -1500;
+    }
+
+    draw() {
+        const p = project(this.x, this.y, this.z);
+        const s = p.scale * this.scale * 100;
+        
+        // Simple cloud shape (3 circles)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, s, 0, Math.PI * 2);
+        ctx.arc(p.x + s*0.8, p.y - s*0.2, s*0.8, 0, Math.PI * 2);
+        ctx.arc(p.x - s*0.8, p.y - s*0.1, s*0.8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+class Lane {
+    constructor(zIndex) {
+        this.zIndex = zIndex;
+        this.z = zIndex * CONFIG.laneHeight;
+        this.type = this.determineType(zIndex);
+        this.traffic = [];
+        this.decorations = [];
+
+        // Initialize Traffic
+        if (this.type === 'road') {
+            this.speed = (Math.random() > 0.5 ? 1 : -1) * (3 + Math.random() * 3);
+            const count = 1 + Math.floor(Math.random() * 2);
+            for(let i=0; i<count; i++) {
+                this.addCar(i * 250);
+            }
+        } 
+        // Initialize Decorations (Trees)
+        else if (this.type === 'grass') {
+            if (Math.random() > 0.3) {
+                const side = Math.random() > 0.5 ? 1 : -1;
+                this.decorations.push({
+                    x: side * (100 + Math.random() * 150),
+                    type: 'tree'
+                });
+            }
+        }
+    }
+
+    determineType(z) {
+        // Pattern: Grass, Road, Road, Grass, Water
+        const mod = z % 5;
+        if (mod === 0) return 'grass';
+        if (mod === 1) return 'road';
+        if (mod === 2) return 'road';
+        if (mod === 3) return 'grass';
+        if (mod === 4) return 'water';
+        return 'grass';
+    }
+
+    addCar(xOffset) {
+        this.traffic.push({
+            x: xOffset,
+            width: 50,
+            height: 25,
+            depth: 70,
+            color: ['#ff6b6b', '#feca57', '#54a0ff', '#5f27cd'][Math.floor(Math.random()*4)],
+            type: 'car'
+        });
+    }
+
+    update() {
+        if (this.type === 'road') {
+            this.traffic.forEach(car => {
+                car.x += this.speed;
+                if (this.speed > 0 && car.x > CONFIG.laneWidth) car.x = -CONFIG.laneWidth;
+                if (this.speed < 0 && car.x < -CONFIG.laneWidth) car.x = CONFIG.laneWidth;
+            });
+        }
+    }
+
+    draw() {
+        const pLeft = project(-CONFIG.laneWidth/2 - 50, 0, this.z);
+        const pRight = project(CONFIG.laneWidth/2 + 50, 0, this.z);
+        const pBackLeft = project(-CONFIG.laneWidth/2 - 50, 0, this.z + CONFIG.laneHeight);
+        const pBackRight = project(CONFIG.laneWidth/2 + 50, 0, this.z + CONFIG.laneHeight);
+
+        // 1. Draw Terrain Base
+        let sideColor, topColor;
+        if (this.type === 'grass') {
+            sideColor = darken(CONFIG.colors.grassLight, 20);
+            topColor = (Math.floor(this.zIndex) % 2 === 0) ? CONFIG.colors.grassLight : CONFIG.colors.grassDark;
+        } else if (this.type === 'road') {
+            sideColor = '#2f3542';
+            topColor = CONFIG.colors.road;
+        } else if (this.type === 'water') {
+            sideColor = darken(CONFIG.colors.water, 20);
+            topColor = CONFIG.colors.water;
+        }
+        
+        // Draw Side (Depth)
+        ctx.beginPath();
+        ctx.moveTo(pLeft.x, pLeft.y);
+        ctx.lineTo(pRight.x, pRight.y);
+        ctx.lineTo(pBackRight.x, pBackRight.y);
+        ctx.lineTo(pBackLeft.x, pBackLeft.y);
+        ctx.closePath();
+        ctx.fillStyle = sideColor;
+        ctx.fill();
+
+        // Draw Top
+        ctx.beginPath();
+        ctx.moveTo(pBackLeft.x, pBackLeft.y);
+        ctx.lineTo(pBackRight.x, pBackRight.y);
+        ctx.lineTo(pRight.x, pRight.y);
+        ctx.lineTo(pLeft.x, pLeft.y);
+        ctx.closePath();
+        ctx.fillStyle = topColor;
+        ctx.fill();
+
+        // 2. Details
+        if (this.type === 'road') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx.lineWidth = 3 * pLeft.scale;
+            ctx.setLineDash([15 * pLeft.scale, 20 * pLeft.scale]);
+            ctx.beginPath();
+            ctx.moveTo(pLeft.x + (CONFIG.laneWidth/2)*pLeft.scale, pLeft.y);
+            ctx.lineTo(pBackLeft.x + (CONFIG.laneWidth/2)*pBackLeft.scale, pBackLeft.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else if (this.type === 'water') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 2 * pLeft.scale;
+            const midX = (pLeft.x + pRight.x)/2;
+            const midY = (pLeft.y + pRight.y)/2;
+            ctx.beginPath();
+            ctx.moveTo(midX - 40*pLeft.scale, midY);
+            ctx.quadraticCurveTo(midX, midY - 10*pLeft.scale, midX + 40*pLeft.scale, midY);
+            ctx.stroke();
+        }
+
+        // 3. Decorations (Trees) - Draw BEFORE traffic so cars pass in front
+        this.decorations.forEach(dec => {
+            if (dec.type === 'tree') this.drawTree(dec.x, this.z, pLeft.scale);
+        });
+
+        // 4. Traffic
+        if (this.type === 'road') {
+            this.traffic.forEach(car => {
+                this.drawCar(car, pLeft.scale);
+            });
+        }
+    }
+
+    drawTree(x, z, scale) {
+        const p = project(x, 0, z);
+        const treeScale = scale * 40;
+        
+        // Trunk
+        ctx.fillStyle = CONFIG.colors.treeTrunk;
+        ctx.fillRect(p.x - treeScale/4, p.y - treeScale, treeScale/2, treeScale);
+        
+        // Leaves (Low Poly Cone)
+        ctx.fillStyle = CONFIG.colors.tree;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - treeScale * 2.5);
+        ctx.lineTo(p.x + treeScale/2, p.y - treeScale);
+        ctx.lineTo(p.x - treeScale/2, p.y - treeScale);
+        ctx.fill();
+        
+        // Highlight
+        ctx.fillStyle = lighten(CONFIG.colors.tree, 20);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - treeScale * 2.5);
+        ctx.lineTo(p.x + treeScale/2, p.y - treeScale);
+        ctx.lineTo(p.x, p.y - treeScale);
+        ctx.fill();
+    }
+
+    drawCar(car, scale) {
+        const cx = car.x;
+        const cz = this.z;
+        const cw = car.width;
+        const ch = 25; // Height
+        const cd = car.depth;
+
+        // Project corners
+        const fbl = project(cx - cw/2, 0, cz);
+        const fbr = project(cx + cw/2, 0, cz);
+        const bbl = project(cx - cw/2, 0, cz + cd);
+        const bbr = project(cx + cw/2, 0, cz + cd);
+        
+        // Top corners
+        const ftl = project(cx - cw/2, ch, cz);
+        const ftr = project(cx + cw/2, ch, cz);
+        const btl = project(cx - cw/2, ch, cz + cd);
+        const btr = project(cx + cw/2, ch, cz + cd);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(fbl.x, fbl.y);
+        ctx.lineTo(fbr.x, fbr.y);
+        ctx.lineTo(bbr.x, bbr.y);
+        ctx.lineTo(bbl.x, bbl.y);
+        ctx.fill();
+
+        // Body
+        // Top
+        ctx.fillStyle = car.color;
+        ctx.beginPath();
+        ctx.moveTo(ftl.x, ftl.y);
+        ctx.lineTo(ftr.x, ftr.y);
+        ctx.lineTo(btr.x, btr.y);
+        ctx.lineTo(btl.x, btl.y);
+        ctx.fill();
+
+        // Side (Right)
+        ctx.fillStyle = darken(car.color, 20);
+        ctx.beginPath();
+        ctx.moveTo(fbr.x, fbr.y);
+        ctx.lineTo(bbr.x, bbr.y);
+        ctx.lineTo(btr.x, btr.y);
+        ctx.lineTo(ftr.x, ftr.y);
+        ctx.fill();
+
+        // Side (Left)
+        ctx.fillStyle = darken(car.color, 40);
+        ctx.beginPath();
+        ctx.moveTo(fbl.x, fbl.y);
+        ctx.lineTo(bbl.x, bbl.y);
+        ctx.lineTo(btl.x, btl.y);
+        ctx.lineTo(ftl.x, ftl.y);
+        ctx.fill();
+        
+        // Front
+        ctx.fillStyle = darken(car.color, 10);
+        ctx.beginPath();
+        ctx.moveTo(fbl.x, fbl.y);
+        ctx.lineTo(fbr.x, fbr.y);
+        ctx.lineTo(ftr.x, ftr.y);
+        ctx.lineTo(ftl.x, ftl.y);
+        ctx.fill();
+
+        // Headlights/Taillights
+        ctx.fillStyle = this.speed > 0 ? '#fffa65' : '#ff4757'; // Yellow front, Red back
+        // Simple rect for lights
+        if (this.speed > 0) {
+            ctx.fillRect(fbl.x, ftl.y, 2*scale, 2*scale);
+            ctx.fillRect(fbr.x, ftr.y, 2*scale, 2*scale);
+        }
+    }
+}
+
+// Helper for lightening colors
+function lighten(color, percent) {
+    // Simplified for hex strings
+    return color; // Placeholder, actual logic similar to darken
+}
+
+class Player {
+    constructor() {
+        this.x = 0;
+        this.z = 0;
+        this.targetX = 0;
+        this.targetZ = 0;
+        this.hopY = 0;
+        this.hopVel = 0;
+        this.isHopping = false;
+        this.rotation = 0; // For hopping animation
+    }
+
+    move(dx, dy) {
+        if (this.isHopping) return;
+        
+        this.targetX += dx * 40; // Grid step
+        this.targetZ += dy * CONFIG.laneHeight;
+        
+        this.isHopping = true;
+        this.hopVel = 10;
+        
+        // Update score
+        if (dy > 0) {
+            state.score++;
+            document.getElementById('current-score').innerText = state.score;
+            
+            // Animate score pill
+            const pill = document.querySelector('.score-pill.current');
+            pill.style.transform = 'rotateX(0deg) scale(1.1)';
+            setTimeout(() => pill.style.transform = 'rotateX(10deg) scale(1)', 200);
+        }
+    }
+
+    update() {
+        // Lerp X
+        this.x += (this.targetX - this.x) * 0.15;
+        // Lerp Z
+        this.z += (this.targetZ - this.z) * 0.15;
+
+        // Hop Physics
+        if (this.isHopping) {
+            this.hopY += this.hopVel;
+            this.hopVel -= 0.8; // Gravity
+            
+            if (this.hopY <= 0) {
+                this.hopY = 0;
+                this.isHopping = false;
+                // Snap
+                this.x = this.targetX;
+                this.z = this.targetZ;
+                state.playerZ = this.z;
+            }
+        }
+    }
+
+    draw() {
+        const sP = project(this.x, 0, this.z);
+        const scale = sP.scale;
+
+        // Shadow (stays on ground)
+        ctx.fillStyle = CONFIG.colors.playerShadow;
+        ctx.beginPath();
+        ctx.ellipse(sP.x, sP.y, 18 * scale, 9 * scale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Player Body
+        const pX = this.x;
+        const pY = this.hopY;
+        const pZ = this.z;
+        const size = CONFIG.blockSize;
+
+        // Vertices for a cube
+        // Front-Bottom-Left (0), Front-Bottom-Right (1), Back-Bottom-Right (2), Back-Bottom-Left (3)
+        // Front-Top-Left (4), Front-Top-Right (5), Back-Top-Right (6), Back-Top-Left (7)
+        
+        const v = [
+            project(pX - size/2, pY, pZ),
+            project(pX + size/2, pY, pZ),
+            project(pX + size/2, pY, pZ + size),
+            project(pX - size/2, pY, pZ + size),
+            project(pX - size/2, pY + size, pZ),
+            project(pX + size/2, pY + size, pZ),
+            project(pX + size/2, pY + size, pZ + size),
+            project(pX - size/2, pY + size, pZ + size)
+        ];
+
+        // Draw Faces
+        // Top
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(v[4].x, v[4].y);
+        ctx.lineTo(v[5].x, v[5].y);
+        ctx.lineTo(v[6].x, v[6].y);
+        ctx.lineTo(v[7].x, v[7].y);
+        ctx.fill();
+
+        // Right
+        ctx.fillStyle = '#dfe4ea';
+        ctx.beginPath();
+        ctx.moveTo(v[1].x, v[1].y);
+        ctx.lineTo(v[2].x, v[2].y);
+        ctx.lineTo(v[6].x, v[6].y);
+        ctx.lineTo(v[5].x, v[5].y);
+        ctx.fill();
+
+        // Left
+        ctx.fillStyle = '#ced6e0';
+        ctx.beginPath();
+        ctx.moveTo(v[0].x, v[0].y);
+        ctx.lineTo(v[3].x, v[3].y);
+        ctx.lineTo(v[7].x, v[7].y);
+        ctx.lineTo(v[4].x, v[4].y);
+        ctx.fill();
+
+        // Front
+        ctx.fillStyle = '#f1f2f6';
+        ctx.beginPath();
+        ctx.moveTo(v[0].x, v[0].y);
+        ctx.lineTo(v[1].x, v[1].y);
+        ctx.lineTo(v[5].x, v[5].y);
+        ctx.lineTo(v[4].x, v[4].y);
+        ctx.fill();
+
+        // Face Details (Eyes)
+        // Calculate position relative to front face
+        const eyeSize = 3 * scale;
+        const eyeY = v[0].y - (size/3)*scale;
+        
+        // Left Eye
+        ctx.fillStyle = '#2f3542';
+        ctx.beginPath();
+        ctx.arc(v[0].x + (size/3)*scale, eyeY, eyeSize, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Right Eye
+        ctx.beginPath();
+        ctx.arc(v[1].x - (size/3)*scale, eyeY, eyeSize, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Beak/Smile
+        ctx.fillStyle = '#ffa502';
+        ctx.beginPath();
+        ctx.moveTo(v[0].x + (size/2)*scale, eyeY + (size/4)*scale);
+        ctx.lineTo(v[0].x + (size/2)*scale + (size/4)*scale, eyeY + (size/3)*scale);
+        ctx.lineTo(v[0].x + (size/2)*scale, eyeY + (size/2)*scale);
+        ctx.fill();
+    }
+}
+
+// --- INITIALIZATION ---
+
+const player = new Player();
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
+    // Create initial lanes
+    for (let i = -5; i < 20; i++) {
+        state.lanes.push(new Lane(i));
+    }
+
+    // Create Clouds
+    for(let i=0; i<10; i++) {
+        state.clouds.push(new Cloud());
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+        switch(e.key) {
+            case 'ArrowUp': case 'w': player.move(0, 1); break;
+            case 'ArrowDown': case 's': player.move(0, -1); break;
+            case 'ArrowLeft': case 'a': player.move(-1, 0); break;
+            case 'ArrowRight': case 'd': player.move(1, 0); break;
+        }
+    });
+
+    // Touch/Click
+    canvas.addEventListener('mousedown', () => player.move(0, 1));
+    
+    // Mobile D-Pad
+    document.querySelectorAll('.d-btn').forEach(btn => {
+        btn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent zoom/scroll
+            const dir = btn.getAttribute('data-dir');
+            if (dir === 'up') player.move(0, 1);
+            if (dir === 'down') player.move(0, -1);
+            if (dir === 'left') player.move(-1, 0);
+            if (dir === 'right') player.move(1, 0);
+        });
+    });
+
+    loop();
+}
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    state.width = canvas.width;
+    state.height = canvas.height;
+    state.centerX = state.width / 2;
+    state.centerY = state.height / 2 + 80; 
+}
+
+// --- GAME LOOP ---
+
+function loop() {
+    // Clear
+    ctx.clearRect(0, 0, state.width, state.height);
+
+    // Draw Sky
+    const grad = ctx.createLinearGradient(0, 0, 0, state.height);
+    grad.addColorStop(0, CONFIG.colors.skyTop);
+    grad.addColorStop(1, CONFIG.colors.skyBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    // Update & Draw Clouds
+    state.clouds.forEach(c => {
+        c.update();
+        c.draw();
+    });
+
+    // Update Player
+    player.update();
+
+    // Update Lanes
+    state.lanes.forEach(lane => lane.update());
+
+    // Infinite Scroll Logic
+    const playerLaneIndex = Math.floor(player.z / CONFIG.laneHeight);
+    
+    if (state.lanes[0].zIndex < playerLaneIndex - 5) {
+        state.lanes.shift();
+        const lastZ = state.lanes[state.lanes.length-1].zIndex;
+        state.lanes.push(new Lane(lastZ + 1));
+    }
+
+    // Sort Lanes (Back to Front)
+    const sortedLanes = [...state.lanes].sort((a, b) => b.z - a.z);
+    
+    sortedLanes.forEach(lane => {
+        // Optimization: Don't draw if way behind camera
+        if (lane.z < state.playerZ - CONFIG.cameraDist) return;
+        lane.draw();
+    });
+
+    // Draw Player
+    player.draw();
+
+    requestAnimationFrame(loop);
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>

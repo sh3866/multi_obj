@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Velocity: Sliding Challenge</title>
+<style>
+    :root {
+        --sky-top: #050b14;
+        --sky-mid: #1e293b;
+        --ice-deep: #0f172a;
+        --ice-light: #f8fafc;
+        --accent-cyan: #00f2ff;
+        --accent-pink: #ff0055;
+        --accent-orange: #ff9100;
+        --glass-bg: rgba(15, 23, 42, 0.4);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --font-main: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+        box-sizing: border-box;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        margin: 0;
+        padding: 0;
+        outline: none;
+    }
+
+    body, html {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: var(--sky-top);
+        font-family: var(--font-main);
+        color: white;
+    }
+
+    #game-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-mid) 40%, transparent 60%);
+    }
+
+    /* --- 1. Environment & Atmosphere --- */
+    
+    /* Noise Overlay for Snow Grain */
+    .noise-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 20;
+        opacity: 0.5;
+        mix-blend-mode: overlay;
+    }
+
+    /* --- 2. Sensation of Speed (CSS Motion Streaks) --- */
+    .speed-streaks {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 4;
+        overflow: hidden;
+    }
+    
+    .streak {
+        position: absolute;
+        background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.5), transparent);
+        width: 2px;
+        height: 150px;
+        opacity: 0;
+        animation: rush 0.5s linear infinite;
+    }
+
+    @keyframes rush {
+        0% { transform: translateY(-200px) scaleY(0.5); opacity: 0; }
+        20% { opacity: 0.8; }
+        100% { transform: translateY(100vh) scaleY(1.5); opacity: 0; }
+    }
+
+    /* --- Layers --- */
+    .layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    
+    #mountains { z-index: 1; }
+    #slope-canvas { z-index: 2; display: block; }
+    #entities-layer { z-index: 3; }
+    #player-layer { z-index: 5; }
+
+    /* --- 3. Character Redesign (3D-styled SVG) --- */
+    #player {
+        position: absolute;
+        bottom: 15%;
+        left: 50%;
+        width: 140px;
+        height: 140px;
+        transform: translate(-50%, 0);
+        /* Shadow grounds the rider */
+        filter: drop-shadow(0 15px 10px rgba(0,0,0,0.7));
+        transition: left 0.05s linear;
+    }
+
+    /* Motion Blur Trail behind rider */
+    .rider-trail {
+        position: absolute;
+        bottom: 15%;
+        left: 50%;
+        width: 100px;
+        height: 200px;
+        transform: translate(-50%, 0) scaleY(1.2);
+        z-index: 4;
+        opacity: 0.6;
+        filter: blur(8px);
+        pointer-events: none;
+    }
+
+    .rider-svg { width: 100%; height: 100%; }
+
+    /* --- 4. Obstacles & Readability --- */
+    .obstacle {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        filter: drop-shadow(0 15px 15px rgba(0,0,0,0.6));
+    }
+
+    /* 3D-ish Rock */
+    .rock-obs svg { width: 100%; height: 100%; }
+    .rock-face-dark { fill: #0f172a; }
+    .rock-face-light { fill: #334155; }
+    .rock-face-snow { fill: #e2e8f0; opacity: 0.8; }
+    .rock-outline { fill: none; stroke: var(--accent-cyan); stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 0 5px var(--accent-cyan)); }
+
+    /* Neon Gates */
+    .gate-obs svg { width: 100%; height: 100%; }
+    .gate-pole { stroke: #e2e8f0; stroke-width: 3; }
+    .gate-bar { stroke: var(--accent-pink); stroke-width: 6; filter: drop-shadow(0 0 12px var(--accent-pink)); stroke-linecap: round; }
+    .gate-flag { fill: var(--accent-orange); filter: drop-shadow(0 0 5px var(--accent-orange)); }
+
+    /* --- 5. UI Polish & Hierarchy (Glassmorphism) --- */
+    #hud-layer {
+        z-index: 10;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100%;
+    }
+
+    .top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .stat-box {
+        background: var(--glass-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--glass-border);
+        padding: 12px 24px;
+        /* Angled aggressive shape */
+        clip-path: polygon(10% 0, 100% 0, 100% 100%, 0% 100%);
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--accent-cyan);
+        margin-bottom: 2px;
+        font-weight: 800;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+        color: white;
+        text-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+        line-height: 1;
+        font-style: italic;
+    }
+
+    .stat-unit {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-left: 6px;
+        font-weight: 600;
+        font-style: normal;
+    }
+
+    /* Progress Bar */
+    .progress-container {
+        position: absolute;
+        top: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 300px;
+        height: 6px;
+        background: rgba(0,0,0,0.6);
+        border-radius: 3px;
+        overflow: hidden;
+        border: 1px solid var(--glass-border);
+    }
+
+    .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent-cyan), #fff);
+        box-shadow: 0 0 20px var(--accent-cyan);
+        transition: width 0.1s linear;
+    }
+
+    /* Controls (Tactile & Urgent) */
+    .controls-area {
+        display: flex;
+        justify-content: space-between;
+        padding: 0 30px 40px 30px;
+    }
+
+    .control-btn {
+        width: 100px;
+        height: 100px;
+        /* Solid opaque background for readability */
+        background: rgba(15, 23, 42, 0.85);
+        border: 2px solid var(--accent-cyan);
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        -webkit-tap-highlight-color: transparent;
+        /* Tactile Inner Shadow */
+        box-shadow: inset 0 0 20px rgba(0, 242, 255, 0.1), 0 10px 20px rgba(0,0,0,0.5);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .control-btn::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+        pointer-events: none;
+    }
+
+    .control-btn:active, .control-btn.active {
+        background: var(--accent-cyan);
+        transform: scale(0.92) translateY(4px);
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 0 5px 10px rgba(0,0,0,0.5);
+    }
+
+    .control-btn svg {
+        width: 48px;
+        height: 48px;
+        fill: var(--accent-cyan);
+        filter: drop-shadow(0 0 5px var(--accent-cyan));
+        transition: fill 0.1s;
+    }
+
+    .control-btn:active svg, .control-btn.active svg {
+        fill: #0f172a;
+        filter: none;
+    }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Noise Overlay -->
+    <div class="noise-overlay"></div>
+
+    <!-- Mountain Background (Parallax-ish) -->
+    <svg id="mountains" class="layer" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice">
+        <defs>
+            <linearGradient id="mtnGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
+            </linearGradient>
+            <linearGradient id="mtnGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#334155;stop-opacity:1" />
+            </linearGradient>
+        </defs>
+        <!-- Sharp jagged peaks -->
+        <path d="M0 600 L150 350 L300 500 L450 250 L600 500 L750 300 L900 500 L1000 400 L1000 1000 L0 1000 Z" fill="url(#mtnGrad1)" />
+        <!-- Foreground peaks -->
+        <path d="M0 700 L200 500 L400 650 L600 450 L800 700 L1000 550 L1000 1000 L0 1000 Z" fill="url(#mtnGrad2)" />
+    </svg>
+
+    <!-- Slope Surface (Canvas) -->
+    <canvas id="slope-canvas" class="layer"></canvas>
+
+    <!-- Speed Lines (CSS) -->
+    <div class="speed-streaks" id="streaks-container"></div>
+
+    <!-- Game Entities -->
+    <div id="entities-layer" class="layer"></div>
+
+    <!-- Player -->
+    <div id="player-layer" class="layer">
+        <!-- Blur Trail -->
+        <svg class="rider-trail" viewBox="0 0 100 200" preserveAspectRatio="none">
+            <path d="M40 0 L60 0 L80 200 L20 200 Z" fill="url(#trailGrad)" opacity="0.4" />
+            <defs>
+                <linearGradient id="trailGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#00f2ff" stop-opacity="0" />
+                    <stop offset="100%" stop-color="#00f2ff" stop-opacity="1" />
+                </linearGradient>
+            </defs>
+        </svg>
+
+        <div id="player">
+            <svg class="rider-svg" viewBox="0 0 100 120">
+                <!-- Wind Trail / Scarf -->
+                <path d="M45 45 Q10 50 0 30 Q15 60 40 55" fill="rgba(0, 242, 255, 0.8)" />
+                <path d="M45 45 Q15 70 5 90 Q20 70 40 55" fill="rgba(0, 242, 255, 0.6)" />
+                
+                <!-- Snowboard -->
+                <path d="M10 105 Q50 115 90 105 L85 100 Q50 110 15 100 Z" fill="#0f172a" />
+                <!-- Board Bottom (Neon) -->
+                <path d="M15 100 Q50 110 85 100 L80 102 Q50 112 20 102 Z" fill="#00f2ff" filter="drop-shadow(0 0 5px #00f2ff)" />
+                
+                <!-- Legs (Dark) -->
+                <path d="M40 70 L30 100" stroke="#020617" stroke-width="12" stroke-linecap="round" />
+                <path d="M60 70 L70 100" stroke="#020617" stroke-width="12" stroke-linecap="round" />
+                
+                <!-- Body (Volumetric Jacket) -->
+                <path d="M30 70 L50 35 L70 70 Z" fill="#ef4444" /> <!-- Base -->
+                <path d="M30 70 L50 35 L50 70 Z" fill="#dc2626" /> <!-- Shadow side -->
+                
+                <!-- Geometric Helmet -->
+                <rect x="38" y="20" width="24" height="22" rx="6" fill="#f8fafc" /> <!-- Helmet Base -->
+                <path d="M38 28 L62 28 L62 36 Q50 42 38 36 Z" fill="#0f172a" /> <!-- Visor -->
+                <path d="M38 28 L62 28 L62 30 Q50 36 38 30 Z" fill="#00f2ff" opacity="0.8"/> <!-- Visor Glint -->
+            </svg>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud-layer" class="layer">
+        <div class="top-bar">
+            <div class="stat-box">
+                <span class="stat-label">Speed</span>
+                <span class="stat-value" id="speed-val">0 <span class="stat-unit">km/h</span></span>
+            </div>
+            <div class="stat-box" style="transform: scaleX(-1);">
+                <div style="transform: scaleX(-1);">
+                    <span class="stat-label">Distance</span>
+                    <span class="stat-value" id="dist-val">0 <span class="stat-unit">m</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-fill" id="progress-bar"></div>
+        </div>
+
+        <div class="controls-area">
+            <div class="control-btn" id="btn-left">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="control-btn" id="btn-right">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Configuration & State ---
+    const canvas = document.getElementById('slope-canvas');
+    const ctx = canvas.getContext('2d');
+    const entitiesLayer = document.getElementById('entities-layer');
+    const streaksContainer = document.getElementById('streaks-container');
+    const playerEl = document.getElementById('player');
+    const riderTrail = document.querySelector('.rider-trail');
+    const speedVal = document.getElementById('speed-val');
+    const distVal = document.getElementById('dist-val');
+    const progressBar = document.getElementById('progress-bar');
+
+    let width, height;
+    let gameFrame = 0;
+    let speed = 0;
+    let targetSpeed = 145; // High speed sensation
+    let distance = 0;
+    let playerX = 0.5; // 0 to 1
+    let targetPlayerX = 0.5;
+    
+    // Perspective Constants
+    const horizonY = 0.35; // Horizon slightly lower for dramatic slope
+    const vanishPointX = 0.5;
+    
+    // Game Objects
+    const obstacles = [];
+    
+    // Input State
+    let input = { left: false, right: false };
+
+    // --- Initialization ---
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        initSpeedStreaks();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- 2. Speed Streaks Logic ---
+    function initSpeedStreaks() {
+        streaksContainer.innerHTML = '';
+        const count = 20;
+        for(let i=0; i<count; i++) {
+            const streak = document.createElement('div');
+            streak.className = 'streak';
+            streak.style.left = Math.random() * 100 + '%';
+            streak.style.animationDuration = (Math.random() * 0.3 + 0.15) + 's';
+            streak.style.animationDelay = (Math.random() * 2) + 's';
+            streaksContainer.appendChild(streak);
+        }
+    }
+
+    // --- Game Logic ---
+
+    function updatePhysics() {
+        // Acceleration
+        if (speed < targetSpeed) speed += 0.3;
+        if (speed > 10) speed += (Math.random() - 0.5); // Jitter
+        
+        // Lateral Movement
+        const moveSpeed = 0.015;
+        if (input.left) targetPlayerX -= moveSpeed;
+        if (input.right) targetPlayerX += moveSpeed;
+        
+        // Boundaries
+        if (targetPlayerX < 0.15) targetPlayerX = 0.15;
+        if (targetPlayerX > 0.85) targetPlayerX = 0.85;
+
+        // Smooth player movement
+        playerX += (targetPlayerX - playerX) * 0.15;
+        
+        // Update DOM
+        playerEl.style.left = `${playerX * 100}%`;
+        riderTrail.style.left = `${playerX * 100}%`;
+        
+        // Tilt player based on movement
+        const tilt = (targetPlayerX - playerX) * 400;
+        playerEl.style.transform = `translate(-50%, 0) rotate(${15 + tilt}deg)`;
+
+        // Update HUD
+        if(gameFrame < 20) speed = 90; // Start fast
+        
+        speedVal.innerHTML = Math.floor(speed) + ' <span class="stat-unit">km/h</span>';
+        distance += speed * 0.02;
+        distVal.innerHTML = Math.floor(distance) + ' <span class="stat-unit">m</span>';
+        
+        // Progress loop
+        let progress = (distance % 1000) / 10;
+        progressBar.style.width = `${progress}%`;
+
+        // Obstacle Spawning
+        // Spawn rate increases with speed
+        if (Math.random() < 0.025 + (speed/10000)) {
+            spawnObstacle();
+        }
+        
+        // Update Obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let obs = obstacles[i];
+            // Move towards camera (0 is horizon, 1 is near)
+            obs.z -= speed * 0.00025; 
+            
+            // Collision Detection
+            // Check if obstacle is at player depth (approx 0.85)
+            if (obs.z > 0.82 && obs.z < 0.92) {
+                if (Math.abs(obs.x - playerX) < 0.06) {
+                    // Hit!
+                    speed *= 0.3; // Crash slowdown
+                    // Visual feedback: Shake screen
+                    document.getElementById('game-container').style.transform = `translate(${Math.random()*10-5}px, ${Math.random()*10-5}px)`;
+                    setTimeout(() => {
+                        document.getElementById('game-container').style.transform = 'none';
+                    }, 200);
+                }
+            }
+
+            // Remove if passed camera
+            if (obs.z > 1.2) {
+                if(obs.el) obs.el.remove();
+                obstacles.splice(i, 1);
+            } else {
+                renderObstacle(obs);
+            }
+        }
+    }
+
+    function spawnObstacle() {
+        const rand = Math.random();
+        let type = 'rock';
+        if (rand > 0.6) type = 'gate';
+        
+        // Spawn X (0 to 1)
+        const x = 0.2 + Math.random() * 0.6;
+        const el = document.createElement('div');
+        el.className = 'obstacle ' + (type === 'gate' ? 'gate-obs' : 'rock-obs');
+        
+        if (type === 'gate') {
+            el.innerHTML = `
+                <svg viewBox="0 0 100 100">
+                    <line x1="15" y1="100" x2="15" y2="10" class="gate-pole" />
+                    <line x1="85" y1="100" x2="85" y2="10" class="gate-pole" />
+                    <line x1="15" y1="30" x2="85" y2="30" class="gate-bar" />
+                    <rect x="18" y="15" width="15" height="20" fill="#ef4444" rx="2" />
+                    <rect x="67" y="15" width="15" height="20" fill="#ef4444" rx="2" />
+                </svg>
+            `;
+        } else {
+            // 3D-ish Rock with Neon Outline
+            el.innerHTML = `
+                <svg viewBox="0 0 100 60">
+                    <!-- Dark Side -->
+                    <path d="M10 60 L30 20 L50 35 L90 60 Z" class="rock-face-dark" />
+                    <!-- Light Side -->
+                    <path d="M30 20 L50 35 L70 10 L90 60 Z" class="rock-face-light" />
+                    <!-- Snow Cap -->
+                    <path d="M30 20 L40 25 L50 15 L50 35 Z" class="rock-face-snow" />
+                    <!-- Neon Outline -->
+                    <path d="M10 60 L30 20 L50 35 L70 10 L90 60 Z" class="rock-outline" />
+                </svg>
+            `;
+        }
+        
+        entitiesLayer.appendChild(el);
+        
+        obstacles.push({
+            type: type,
+            x: x,
+            z: 0, // Start at horizon
+            el: el
+        });
+    }
+
+    function renderObstacle(obs) {
+        // Perspective Math
+        // z=0 is horizon, z=1 is bottom of screen
+        const perspective = 1 / (1 - obs.z + 0.1); 
+        
+        // Map Z to Screen Y
+        const yPos = horizonY + (obs.z * (1 - horizonY));
+        
+        // X Spread (wider as it gets closer)
+        const spread = 1.0 + (obs.z * 1.5); 
+        const xPos = 0.5 + (obs.x - 0.5) * spread;
+
+        // Scale (small at horizon, big at bottom)
+        const scale = 0.2 + (obs.z * 3.0);
+
+        // Base dimensions
+        let w = obs.type === 'gate' ? 180 : 120;
+        let h = obs.type === 'gate' ? 140 : 90;
+
+        // Apply styles
+        const finalW = w * scale;
+        const finalH = h * scale;
+
+        obs.el.style.width = `${finalW}px`;
+        obs.el.style.height = `${finalH}px`;
+        obs.el.style.left = `${xPos * 100}%`;
+        obs.el.style.top = `${yPos * 100}%`;
+        
+        // Simple Z-index sort based on depth
+        obs.el.style.zIndex = Math.floor(obs.z * 100);
+    }
+
+    // --- Rendering (Canvas) ---
+
+    function drawSlope() {
+        ctx.clearRect(0, 0, width, height);
+        
+        const horizon = height * horizonY;
+        
+        // 1. Environment & Atmosphere: Glacier Gradient
+        // Center is light cyan/white, edges are deep blue
+        const grad = ctx.createRadialGradient(
+            width / 2, horizon, 0, 
+            width / 2, height, height
+        );
+        grad.addColorStop(0, '#f8fafc'); // Bright Ice Center
+        grad.addColorStop(0.4, '#bae6fd'); // Light Blue Ice
+        grad.addColorStop(0.7, '#3b82f6'); // Deep Blue
+        grad.addColorStop(1, '#0f172a'); // Dark Edges
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, horizon, width, height - horizon);
+        
+        // 2. Sensation of Speed: Dynamic Grid Lines
+        ctx.lineWidth = 2;
+        
+        // Longitudinal Lines (Vanishing Point)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        for (let i = -10; i <= 10; i++) {
+            let x = (i * width / 10);
+            ctx.moveTo(vanishPointX * width, horizon);
+            ctx.lineTo(x, height);
+        }
+        ctx.stroke();
+        
+        // Transverse Lines (Rushing towards player)
+        // Calculate offset based on speed and time
+        const lineSpacing = 180;
+        const timeOffset = (Date.now() * speed * 0.0006) % lineSpacing;
+        
+        for (let i = 0; i < 20; i++) {
+            // Calculate base Y position for this grid line
+            // We want lines to bunch up near horizon (perspective)
+            let t = i / 20;
+            let perspectiveY = horizon + Math.pow(t, 2.5) * (height - horizon);
+            
+            // Apply movement
+            let currentY = perspectiveY + timeOffset;
+            
+            // Wrap logic: If it passes bottom, move it to top
+            if (currentY > height) currentY -= (height - horizon);
+            
+            if (currentY > horizon) {
+                // Opacity: Fade to 0 at horizon, bright at bottom
+                let alpha = Math.pow((currentY - horizon) / (height - horizon), 1.5);
+                
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                
+                // Draw horizontal line with slight curve
+                ctx.moveTo(0, currentY);
+                ctx.quadraticCurveTo(width/2, currentY + 15, width, currentY);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // --- Main Loop ---
+
+    function loop() {
+        gameFrame++;
+        drawSlope();
+        updatePhysics();
+        requestAnimationFrame(loop);
+    }
+
+    // --- Controls ---
+
+    const btnLeft = document.getElementById('btn-left');
+    const btnRight = document.getElementById('btn-right');
+
+    function handleStart(dir, el) { 
+        input[dir] = true; 
+        if(el) el.classList.add('active');
+    }
+    function handleEnd(dir, el) { 
+        input[dir] = false; 
+        if(el) el.classList.remove('active');
+    }
+
+    // Touch/Mouse for buttons
+    ['mousedown', 'touchstart'].forEach(evt => {
+        btnLeft.addEventListener(evt, (e) => { e.preventDefault(); handleStart('left', btnLeft); });
+        btnRight.addEventListener(evt, (e) => { e.preventDefault(); handleStart('right', btnRight); });
+    });
+
+    ['mouseup', 'mouseleave', 'touchend'].forEach(evt => {
+        btnLeft.addEventListener(evt, (e) => { e.preventDefault(); handleEnd('left', btnLeft); });
+        btnRight.addEventListener(evt, (e) => { e.preventDefault(); handleEnd('right', btnRight); });
+    });
+
+    // Keyboard support
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') handleStart('left', btnLeft);
+        if (e.key === 'ArrowRight') handleStart('right', btnRight);
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'ArrowLeft') handleEnd('left', btnLeft);
+        if (e.key === 'ArrowRight') handleEnd('right', btnRight);
+    });
+
+    // Start
+    loop();
+
+</script>
+</body>
+</html>

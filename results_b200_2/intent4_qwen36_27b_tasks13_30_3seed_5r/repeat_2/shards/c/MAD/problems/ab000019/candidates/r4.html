@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tactical AI Analysis</title>
+    <style>
+        :root {
+            /* Palette */
+            --bg-dark: #05070a;
+            --bg-panel: #0b0e14;
+            
+            --color-player: #00f0ff;
+            --color-patrol: #00a8ff;
+            --color-alert: #ffcc00;
+            --color-chase: #ff2a2a;
+            --color-attack: #ff0055;
+            
+            --text-main: #ffffff;
+            --text-muted: #6b7c93;
+            
+            /* Typography */
+            --font-ui: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: var(--font-ui); /* Critique 5: Geometric Sans */
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* --- Layout --- */
+        #app {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Critique 6: Noise Overlay */
+        #app::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 999;
+            mix-blend-mode: overlay;
+        }
+
+        /* --- Canvas Area --- */
+        #arena-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            /* Grid Background */
+            background: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- HUD Overlay --- */
+        .hud-overlay {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title-block h1 {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--color-player);
+            margin-bottom: 4px;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+            opacity: 0.9;
+            font-family: var(--font-ui);
+        }
+
+        .title-block h2 {
+            font-size: 24px;
+            font-weight: 800; /* Heavier weight */
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+            opacity: 0.95;
+            font-family: var(--font-ui); /* Critique 5: Sans Serif */
+        }
+
+        /* --- Inspector Panel --- */
+        #inspector {
+            background: var(--bg-panel);
+            border-left: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            z-index: 20;
+            box-shadow: -5px 0 30px rgba(0,0,0,0.5);
+        }
+
+        .panel-content {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            padding: 20px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding-bottom: 15px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            width: 6px;
+            height: 6px;
+            background: var(--color-player);
+            box-shadow: 0 0 8px var(--color-player);
+            border-radius: 50%;
+            animation: blink 2s infinite;
+        }
+
+        /* Player Stats */
+        .stat-group {
+            margin-bottom: 32px;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            display: block;
+            font-family: var(--font-ui);
+        }
+
+        /* Critique 5: Refined Health Bar */
+        .bar-container {
+            width: 100%;
+            height: 6px;
+            background: #1a202c; /* Dark track background */
+            position: relative;
+            overflow: hidden;
+            border-radius: 3px;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: var(--color-player);
+            width: 85%;
+            box-shadow: 0 0 10px var(--color-player);
+            position: relative;
+            border-radius: 3px;
+        }
+
+        .health-values {
+            display:flex; 
+            justify-content:space-between; 
+            margin-top:8px;
+        }
+
+        .health-val-num {
+            font-size: 10px; 
+            font-weight: 700; 
+            color: var(--text-main); 
+            font-family: var(--font-mono);
+        }
+
+        .health-val-status {
+            font-size: 9px; 
+            font-weight: 700; 
+            letter-spacing: 1px; 
+            color: var(--color-player); 
+            font-family: var(--font-ui);
+        }
+
+        /* Legend */
+        .legend-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Critique 5: Legend Styling */
+        .legend-item {
+            display: flex;
+            align-items: center;
+            font-size: 10px; /* Reduced */
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-muted); /* Demoted */
+            font-family: var(--font-ui);
+            opacity: 0.8;
+        }
+
+        .legend-item.player-item {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1); /* Divider */
+            color: var(--color-player);
+        }
+
+        .legend-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .legend-shape {
+            width: 8px;
+            height: 8px;
+            box-shadow: 0 0 5px currentColor;
+        }
+        .shape-circle { border-radius: 50%; }
+        .shape-diamond { transform: rotate(45deg); }
+
+        .legend-desc {
+            margin-left: auto;
+            font-size: 8px;
+            color: var(--text-muted);
+            font-weight: 400;
+            opacity: 0.6;
+            font-family: var(--font-mono);
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: absolute;
+            background: rgba(5, 7, 10, 0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            padding: 10px 14px;
+            border-radius: 2px;
+            font-size: 11px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s;
+            transform: translate(15px, 15px);
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+            backdrop-filter: blur(4px);
+            font-family: var(--font-ui);
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="arena-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div class="hud-overlay">
+            <div class="title-block">
+                <h1>System Monitor</h1>
+                <h2>Tactical AI Analysis</h2>
+            </div>
+        </div>
+
+        <div id="tooltip">
+            <div id="tt-title" style="font-weight:bold; margin-bottom:4px; color:#fff; letter-spacing:1px;">UNIT ID</div>
+            <div id="tt-state" style="color:#fff; font-family:var(--font-mono); font-size:10px;">State: Idle</div>
+        </div>
+    </div>
+
+    <aside id="inspector">
+        <div class="panel-content">
+            <div class="panel-header">
+                <span>Live Inspector</span>
+                <div class="status-indicator"></div>
+            </div>
+
+            <div class="stat-group">
+                <span class="stat-label">PLAYER INTEGRITY</span>
+                <div class="bar-container">
+                    <div class="bar-fill" id="health-bar"></div>
+                </div>
+                <div class="health-values">
+                    <span class="health-val-num">850 / 1000</span>
+                    <span class="health-val-status">STABLE</span>
+                </div>
+            </div>
+
+            <div class="stat-group">
+                <span class="stat-label">AI BEHAVIOR LEGEND</span>
+                <ul class="legend-list">
+                    <!-- Player Legend Item -->
+                    <li class="legend-item player-item">
+                        <div class="legend-icon"><div class="legend-shape shape-circle" style="background: var(--color-player);"></div></div>
+                        <span>PLAYER UNIT</span>
+                        <span class="legend-desc">Target</span>
+                    </li>
+                    <!-- AI States -->
+                    <li class="legend-item" style="color: var(--color-patrol);">
+                        <div class="legend-icon"><div class="legend-shape shape-diamond" style="background: var(--color-patrol);"></div></div>
+                        <span>PATROL</span>
+                        <span class="legend-desc">Routine</span>
+                    </li>
+                    <li class="legend-item" style="color: var(--color-alert);">
+                        <div class="legend-icon"><div class="legend-shape shape-diamond" style="background: var(--color-alert);"></div></div>
+                        <span>ALERT</span>
+                        <span class="legend-desc">Investigating</span>
+                    </li>
+                    <li class="legend-item" style="color: var(--color-chase);">
+                        <div class="legend-icon"><div class="legend-shape shape-diamond" style="background: var(--color-chase);"></div></div>
+                        <span>CHASE</span>
+                        <span class="legend-desc">Vector Locked</span>
+                    </li>
+                    <li class="legend-item" style="color: var(--color-attack);">
+                        <div class="legend-icon"><div class="legend-shape shape-diamond" style="background: var(--color-attack);"></div></div>
+                        <span>ATTACK</span>
+                        <span class="legend-desc">Engaging</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script>
+/**
+ * Vector Utility
+ */
+class Vec2 {
+    constructor(x, y) { this.x = x; this.y = y; }
+    add(v) { return new Vec2(this.x + v.x, this.y + v.y); }
+    sub(v) { return new Vec2(this.x - v.x, this.y - v.y); }
+    mult(n) { return new Vec2(this.x * n, this.y * n); }
+    mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+    normalize() {
+        let m = this.mag();
+        return m === 0 ? new Vec2(0, 0) : new Vec2(this.x / m, this.y / m);
+    }
+    dist(v) { return Math.sqrt(Math.pow(this.x - v.x, 2) + Math.pow(this.y - v.y, 2)); }
+    copy() { return new Vec2(this.x, this.y); }
+}
+
+/**
+ * Configuration
+ */
+const COLORS = {
+    player: '#00f0ff',
+    wall: '#0f1217',
+    wallStroke: '#2a303c',
+    patrol: '#00a8ff',
+    alert: '#ffcc00',
+    chase: '#ff2a2a',
+    attack: '#ff0055'
+};
+
+const STATES = {
+    PATROL: 'patrol',
+    ALERT: 'alert',
+    CHASE: 'chase',
+    ATTACK: 'attack'
+};
+
+/**
+ * Game Objects
+ */
+class Wall {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        
+        // Critique 6: Consistent rendering, solid obstacles
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 15;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 5;
+        
+        // Dark fill
+        ctx.fillStyle = COLORS.wall;
+        ctx.beginPath();
+        ctx.rect(this.x, this.y, this.w, this.h);
+        ctx.fill();
+        
+        // Stroke
+        ctx.strokeStyle = COLORS.wallStroke;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Tactical corner markers (subtle)
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x + 5, this.y + 10);
+        ctx.lineTo(this.x + 5, this.y + 5);
+        ctx.lineTo(this.x + 10, this.y + 5);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(this.x + this.w - 5, this.y + this.h - 10);
+        ctx.lineTo(this.x + this.w - 5, this.y + this.h - 5);
+        ctx.lineTo(this.x + this.w - 10, this.y + this.h - 5);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+class Player {
+    constructor(x, y) {
+        this.pos = new Vec2(x, y);
+        this.prevPos = new Vec2(x, y); // For velocity
+        this.target = new Vec2(x, y);
+        this.speed = 3.5;
+        this.angle = 0;
+        this.radius = 10;
+    }
+
+    update() {
+        this.prevPos = this.pos.copy(); // Store for velocity calc
+        let dir = this.target.sub(this.pos);
+        let dist = dir.mag();
+        if (dist > 1) {
+            dir = dir.normalize().mult(this.speed);
+            this.pos = this.pos.add(dir);
+            this.angle = Math.atan2(dir.y, dir.x);
+        }
+    }
+
+    draw(ctx, time) {
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        
+        // Critique 3: Velocity Vector Line
+        let velocity = this.pos.sub(this.prevPos);
+        if (velocity.mag() > 0.1) {
+            ctx.rotate(this.angle);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(60, 0); // Length of vector
+            ctx.strokeStyle = COLORS.player;
+            ctx.globalAlpha = 0.3;
+            ctx.setLineDash([2, 2]);
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+        }
+        ctx.rotate(-this.angle); // Undo rotation for player body
+
+        // Player Shape
+        ctx.shadowColor = COLORS.player;
+        ctx.shadowBlur = 20 + Math.sin(time * 0.1) * 5; 
+        
+        ctx.fillStyle = '#05070a'; 
+        ctx.strokeStyle = COLORS.player;
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        // Hexagon
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const x = this.radius * Math.cos(angle);
+            const y = this.radius * Math.sin(angle);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Center Dot
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+class Enemy {
+    constructor(x, y, patrolPoints, initialState) {
+        this.pos = new Vec2(x, y);
+        this.patrolPoints = patrolPoints;
+        this.currentPatrolIdx = 0;
+        this.angle = 0;
+        this.speed = 1.5;
+        this.state = initialState || STATES.PATROL;
+        
+        // AI Params
+        this.visionRange = 180;
+        this.visionAngle = Math.PI / 3; // Wider angle
+        this.attackRange = 70;
+        
+        this.noiseSource = null;
+        this.animOffset = Math.random() * 100;
+    }
+
+    update(player, walls) {
+        let distToPlayer = this.pos.dist(player.pos);
+        let vecToPlayer = player.pos.sub(this.pos);
+        let angleToPlayer = Math.atan2(vecToPlayer.y, vecToPlayer.x);
+        
+        // Static Demo Logic
+        switch (this.state) {
+            case STATES.PATROL:
+                this.moveTo(this.patrolPoints[this.currentPatrolIdx], this.speed);
+                if (this.pos.dist(this.patrolPoints[this.currentPatrolIdx]) < 5) {
+                    this.currentPatrolIdx = (this.currentPatrolIdx + 1) % this.patrolPoints.length;
+                }
+                break;
+
+            case STATES.ALERT:
+                // Critique 2: Move to investigation point
+                let target = this.noiseSource ? this.noiseSource : this.patrolPoints[0];
+                if (target) {
+                    this.moveTo(target, this.speed * 1.2);
+                }
+                break;
+
+            case STATES.CHASE:
+                // Critique 1: We calculate a path that bends around obstacles
+                // For this demo, we fake it by calculating a waypoint between enemy and player
+                let midPoint = this.pos.add(vecToPlayer).mult(0.5);
+                // Offset based on wall logic would go here in a real engine
+                // We'll just draw the curved line in draw()
+                this.moveTo(player.pos, this.speed * 2.5);
+                this.angle = angleToPlayer;
+                break;
+
+            case STATES.ATTACK:
+                this.angle = angleToPlayer;
+                // Small hover jitter
+                this.pos.x += Math.sin(Date.now() / 50) * 0.5;
+                break;
+        }
+        
+        // Basic Wall Collision (Push out)
+        walls.forEach(w => {
+            if (this.pos.x > w.x && this.pos.x < w.x + w.w &&
+                this.pos.y > w.y && this.pos.y < w.y + w.h) {
+                let center = new Vec2(w.x + w.w/2, w.y + w.h/2);
+                let push = this.pos.sub(center).normalize().mult(1);
+                this.pos = this.pos.add(push);
+            }
+        });
+    }
+
+    moveTo(target, spd) {
+        let dir = target.sub(this.pos);
+        let dist = dir.mag();
+        if (dist > 1) {
+            this.angle = Math.atan2(dir.y, dir.x);
+            dir = dir.normalize().mult(spd);
+            this.pos = this.pos.add(dir);
+        }
+    }
+
+    draw(ctx, playerPos, time) {
+        let color = COLORS.patrol;
+        let opacity = 0.5;
+
+        if (this.state === STATES.ALERT) {
+            color = COLORS.alert;
+            opacity = 0.8;
+        }
+        if (this.state === STATES.CHASE) {
+            color = COLORS.chase;
+            opacity = 1.0;
+        }
+        if (this.state === STATES.ATTACK) {
+            color = COLORS.attack;
+            opacity = 1.0;
+        }
+
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(this.angle);
+        ctx.globalAlpha = opacity;
+
+        // --- Critique 4: Refined Detection Cones (Scanline/Dither) ---
+        if (this.state !== STATES.PATROL) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            let tipX = this.visionRange;
+            let tipY = this.visionRange * Math.tan(this.visionAngle/2);
+            
+            ctx.lineTo(tipX, tipY);
+            ctx.lineTo(tipX, -tipY);
+            ctx.closePath();
+            
+            // Create Scanline Pattern
+            let grad = ctx.createLinearGradient(0, -tipY, 0, tipY);
+            grad.addColorStop(0, color + '30'); // ~20% opacity
+            grad.addColorStop(0.5, color + '10');
+            grad.addColorStop(1, color + '30');
+            
+            ctx.fillStyle = grad;
+            
+            // Add "Dither" effect via pattern if possible, or just stripes
+            // Using stripes for the "Scanline" look
+            ctx.save();
+            ctx.clip();
+            
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.15; // Low opacity base
+            ctx.fillRect(0, -tipY, tipX, tipY*2);
+            
+            // Draw scanlines
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let i = -tipY; i < tipY; i+=4) {
+                ctx.moveTo(0, i);
+                ctx.lineTo(tipX, i);
+            }
+            ctx.stroke();
+            ctx.restore();
+
+            // Cone Border
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(tipX, tipY);
+            ctx.lineTo(tipX, -tipY);
+            ctx.strokeStyle = color + '60'; 
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // --- Enemy Shape (Diamond) ---
+        ctx.globalAlpha = opacity;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = this.state === STATES.PATROL ? 0 : 15;
+        ctx.fillStyle = '#05070a'; 
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(0, 7);
+        ctx.lineTo(-10, 0);
+        ctx.lineTo(0, -7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.restore();
+
+        // --- Critique 1: Pathfinding Visualization ---
+        
+        // 1. Patrol Route
+        if (this.state === STATES.PATROL && this.patrolPoints.length > 0) {
+            let nextPt = this.patrolPoints[this.currentPatrolIdx];
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            ctx.lineTo(nextPt.x, nextPt.y);
+            ctx.strokeStyle = COLORS.patrol;
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.4;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+        }
+
+        // 2. Chase Vector (Curved around obstacle)
+        if (this.state === STATES.CHASE && playerPos) {
+            ctx.strokeStyle = COLORS.chase;
+            ctx.globalAlpha = 0.6;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            
+            // Draw a quadratic curve to simulate obstacle avoidance
+            // Control point is offset perpendicular to the direct line
+            let midX = (this.pos.x + playerPos.x) / 2;
+            let midY = (this.pos.y + playerPos.y) / 2;
+            // Offset control point to "bend" around imaginary obstacle
+            ctx.quadraticCurveTo(midX + 40, midY - 40, playerPos.x, playerPos.y);
+            
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+        }
+
+        // --- Critique 2: Alert Investigation Point ---
+        if (this.state === STATES.ALERT && this.noiseSource) {
+            // Draw line to investigation point
+            ctx.strokeStyle = COLORS.alert;
+            ctx.globalAlpha = 0.5;
+            ctx.setLineDash([2, 3]);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            ctx.lineTo(this.noiseSource.x, this.noiseSource.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw Investigation Target (Pulsing)
+            ctx.save();
+            ctx.translate(this.noiseSource.x, this.noiseSource.y);
+            let scale = 1 + Math.sin(time * 0.2) * 0.2;
+            ctx.scale(scale, scale);
+            ctx.strokeStyle = COLORS.alert;
+            ctx.lineWidth = 2;
+            // Crosshair
+            ctx.beginPath();
+            ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+            ctx.moveTo(0, -5); ctx.lineTo(0, 5);
+            ctx.stroke();
+            // Ring
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // --- Critique 3: Target Lock & Tracking ---
+        if (this.state === STATES.ATTACK && playerPos) {
+            // Solid line to player
+            ctx.strokeStyle = COLORS.attack;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            ctx.lineTo(playerPos.x, playerPos.y);
+            ctx.stroke();
+            
+            // Rotating Reticle on Player
+            ctx.save();
+            ctx.translate(playerPos.x, playerPos.y);
+            ctx.rotate(time * 0.1); // Rotate
+            ctx.strokeStyle = COLORS.attack;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.8;
+            // Brackets
+            ctx.beginPath();
+            ctx.moveTo(-15, -10); ctx.lineTo(-15, -15); ctx.lineTo(-10, -15);
+            ctx.moveTo(15, -10); ctx.lineTo(15, -15); ctx.lineTo(10, -15);
+            ctx.moveTo(-15, 10); ctx.lineTo(-15, 15); ctx.lineTo(-10, 15);
+            ctx.moveTo(15, 10); ctx.lineTo(15, 15); ctx.lineTo(10, 15);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // State Label
+        ctx.fillStyle = color;
+        ctx.globalAlpha = opacity;
+        ctx.font = 'bold 9px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.state.toUpperCase(), this.pos.x, this.pos.y - 18);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+/**
+ * Main System
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const ttTitle = document.getElementById('tt-title');
+const ttState = document.getElementById('tt-state');
+
+let width, height;
+let player;
+let enemies = [];
+let walls = [];
+let mousePos = new Vec2(0,0);
+let time = 0;
+
+function resize() {
+    width = canvas.parentElement.offsetWidth;
+    height = canvas.parentElement.offsetHeight;
+    canvas.width = width;
+    canvas.height = height;
+    initLevel();
+}
+
+function initLevel() {
+    // Player: Center-Right
+    player = new Player(width * 0.65, height * 0.5);
+    player.target = player.pos.copy();
+
+    // Walls (Obstacles)
+    walls = [
+        new Wall(width * 0.3, height * 0.3, width * 0.2, 20),
+        new Wall(width * 0.1, height * 0.6, 20, height * 0.2),
+        new Wall(width * 0.4, height * 0.7, width * 0.3, 20),
+        new Wall(width * 0.75, height * 0.2, 20, height * 0.15)
+    ];
+
+    // Enemy A: CHASE (Red) - Left side, facing player
+    let enemyA = new Enemy(width * 0.2, height * 0.5, [], STATES.CHASE);
+    
+    // Enemy B: ATTACK (High Sat Red) - Top Right
+    let enemyB = new Enemy(width * 0.75, height * 0.35, [], STATES.ATTACK);
+
+    // Enemy C: ALERT (Yellow) - Bottom Left
+    // Critique 2: Investigation Point near the wall
+    let noiseSource = new Vec2(width * 0.35, height * 0.75); 
+    let enemyC = new Enemy(width * 0.15, height * 0.8, [], STATES.ALERT);
+    enemyC.noiseSource = noiseSource;
+
+    // Enemy D: PATROL (Blue) - Looping path
+    let patrolPath = [
+        new Vec2(width * 0.8, height * 0.8),
+        new Vec2(width * 0.9, height * 0.8),
+        new Vec2(width * 0.9, height * 0.6),
+        new Vec2(width * 0.8, height * 0.6)
+    ];
+    let enemyD = new Enemy(patrolPath[0].x, patrolPath[0].y, patrolPath, STATES.PATROL);
+
+    enemies = [enemyA, enemyB, enemyC, enemyD];
+}
+
+// Interaction
+window.addEventListener('resize', resize);
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos = new Vec2(e.clientX - rect.left, e.clientY - rect.top);
+    player.target = mousePos;
+
+    let hovered = null;
+    enemies.forEach(en => {
+        if (en.pos.dist(mousePos) < 30) hovered = en;
+    });
+
+    if (hovered) {
+        canvas.style.cursor = 'pointer';
+        tooltip.style.opacity = 1;
+        tooltip.style.left = (e.clientX + 15) + 'px';
+        tooltip.style.top = (e.clientY + 15) + 'px';
+        ttTitle.innerText = "Enemy Unit " + (enemies.indexOf(hovered) + 1);
+        ttState.innerText = "State: " + hovered.state.toUpperCase();
+        
+        let c = COLORS.patrol;
+        if(hovered.state === STATES.ALERT) c = COLORS.alert;
+        if(hovered.state === STATES.CHASE) c = COLORS.chase;
+        if(hovered.state === STATES.ATTACK) c = COLORS.attack;
+        ttState.style.color = c;
+
+    } else {
+        canvas.style.cursor = 'crosshair';
+        tooltip.style.opacity = 0;
+    }
+});
+
+function drawPatrolPaths() {
+    // Global view of patrol routes
+    enemies.forEach(en => {
+        if (en.state === STATES.PATROL && en.patrolPoints.length > 1) {
+            ctx.strokeStyle = COLORS.patrol;
+            ctx.globalAlpha = 0.15;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 6]);
+            ctx.beginPath();
+            ctx.moveTo(en.patrolPoints[0].x, en.patrolPoints[0].y);
+            for(let i=1; i<en.patrolPoints.length; i++) {
+                ctx.lineTo(en.patrolPoints[i].x, en.patrolPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+            
+            // Draw small dots at nodes
+            ctx.fillStyle = COLORS.patrol;
+            en.patrolPoints.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+                ctx.fill();
+            });
+        }
+    });
+}
+
+function animate() {
+    time++;
+    ctx.clearRect(0, 0, width, height);
+
+    // Logic
+    player.update();
+    enemies.forEach(en => en.update(player, walls));
+
+    // Draw Layers
+    drawPatrolPaths();
+    
+    walls.forEach(w => w.draw(ctx));
+    
+    // Draw entities
+    // Sort by Y for pseudo-depth
+    const renderList = [...enemies, player].sort((a, b) => a.pos.y - b.pos.y);
+    
+    renderList.forEach(obj => {
+        if (obj instanceof Enemy) {
+            obj.draw(ctx, player.pos, time);
+        } else {
+            obj.draw(ctx, time);
+        }
+    });
+
+    requestAnimationFrame(animate);
+}
+
+// Init
+resize();
+animate();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    /* Palette */
+    --felt-primary: #2F5C48;
+    --felt-dark: #1A3C2F;
+    --wood-dark: #3E2723;
+    --wood-light: #5D4037;
+    --wood-highlight: #795548;
+    --tile-body: #F5F5F0;
+    --tile-shadow: #D7D7D0;
+    --pip-color: #212121;
+    --accent-gold: #D4AF37;
+    --accent-gold-dim: #AA8C2C;
+    --accent-red: #C62828;
+    --text-light: #ECF0F1;
+    
+    /* Dimensions */
+    --tile-w: 50px;
+    --tile-h: 100px;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  
+  body, html {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background-color: #111;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-light);
+  }
+
+  /* --- 1. Layout Zones & Background --- */
+  #game-container {
+    position: relative;
+    width: 100vw; height: 100vh;
+    display: grid;
+    grid-template-rows: 80px 1fr 160px; /* Top HUD, Board, Player Hand */
+    background: 
+      radial-gradient(circle at center, var(--felt-primary) 0%, var(--felt-dark) 100%);
+    /* Felt Texture via Noise */
+    background-image: 
+      radial-gradient(circle at center, var(--felt-primary) 0%, var(--felt-dark) 100%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+  }
+
+  /* Wood Frame */
+  .frame-border {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    border: 20px solid var(--wood-dark);
+    box-shadow: inset 0 0 50px rgba(0,0,0,0.9);
+    pointer-events: none;
+    z-index: 100;
+  }
+  .frame-border::after {
+    content: ''; position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px;
+    border: 2px solid rgba(255,255,255,0.05);
+    border-radius: 4px;
+  }
+
+  /* --- Top Bar (HUD) --- */
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 40px;
+    z-index: 10;
+  }
+
+  .score-pill {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 8px 16px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    backdrop-filter: blur(2px);
+    min-width: 140px;
+  }
+  .score-pill.right { flex-direction: row-reverse; text-align: right; }
+
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; justify-content: center; align-items: center;
+    font-size: 1.2rem; font-weight: bold;
+    border: 2px solid var(--wood-light);
+    background: #2c3e50;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .avatar.active-turn { border-color: var(--accent-gold); box-shadow: 0 0 10px var(--accent-gold-dim); }
+
+  .score-info { display: flex; flex-direction: column; }
+  .score-val { font-size: 1.2rem; font-weight: 700; color: var(--accent-gold); font-variant-numeric: tabular-nums; }
+  .score-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; }
+
+  /* --- Center Board (The Table) --- */
+  #board-area {
+    position: relative;
+    overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+  }
+
+  svg#game-board {
+    width: 100%; height: 100%;
+    /* Center alignment */
+    transform-origin: center;
+  }
+
+  /* --- Bottom Area (Player Hand & Boneyard) --- */
+  .player-area {
+    display: grid;
+    grid-template-columns: 1fr auto; /* Hand takes space, Boneyard on right */
+    align-items: center;
+    padding: 0 40px;
+    z-index: 20;
+    /* Gradient to blend hand into table */
+    background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+  }
+
+  .hand-rack {
+    display: flex; 
+    justify-content: center;
+    align-items: flex-end;
+    gap: 8px;
+    height: 100%;
+    padding-bottom: 20px;
+  }
+
+  /* --- 2. The 'Tile' Atom (CSS Version for Hand) --- */
+  .tile {
+    width: var(--tile-w); height: var(--tile-h);
+    background: var(--tile-body);
+    border-radius: 6px;
+    position: relative;
+    /* Realistic 3D Layering */
+    box-shadow: 
+      0 1px 0 #dcdcdc, /* Top Bevel */
+      0 4px 0 #b0b0b0, /* Side Depth */
+      0 6px 0 #999999, /* Side Depth */
+      0 10px 20px rgba(0,0,0,0.5); /* Drop Shadow */
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    border: 1px solid #ccc;
+  }
+
+  .tile:hover {
+    transform: translateY(-15px) scale(1.05);
+    box-shadow: 
+      0 1px 0 #dcdcdc,
+      0 15px 0 #b0b0b0,
+      0 17px 0 #999999,
+      0 25px 30px rgba(0,0,0,0.6);
+    z-index: 30;
+  }
+
+  .tile.selected {
+    transform: translateY(-20px);
+    border-color: var(--accent-gold);
+    box-shadow: 0 0 15px var(--accent-gold-dim);
+  }
+
+  .tile.disabled {
+    filter: grayscale(0.7) brightness(0.8);
+    cursor: default;
+  }
+  .tile.disabled:hover { transform: translateY(0); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+
+  /* Tile Internal Structure */
+  .tile-half {
+    flex: 1; width: 100%;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+    padding: 6px;
+    position: relative;
+  }
+  .tile-divider {
+    height: 1px; background: #ccc; width: 80%; margin: 0 auto;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8);
+  }
+
+  /* Pips */
+  .pip {
+    background: var(--pip-color);
+    border-radius: 50%;
+    width: 8px; height: 8px;
+    margin: auto;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8); /* Indent effect */
+  }
+
+  /* --- 5. Refined Draw Pile --- */
+  .boneyard-container {
+    position: relative;
+    width: 70px; height: 110px;
+    margin-left: 40px;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .boneyard-container:hover { transform: translateY(-5px); }
+  .boneyard-container:active { transform: scale(0.95); }
+
+  /* Stack Effect */
+  .boneyard-stack {
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, #1a237e, #0d47a1);
+    border-radius: 6px;
+    border: 2px solid #fff;
+    box-shadow: 
+      2px 2px 0 #000, 
+      4px 4px 0 #000, 
+      6px 6px 10px rgba(0,0,0,0.6);
+  }
+  /* Inner Pattern */
+  .boneyard-stack::after {
+    content: ''; position: absolute; inset: 6px;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 2px;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.05) 5px, rgba(255,255,255,0.05) 10px);
+  }
+  
+  .boneyard-count {
+    position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+    color: var(--accent-gold); font-size: 0.9rem; font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 10px;
+  }
+
+  /* --- 3. Endpoint Indicators (SVG) --- */
+  .endpoint-group {
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .endpoint-group:hover { transform: scale(1.1); }
+  .endpoint-circle {
+    fill: rgba(212, 175, 55, 0.15);
+    stroke: var(--accent-gold);
+    stroke-width: 2;
+    stroke-dasharray: 4, 3;
+    transition: fill 0.2s;
+  }
+  .endpoint-group:hover .endpoint-circle {
+    fill: rgba(212, 175, 55, 0.4);
+    stroke-width: 3;
+  }
+  .endpoint-text {
+    fill: var(--accent-gold);
+    font-family: sans-serif; font-weight: bold; font-size: 16px;
+    text-anchor: middle; dominant-baseline: central;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+  }
+
+  /* --- Toast Notification --- */
+  #toast {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(0,0,0,0.85);
+    color: white; padding: 12px 24px; border-radius: 4px;
+    pointer-events: none; opacity: 0; transition: all 0.3s;
+    z-index: 200; text-align: center; font-weight: 600;
+    border: 1px solid var(--accent-gold-dim);
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <div class="frame-border"></div>
+
+  <!-- 1. Top Zone: HUD -->
+  <div class="top-bar">
+    <div class="score-pill">
+      <div class="avatar active-turn">🤖</div>
+      <div class="score-info">
+        <div class="score-label">Opponent</div>
+        <div class="score-val" id="cpu-score">0</div>
+      </div>
+    </div>
+
+    <!-- Game Title / Status -->
+    <div style="text-align: center;">
+      <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; opacity: 0.5;">Play With Tiles</div>
+      <div id="turn-indicator" style="font-size: 0.8rem; color: var(--accent-gold);">Your Turn</div>
+    </div>
+
+    <div class="score-pill right">
+      <div class="avatar">👤</div>
+      <div class="score-info" style="text-align: right;">
+        <div class="score-label">You</div>
+        <div class="score-val" id="player-score">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Center Zone: The Board -->
+  <div id="board-area">
+    <svg id="game-board" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <!-- Tile Drop Shadow Filter -->
+        <filter id="tileDropShadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity="0.4"/>
+        </filter>
+        
+        <!-- Pip Shadow (Indent) -->
+        <filter id="pipShadow">
+           <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.6"/>
+        </filter>
+        
+        <!-- The Tile Shape (SVG) -->
+        <g id="tile-shape-svg">
+          <!-- Body -->
+          <rect x="-20" y="-40" width="40" height="80" rx="4" fill="#f4f4f0" stroke="#d0d0c8" stroke-width="1"/>
+          <!-- Bevel Highlight -->
+          <rect x="-18" y="-38" width="36" height="76" rx="2" fill="none" stroke="white" stroke-opacity="0.8" stroke-width="1"/>
+          <!-- Divider Line -->
+          <line x1="-16" y1="0" x2="16" y2="0" stroke="#bbb" stroke-width="1"/>
+        </g>
+
+        <!-- Pip Templates (0-6) - Centered at 0,0 relative to half -->
+        <!-- We will translate these to y=-20 (top half) and y=20 (bottom half) -->
+        <g id="pip-1"><circle cx="0" cy="0" r="4.5" fill="#222" filter="url(#pipShadow)"/></g>
+        <g id="pip-2">
+          <circle cx="-8" cy="-8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-3">
+          <circle cx="0" cy="0" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="-8" cy="-8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-4">
+          <circle cx="-8" cy="-8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="-8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="-8" cy="8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="8" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-5">
+          <use href="#pip-4"/>
+          <circle cx="0" cy="0" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+        </g>
+        <g id="pip-6">
+          <circle cx="-8" cy="-9" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="-9" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="-8" cy="0" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="0" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="-8" cy="9" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+          <circle cx="8" cy="9" r="4.5" fill="#222" filter="url(#pipShadow)"/>
+        </g>
+      </defs>
+
+      <!-- The Chain Layer -->
+      <g id="chain-layer" transform="translate(500, 300)"></g>
+
+      <!-- Endpoint Indicators Layer -->
+      <g id="endpoints-layer"></g>
+    </svg>
+  </div>
+
+  <!-- 3. Bottom Zone: Hand & Draw -->
+  <div class="player-area">
+    
+    <!-- Hand Rack -->
+    <div class="hand-rack" id="player-hand">
+      <!-- Tiles injected via JS -->
+    </div>
+
+    <!-- Draw Pile -->
+    <div class="boneyard-container" onclick="drawTile()">
+      <div class="boneyard-stack"></div>
+      <div class="boneyard-count" id="boneyard-count">12 Left</div>
+    </div>
+  </div>
+
+  <div id="toast">Message</div>
+</div>
+
+<script>
+/**
+ * Game Logic & Rendering
+ */
+const TILE_W = 40; // SVG Width
+const TILE_H = 80; // SVG Height
+const GAP = 4;     // Gap between tiles
+
+// Pip Layout Map
+const PIP_MAP = {
+  0: null, 1: 'pip-1', 2: 'pip-2', 3: 'pip-3', 4: 'pip-4', 5: 'pip-5', 6: 'pip-6'
+};
+
+// State
+let boardChain = []; // Array of {a, b, rotation, x, y}
+let playerHand = [];
+let boneyard = [];
+let leftEndVal = null;
+let rightEndVal = null;
+let selectedTileIdx = -1;
+
+// --- Initialization ---
+function initGame() {
+  // Generate Double Six Set
+  for(let i=0; i<=6; i++) {
+    for(let j=i; j<=6; j++) {
+      boneyard.push({a: i, b: j});
+    }
+  }
+  // Shuffle
+  boneyard.sort(() => Math.random() - 0.5);
+
+  // Deal 6 to player
+  for(let i=0; i<6; i++) playerHand.push(boneyard.pop());
+
+  // Start Board with [6,6]
+  const startTile = {a: 6, b: 6, rotation: 0}; // 0 = Vertical
+  boardChain.push(startTile);
+  leftEndVal = 6;
+  rightEndVal = 6;
+
+  renderHand();
+  renderBoard();
+  updateUI();
+}
+
+// --- Rendering: Board (SVG) ---
+function createBoardTileSVG(tileData) {
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  
+  // Transform: Move to position, then rotate
+  // Note: In SVG, rotation is around 0,0. We translate to pos, then rotate.
+  g.setAttribute("transform", `translate(${tileData.x}, ${tileData.y}) rotate(${tileData.rotation})`);
+  g.setAttribute("filter", "url(#tileDropShadow)");
+
+  // Shape
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  shape.setAttribute("href", "#tile-shape-svg");
+  g.appendChild(shape);
+
+  // Pips Top (Value A) -> y = -20
+  if(PIP_MAP[tileData.a]) {
+    const pipsA = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsA.setAttribute("href", `#${PIP_MAP[tileData.a]}`);
+    pipsA.setAttribute("transform", "translate(0, -20)");
+    g.appendChild(pipsA);
+  }
+
+  // Pips Bottom (Value B) -> y = 20
+  if(PIP_MAP[tileData.b]) {
+    const pipsB = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    pipsB.setAttribute("href", `#${PIP_MAP[tileData.b]}`);
+    pipsB.setAttribute("transform", "translate(0, 20)");
+    g.appendChild(pipsB);
+  }
+
+  return g;
+}
+
+function renderBoard() {
+  const container = document.getElementById('chain-layer');
+  const endsLayer = document.getElementById('endpoints-layer');
+  container.innerHTML = '';
+  endsLayer.innerHTML = '';
+
+  if (boardChain.length === 0) return;
+
+  // 1. Calculate Layout (Simple Linear Center-Out)
+  // We need to determine X coordinates for all tiles to center the chain.
+  
+  // Helper to get width of a tile based on rotation
+  const getW = (rot) => (rot === 90 || rot === -90) ? TILE_H : TILE_W;
+
+  // Calculate total width
+  let totalW = 0;
+  boardChain.forEach(t => totalW += getW(t.rotation) + GAP);
+  totalW -= GAP; // Remove last gap
+
+  let currentX = -totalW / 2;
+
+  // 2. Render Tiles
+  boardChain.forEach((t) => {
+    const w = getW(t.rotation);
+    t.x = currentX + w/2; // Center anchor
+    t.y = 0; // Center Y
+    
+    const svgTile = createBoardTileSVG(t);
+    container.appendChild(svgTile);
+    
+    currentX += w + GAP;
+  });
+
+  // 3. Render Endpoints
+  // Left End
+  const first = boardChain[0];
+  const wFirst = getW(first.rotation);
+  const leftX = -totalW/2 - (wFirst/2) - GAP - 25; // 25 is approx radius of endpoint
+  
+  const leftEp = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  leftEp.setAttribute("class", "endpoint-group");
+  leftEp.setAttribute("transform", `translate(${leftX}, 0)`);
+  leftEp.onclick = () => playTileToSide('left');
+  leftEp.innerHTML = `
+    <circle cx="0" cy="0" r="18" class="endpoint-circle"/>
+    <text x="0" y="2" class="endpoint-text">${leftEndVal}</text>
+  `;
+  endsLayer.appendChild(leftEp);
+
+  // Right End
+  const last = boardChain[boardChain.length-1];
+  const wLast = getW(last.rotation);
+  const rightX = (totalW/2) + (wLast/2) + GAP + 25;
+
+  const rightEp = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  rightEp.setAttribute("class", "endpoint-group");
+  rightEp.setAttribute("transform", `translate(${rightX}, 0)`);
+  rightEp.onclick = () => playTileToSide('right');
+  rightEp.innerHTML = `
+    <circle cx="0" cy="0" r="18" class="endpoint-circle"/>
+    <text x="0" y="2" class="endpoint-text">${rightEndVal}</text>
+  `;
+  endsLayer.appendChild(rightEp);
+}
+
+// --- Rendering: Hand (HTML) ---
+function renderHand() {
+  const rack = document.getElementById('player-hand');
+  rack.innerHTML = '';
+  
+  playerHand.forEach((tile, idx) => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    
+    // Check validity
+    const valid = (tile.a === leftEndVal || tile.b === leftEndVal || 
+                  tile.a === rightEndVal || tile.b === rightEndVal);
+    if (!valid) el.classList.add('disabled');
+    if (idx === selectedTileIdx) el.classList.add('selected');
+
+    el.innerHTML = `
+      <div class="tile-half">${getPipsHTML(tile.a)}</div>
+      <div class="tile-divider"></div>
+      <div class="tile-half">${getPipsHTML(tile.b)}</div>
+    `;
+    
+    el.onclick = () => selectTile(idx);
+    rack.appendChild(el);
+  });
+}
+
+function getPipsHTML(n) {
+  if(n===0) return '';
+  let html = '';
+  const positions = {
+    1: [[2,2]],
+    2: [[1,1], [3,3]],
+    3: [[1,1], [2,2], [3,3]],
+    4: [[1,1], [3,1], [1,3], [3,3]],
+    5: [[1,1], [3,1], [2,2], [1,3], [3,3]],
+    6: [[1,1], [3,1], [1,2], [3,2], [1,3], [3,3]]
+  };
+  
+  positions[n].forEach(([r,c]) => {
+    html += `<div style="grid-area: ${r} / ${c}"><div class="pip"></div></div>`;
+  });
+  return html;
+}
+
+// --- Interaction Logic ---
+
+function selectTile(idx) {
+  if (selectedTileIdx === idx) {
+    selectedTileIdx = -1; // Deselect
+  } else {
+    const tile = playerHand[idx];
+    // Check if playable
+    if (tile.a !== leftEndVal && tile.b !== leftEndVal && 
+        tile.a !== rightEndVal && tile.b !== rightEndVal) {
+      showToast("No matching ends");
+      return;
+    }
+    selectedTileIdx = idx;
+  }
+  renderHand();
+}
+
+function playTileToSide(side) {
+  if (selectedTileIdx === -1) {
+    showToast("Select a tile first");
+    return;
+  }
+
+  const tile = playerHand[selectedTileIdx];
+  let played = false;
+  let newTileData = null;
+
+  // Logic: 
+  // Vertical (0 deg): Top=A, Bottom=B
+  // Horizontal (90 deg): Left=B, Right=A (Standard rotation)
+  
+  if (side === 'left') {
+    // We are attaching to the LEFT of the chain.
+    // The chain's left end value is `leftEndVal`.
+    // We need the RIGHT side of our new tile to match `leftEndVal`.
+    
+    if (tile.a === leftEndVal) {
+      // A matches. A is Top. We need A on Right.
+      // Rotate 90deg (Clockwise). Top moves to Right.
+      // New Left end becomes B.
+      newTileData = { a: tile.b, b: tile.a, rotation: 90 };
+      leftEndVal = tile.b;
+      played = true;
+    } else if (tile.b === leftEndVal) {
+      // B matches. B is Bottom. We need B on Right.
+      // Rotate -90deg (Counter-Clockwise). Bottom moves to Right.
+      // New Left end becomes A.
+      newTileData = { a: tile.a, b: tile.b, rotation: -90 };
+      leftEndVal = tile.a;
+      played = true;
+    }
+  } else if (side === 'right') {
+    // We are attaching to the RIGHT of the chain.
+    // The chain's right end value is `rightEndVal`.
+    // We need the LEFT side of our new tile to match `rightEndVal`.
+
+    if (tile.b === rightEndVal) {
+      // B matches. B is Bottom. We need B on Left.
+      // Rotate 90deg. Bottom moves to Left.
+      // New Right end becomes A.
+      newTileData = { a: tile.a, b: tile.b, rotation: 90 };
+      rightEndVal = tile.a;
+      played = true;
+    } else if (tile.a === rightEndVal) {
+      // A matches. A is Top. We need A on Left.
+      // Rotate -90deg. Top moves to Left.
+      // New Right end becomes B.
+      newTileData = { a: tile.b, b: tile.a, rotation: -90 }; // Swap visual a/b to match rotation logic
+      // Wait, if we rotate -90, Top(A) is Left. Bottom(B) is Right.
+      // So the tile is [A, B] visually left-to-right.
+      // But our SVG definition is [Top, Bottom].
+      // Let's just swap the values in the object to match the visual rotation logic
+      // to keep it simple for the renderer.
+      // Actually, let's stick to the renderer logic:
+      // Rotation 90: Left is B, Right is A.
+      // Rotation -90: Left is A, Right is B.
+      
+      // So if A matches Right End:
+      // We need A on Left. Rotation -90.
+      // New Right End is B.
+      newTileData = { a: tile.a, b: tile.b, rotation: -90 };
+      rightEndVal = tile.b;
+      played = true;
+    }
+  }
+
+  if (played) {
+    if (side === 'left') boardChain.unshift(newTileData);
+    else boardChain.push(newTileData);
+    
+    playerHand.splice(selectedTileIdx, 1);
+    selectedTileIdx = -1;
+    
+    renderHand();
+    renderBoard();
+    updateUI();
+    checkWin();
+  } else {
+    showToast("Invalid move");
+  }
+}
+
+function drawTile() {
+  if (boneyard.length > 0) {
+    const t = boneyard.pop();
+    playerHand.push(t);
+    renderHand();
+    updateUI();
+    showToast("Drawn Tile");
+  } else {
+    showToast("Boneyard Empty");
+  }
+}
+
+function updateUI() {
+  document.getElementById('boneyard-count').textContent = boneyard.length + " Left";
+  // Simulate scores
+  document.getElementById('player-score').textContent = Math.floor(Math.random() * 20);
+  document.getElementById('cpu-score').textContent = Math.floor(Math.random() * 20);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+
+function checkWin() {
+  if (playerHand.length === 0) {
+    showToast("You Win!");
+  }
+}
+
+// Start
+initGame();
+
+</script>
+</body>
+</html>

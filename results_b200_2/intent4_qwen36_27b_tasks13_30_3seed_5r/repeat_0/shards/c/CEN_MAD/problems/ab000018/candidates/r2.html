@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Poly Hop - Design Overhaul</title>
+    <style>
+        :root {
+            --font-ui: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --font-display: 'Impact', 'Arial Black', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #222;
+            font-family: var(--font-ui);
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay System */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through to canvas/controls */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px;
+        }
+
+        /* HUD - Top Right */
+        .hud-area {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .score-pill {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 20px;
+            border-radius: 30px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 90px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .pill-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #aaa;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .pill-value {
+            font-family: var(--font-display);
+            font-size: 28px;
+            line-height: 1;
+            color: #fff;
+            text-shadow: 0 2px 0 rgba(0,0,0,0.5);
+        }
+
+        .pill-value.gold { color: #FFD700; }
+
+        /* Controls - Bottom Left */
+        .controls-area {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            pointer-events: auto;
+            transform: scale(1);
+            transition: transform 0.1s;
+        }
+
+        .controls-area:active {
+            transform: scale(0.95);
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: 60px 60px 60px;
+            grid-template-rows: 60px 60px;
+            gap: 8px;
+        }
+
+        .d-btn {
+            background: linear-gradient(145deg, #444, #222);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 14px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: rgba(255,255,255,0.7);
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 
+                0 6px 0 #111, 
+                0 8px 10px rgba(0,0,0,0.4);
+            transition: transform 0.05s, box-shadow 0.05s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Shine effect on buttons */
+        .d-btn::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 50%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.1), transparent);
+            border-radius: 12px 12px 0 0;
+        }
+
+        .d-btn:active {
+            transform: translateY(6px);
+            box-shadow: 
+                0 0 0 #111, 
+                inset 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        .d-btn.up { grid-column: 2; grid-row: 1; }
+        .d-btn.left { grid-column: 1; grid-row: 2; }
+        .d-btn.down { grid-column: 2; grid-row: 2; }
+        .d-btn.right { grid-column: 3; grid-row: 2; }
+
+        /* Hide text labels completely */
+        .controls-hint { display: none; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            .controls-area { bottom: 20px; left: 20px; transform: scale(0.8); transform-origin: bottom left; }
+            .hud-area { top: 15px; right: 15px; }
+            .score-pill { padding: 6px 15px; min-width: 70px; }
+            .pill-value { font-size: 22px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div class="hud-area">
+            <div class="score-pill">
+                <div class="pill-label">Best</div>
+                <div class="pill-value gold">42</div>
+            </div>
+            <div class="score-pill">
+                <div class="pill-label">Score</div>
+                <div class="pill-value" id="current-score">12</div>
+            </div>
+        </div>
+
+        <div class="controls-area">
+            <div class="d-pad">
+                <div class="d-btn up" onclick="handleInput(0, 1)">▲</div>
+                <div class="d-btn left" onclick="handleInput(-1, 0)">◀</div>
+                <div class="d-btn down" onclick="handleInput(0, -1)">▼</div>
+                <div class="d-btn right" onclick="handleInput(1, 0)">▶</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * POLY HOP - DESIGN OVERHAUL
+ * 
+ * Key Changes:
+ * 1. Perspective: Camera lowered significantly. FOV tightened. Grid takes up 70% of screen.
+ * 2. Colors: High contrast palette. Deep blues, vibrant greens, dark asphalt.
+ * 3. Assets: Low-poly 3D cars, trees, and a detailed chicken character.
+ * 4. Depth: Added shadows, side-faces to terrain, and atmospheric perspective.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONFIGURATION ---
+const CONFIG = {
+    fov: 300,           // Tighter FOV for less distortion
+    cameraHeight: 40,   // Lower camera height
+    cameraDist: 120,    // Distance behind player
+    laneHeight: 50,     // Depth of one lane
+    laneWidth: 600,     // World width
+    colors: {
+        skyTop: '#5D9CEC',       // Brighter blue top
+        skyBottom: '#AC92EC',    // Purple-ish horizon for depth
+        grass: '#78E08F',        // Vibrant Green
+        grassSide: '#58D68A',
+        road: '#434A54',         // Dark Asphalt
+        roadSide: '#2F353F',
+        water: '#48B1BF',        // Deep Cyan
+        waterSide: '#368F9A',
+        wood: '#E1B183',
+        woodSide: '#C88A58',
+        leaves: '#43A047',
+        leavesSide: '#2E7D32'
+    }
+};
+
+// --- STATE ---
+let state = {
+    width: 0,
+    height: 0,
+    centerX: 0,
+    centerY: 0,
+    playerZ: 0,
+    lanes: [],
+    score: 12
+};
+
+// --- UTILS ---
+
+// Projection Function
+// Z increases away from camera. 
+// Camera is at (0, cameraHeight, playerZ - cameraDist)
+function project(x, y, z) {
+    const relativeZ = z - (state.playerZ - CONFIG.cameraDist);
+    
+    // Cull if behind camera
+    if (relativeZ <= 10) return { x: 0, y: 0, scale: 0, visible: false };
+
+    const scale = CONFIG.fov / relativeZ;
+    
+    // Screen coordinates
+    // Y-axis: We want Y=0 (ground) to be roughly 70% down the screen.
+    // CenterY is 50%. We add an offset.
+    const screenX = state.centerX + (x * scale);
+    const screenY = (state.centerY + 150) - ((y - CONFIG.cameraHeight) * scale); 
+    
+    return { x: screenX, y: screenY, scale: scale, visible: true };
+}
+
+// Color Helper
+function hexToRgb(hex) {
+    let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+}
+
+function adjustColor(hex, amount) {
+    let rgb = hexToRgb(hex);
+    if(!rgb) return hex;
+    let r = Math.min(255, Math.max(0, rgb.r + amount));
+    let g = Math.min(255, Math.max(0, rgb.g + amount));
+    let b = Math.min(255, Math.max(0, rgb.b + amount));
+    return `rgb(${r},${g},${b})`;
+}
+
+// --- GAME OBJECTS ---
+
+class Obstacle {
+    constructor(type, x, z) {
+        this.type = type; // 'tree'
+        this.x = x;
+        this.z = z;
+        this.width = 30;
+        this.height = 50;
+    }
+
+    draw() {
+        // Simple Low Poly Tree
+        const pBase = project(this.x, 0, this.z);
+        if (!pBase.visible) return;
+
+        const s = pBase.scale;
+        
+        // Trunk
+        const trunkW = 10 * s;
+        const trunkH = 15 * s;
+        ctx.fillStyle = CONFIG.colors.woodSide;
+        ctx.fillRect(pBase.x - trunkW/2, pBase.y - trunkH, trunkW, trunkH);
+
+        // Leaves (Pyramid)
+        const leafH = 35 * s;
+        const leafW = 25 * s;
+        
+        ctx.beginPath();
+        ctx.moveTo(pBase.x, pBase.y - trunkH - leafH); // Top
+        ctx.lineTo(pBase.x - leafW, pBase.y - trunkH); // Left
+        ctx.lineTo(pBase.x + leafW, pBase.y - trunkH); // Right
+        ctx.closePath();
+        ctx.fillStyle = CONFIG.colors.leaves;
+        ctx.fill();
+        
+        // Side face for leaves (Right)
+        ctx.beginPath();
+        ctx.moveTo(pBase.x, pBase.y - trunkH - leafH);
+        ctx.lineTo(pBase.x + leafW, pBase.y - trunkH);
+        ctx.lineTo(pBase.x + leafW * 0.5, pBase.y - trunkH - leafH * 0.5); // Fake 3D point
+        ctx.closePath();
+        ctx.fillStyle = CONFIG.colors.leavesSide;
+        ctx.fill();
+    }
+}
+
+class Car {
+    constructor(x, direction, typeIdx) {
+        this.x = x;
+        this.z = 0; // Relative to lane
+        this.direction = direction; // 1 or -1
+        this.speed = (2 + Math.random() * 3) * direction;
+        
+        // Car Types
+        const types = [
+            { w: 50, h: 30, d: 70, color: '#FF6B6B' }, // Red Sedan
+            { w: 60, h: 45, d: 90, color: '#4D96FF' }, // Blue Truck
+            { w: 45, h: 32, d: 60, color: '#FFD93D' }, // Yellow Taxi
+            { w: 55, h: 35, d: 75, color: '#6BCB77' }  // Green Coupe
+        ];
+        this.dim = types[typeIdx % types.length];
+    }
+
+    update() {
+        this.x += this.speed;
+        // Wrap logic handled by Lane
+    }
+
+    draw(laneZ) {
+        const cx = this.x;
+        const cz = laneZ + (CONFIG.laneHeight / 2); // Center of lane Z
+        const w = this.dim.w;
+        const h = this.dim.h;
+        const d = this.dim.d;
+
+        // Shadow
+        const sP = project(cx, 0, cz);
+        if (!sP.visible) return;
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.ellipse(sP.x, sP.y, (w/1.5)*sP.scale, (d/3)*sP.scale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Vertices
+        // Bottom
+        const bfl = project(cx - w/2, 0, cz - d/2);
+        const bfr = project(cx + w/2, 0, cz - d/2);
+        const bbl = project(cx - w/2, 0, cz + d/2);
+        const bbr = project(cx + w/2, 0, cz + d/2);
+        // Top
+        const tfl = project(cx - w/2, h, cz - d/2);
+        const tfr = project(cx + w/2, h, cz - d/2);
+        const tbl = project(cx - w/2, h, cz + d/2);
+        const tbr = project(cx + w/2, h, cz + d/2);
+
+        // Draw Order: Top, Front/Back, Sides
+        
+        // Top Face
+        ctx.fillStyle = adjustColor(this.dim.color, 40);
+        ctx.beginPath();
+        ctx.moveTo(tfl.x, tfl.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tbl.x, tbl.y);
+        ctx.fill();
+
+        // Side Face (Right)
+        ctx.fillStyle = adjustColor(this.dim.color, -20);
+        ctx.beginPath();
+        ctx.moveTo(bfr.x, bfr.y); ctx.lineTo(bbr.x, bbr.y);
+        ctx.lineTo(tbr.x, tbr.y); ctx.lineTo(tfr.x, tfr.y);
+        ctx.fill();
+
+        // Front Face (Top of car)
+        ctx.fillStyle = this.dim.color;
+        ctx.beginPath();
+        ctx.moveTo(bfl.x, bfl.y); ctx.lineTo(bfr.x, bfr.y);
+        ctx.lineTo(tfr.x, tfr.y); ctx.lineTo(tfl.x, tfl.y);
+        ctx.fill();
+        
+        // Outline for low poly feel
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+}
+
+class Lane {
+    constructor(zIndex) {
+        this.zIndex = zIndex;
+        this.z = zIndex * CONFIG.laneHeight;
+        this.type = this.determineType(zIndex);
+        this.obstacles = [];
+        this.cars = [];
+
+        // Populate
+        if (this.type === 'road') {
+            this.speed = (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random() * 2);
+            // Add cars
+            const count = 1 + Math.floor(Math.random() * 2);
+            for(let i=0; i<count; i++) {
+                this.cars.push(new Car(-CONFIG.laneWidth + (i * 300), this.speed, Math.floor(Math.random()*4)));
+            }
+        } else if (this.type === 'grass') {
+            // Add trees randomly
+            if (Math.random() > 0.3) {
+                const treeX = (Math.random() * CONFIG.laneWidth * 0.8) - (CONFIG.laneWidth * 0.4);
+                this.obstacles.push(new Obstacle('tree', treeX, this.z));
+            }
+        }
+    }
+
+    determineType(z) {
+        // Rhythm: Grass, Grass, Road, Road, Water, Grass
+        const mod = z % 6;
+        if (mod < 2) return 'grass';
+        if (mod < 4) return 'road';
+        if (mod === 4) return 'water';
+        return 'grass';
+    }
+
+    update() {
+        if (this.type === 'road') {
+            this.cars.forEach(car => {
+                car.x += car.speed;
+                const limit = CONFIG.laneWidth / 1.2;
+                if (car.speed > 0 && car.x > limit) car.x = -limit;
+                if (car.speed < 0 && car.x < -limit) car.x = limit;
+            });
+        }
+    }
+
+    draw() {
+        const p1 = project(-CONFIG.laneWidth/2, 0, this.z);
+        const p2 = project(CONFIG.laneWidth/2, 0, this.z);
+        const p3 = project(CONFIG.laneWidth/2, 0, this.z + CONFIG.laneHeight);
+        const p4 = project(-CONFIG.laneWidth/2, 0, this.z + CONFIG.laneHeight);
+
+        if (!p1.visible) return;
+
+        // 1. Draw Lane Geometry
+        let topColor, sideColor;
+        if (this.type === 'grass') {
+            sideColor = CONFIG.colors.grassSide;
+            topColor = (this.zIndex % 2 === 0) ? CONFIG.colors.grass : adjustColor(CONFIG.colors.grass, -10);
+        } else if (this.type === 'road') {
+            sideColor = CONFIG.colors.roadSide;
+            topColor = CONFIG.colors.road;
+        } else {
+            sideColor = CONFIG.colors.waterSide;
+            topColor = CONFIG.colors.water;
+        }
+
+        // Draw Side (Thickness)
+        ctx.fillStyle = sideColor;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+        // Project down slightly for thickness visual
+        const thickness = 5;
+        const p1b = project(-CONFIG.laneWidth/2, -thickness, this.z);
+        const p2b = project(CONFIG.laneWidth/2, -thickness, this.z);
+        ctx.lineTo(p2b.x, p2b.y); ctx.lineTo(p1b.x, p1b.y);
+        ctx.fill();
+
+        // Draw Top
+        ctx.fillStyle = topColor;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+        ctx.fill();
+
+        // 2. Lane Details
+        if (this.type === 'road') {
+            // Dashed line
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = Math.max(1, 2 * p1.scale);
+            ctx.setLineDash([10, 15]);
+            ctx.beginPath();
+            const c1 = project(0, 0, this.z);
+            const c2 = project(0, 0, this.z + CONFIG.laneHeight);
+            ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else if (this.type === 'water') {
+            // Waves
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 2 * p1.scale;
+            const mid = project(0, 0, this.z + CONFIG.laneHeight/2);
+            ctx.beginPath();
+            ctx.moveTo(mid.x - 40*p1.scale, mid.y);
+            ctx.lineTo(mid.x + 40*p1.scale, mid.y);
+            ctx.stroke();
+        }
+
+        // 3. Draw Cars & Obstacles
+        // Sort by Z to ensure correct overlap with player later if needed
+        // For now, draw them on top of lane
+        this.cars.forEach(car => car.draw(this.z));
+        this.obstacles.forEach(obs => obs.draw());
+    }
+}
+
+class Player {
+    constructor() {
+        this.x = 0;
+        this.z = 0;
+        this.targetX = 0;
+        this.targetZ = 0;
+        this.y = 0;
+        this.vy = 0;
+        this.isMoving = false;
+        this.frame = 0;
+    }
+
+    move(dx, dy) {
+        if (this.isMoving) return;
+        this.targetX += dx * 40;
+        this.targetZ += dy * CONFIG.laneHeight;
+        this.isMoving = true;
+        this.vy = 6; // Hop height
+    }
+
+    update() {
+        // Move X/Z
+        const dx = this.targetX - this.x;
+        const dz = this.targetZ - this.z;
+        
+        if (Math.abs(dx) > 0.1) this.x += dx * 0.2;
+        if (Math.abs(dz) > 0.1) this.z += dz * 0.2;
+
+        // Hop Physics
+        this.y += this.vy;
+        this.vy -= 0.4; // Gravity
+        if (this.y <= 0) {
+            this.y = 0;
+            this.vy = 0;
+            this.isMoving = false;
+            this.x = this.targetX;
+            this.z = this.targetZ;
+            state.playerZ = this.z;
+        }
+    }
+
+    draw() {
+        const sP = project(this.x, 0, this.z);
+        if (!sP.visible) return;
+
+        // Shadow (stays on ground)
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(sP.x, sP.y, 15*sP.scale, 8*sP.scale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Draw Character at (this.x, this.y, this.z)
+        const pX = this.x;
+        const pY = this.y;
+        const pZ = this.z;
+
+        // Helper for relative projection
+        const p = (ox, oy, oz) => project(pX + ox, pY + oy, pZ + oz);
+
+        // --- LOW POLY CHICKEN ---
+        // Body (Cube-ish)
+        const bodyH = 30, bodyW = 25, bodyD = 25;
+        const b0 = p(-bodyW/2, 0, -bodyD/2); // Front Left Bottom
+        const b1 = p(bodyW/2, 0, -bodyD/2);  // Front Right Bottom
+        const b2 = p(bodyW/2, 0, bodyD/2);   // Back Right Bottom
+        const b3 = p(-bodyW/2, 0, bodyD/2);  // Back Left Bottom
+        const b4 = p(-bodyW/2, bodyH, -bodyD/2); // Front Left Top
+        const b5 = p(bodyW/2, bodyH, -bodyD/2);  // Front Right Top
+        const b6 = p(bodyW/2, bodyH, bodyD/2);   // Back Right Top
+        const b7 = p(-bodyW/2, bodyH, bodyD/2);  // Back Left Top
+
+        // Draw Order: Back Faces -> Sides -> Front -> Top
+        
+        // Top Face (White)
+        ctx.fillStyle = '#FFF';
+        ctx.beginPath();
+        ctx.moveTo(b4.x, b4.y); ctx.lineTo(b5.x, b5.y);
+        ctx.lineTo(b6.x, b6.y); ctx.lineTo(b7.x, b7.y);
+        ctx.fill();
+
+        // Right Side (Shadow)
+        ctx.fillStyle = '#E0E0E0';
+        ctx.beginPath();
+        ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y);
+        ctx.lineTo(b6.x, b6.y); ctx.lineTo(b5.x, b5.y);
+        ctx.fill();
+
+        // Front Face (White)
+        ctx.fillStyle = '#FFF';
+        ctx.beginPath();
+        ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y);
+        ctx.lineTo(b5.x, b5.y); ctx.lineTo(b4.x, b4.y);
+        ctx.fill();
+
+        // --- DETAILS ---
+        // Eyes
+        const eyeY = b4.y + (b0.y - b4.y) * 0.4;
+        const eyeX1 = b4.x + (b1.x - b4.x) * 0.3;
+        const eyeX2 = b4.x + (b1.x - b4.x) * 0.7;
+        const eyeSize = 3 * sP.scale;
+        
+        ctx.fillStyle = '#333';
+        ctx.beginPath(); ctx.arc(eyeX1, eyeY, eyeSize, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(eyeX2, eyeY, eyeSize, 0, Math.PI*2); ctx.fill();
+
+        // Beak
+        const beakY = b4.y + (b0.y - b4.y) * 0.6;
+        const beakX = (b4.x + b1.x) / 2;
+        ctx.fillStyle = '#FF9800';
+        ctx.beginPath();
+        ctx.moveTo(beakX, beakY);
+        ctx.lineTo(beakX - 5*sP.scale, beakY + 5*sP.scale);
+        ctx.lineTo(beakX + 5*sP.scale, beakY + 5*sP.scale);
+        ctx.fill();
+
+        // Comb (Red)
+        ctx.fillStyle = '#D32F2F';
+        ctx.beginPath();
+        ctx.moveTo(b4.x, b4.y); ctx.lineTo(b5.x, b5.y);
+        ctx.lineTo((b4.x+b5.x)/2, b4.y - 8*sP.scale);
+        ctx.fill();
+    }
+}
+
+// --- ENGINE ---
+
+const player = new Player();
+
+function handleInput(dx, dy) {
+    player.move(dx, dy);
+    if (dy > 0) {
+        state.score++;
+        document.getElementById('current-score').innerText = state.score;
+    }
+}
+
+window.addEventListener('keydown', (e) => {
+    switch(e.key) {
+        case 'ArrowUp': case 'w': handleInput(0, 1); break;
+        case 'ArrowDown': case 's': handleInput(0, -1); break;
+        case 'ArrowLeft': case 'a': handleInput(-1, 0); break;
+        case 'ArrowRight': case 'd': handleInput(1, 0); break;
+    }
+});
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    state.width = canvas.width;
+    state.height = canvas.height;
+    state.centerX = state.width / 2;
+    state.centerY = state.height / 2;
+}
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
+    // Generate initial world
+    for (let i = -5; i < 20; i++) {
+        state.lanes.push(new Lane(i));
+    }
+    loop();
+}
+
+function loop() {
+    // 1. Background
+    const grad = ctx.createLinearGradient(0, 0, 0, state.height);
+    grad.addColorStop(0, CONFIG.colors.skyTop);
+    grad.addColorStop(1, CONFIG.colors.skyBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    // 2. Update
+    player.update();
+    state.lanes.forEach(l => l.update());
+
+    // Infinite Scroll Logic
+    const pLane = Math.floor(player.z / CONFIG.laneHeight);
+    while (state.lanes.length > 0 && state.lanes[0].zIndex < pLane - 5) state.lanes.shift();
+    while (state.lanes.length < 20) {
+        const last = state.lanes[state.lanes.length-1];
+        state.lanes.push(new Lane(last.zIndex + 1));
+    }
+
+    // 3. Render (Back to Front)
+    // We must interleave lanes and player correctly.
+    // Simple approach: Draw all lanes behind player, then player, then lanes in front?
+    // Actually, since player moves forward, we just draw lanes from furthest Z to closest Z.
+    // If a lane is at same Z as player, we need to be careful.
+    // But player is usually "on" a lane.
+    
+    const sorted = [...state.lanes].sort((a, b) => b.z - a.z);
+    
+    sorted.forEach(lane => {
+        // Optimization: Don't draw if way behind
+        if (lane.z < state.playerZ - CONFIG.cameraDist - 50) return;
+        
+        // If lane is in front of player, draw it.
+        // If lane is under player, draw it.
+        // We draw player AFTER lanes that are "behind" or "under" it?
+        // Actually, standard painter's algo: Furthest first.
+        // Player Z is approx lane Z.
+        // We will draw the player manually in the loop when we hit the player's lane index.
+        
+        lane.draw();
+        
+        // Draw player if we are at the lane where the player is standing
+        // (Approximate Z check)
+        if (lane.zIndex <= pLane && lane.zIndex > pLane - 2) {
+             player.draw();
+        }
+    });
+
+    // Fallback draw if player is behind all lanes (rare)
+    if (state.lanes[0].zIndex < pLane) player.draw();
+
+    requestAnimationFrame(loop);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bounce & Dash - Adventure Awaits</title>
+    <style>
+        :root {
+            /* Palette - Deep Sky & Vibrant Foreground */
+            --c-sky-top: #0052D4;
+            --c-sky-bot: #6FB1FC;
+            --c-grass: #4CAF50;
+            --c-grass-light: #81C784;
+            --c-grass-dark: #2E7D32;
+            --c-dirt: #5D4037;
+            --c-dirt-light: #795548;
+            --c-block: #FF7043;
+            --c-accent: #FFD700;
+            --c-hero: #FF5252;
+            --c-hero-dark: #C62828;
+            --c-text: #ffffff;
+            
+            /* UI System Variables */
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-blur: 12px;
+            --radius-lg: 20px; /* Unified Geometry */
+            --radius-md: 12px;
+            --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.3);
+            --shadow-text: 0 4px 0 rgba(0,0,0,0.2);
+            
+            /* Typography */
+            --font-stack: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --font-display: 'Impact', 'Arial Black', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #000;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-stack);
+            overflow: hidden;
+            color: var(--c-text);
+        }
+
+        /* --- GAME SCREEN CONTAINER --- */
+        #game-screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 1920px;
+            max-height: 1080px;
+            background: linear-gradient(to bottom, var(--c-sky-top), var(--c-sky-bot));
+            overflow: hidden;
+            transition: background 0.8s ease;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.5);
+        }
+
+        /* --- PARALLAX BACKGROUND LAYERS --- */
+        .bg-layer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Sun/Moon */
+        .sun {
+            position: absolute;
+            top: 10%;
+            right: 15%;
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, #fff 20%, rgba(255,255,255,0.1) 70%);
+            border-radius: 50%;
+            box-shadow: 0 0 60px rgba(255, 255, 255, 0.4);
+            opacity: 0.9;
+        }
+
+        /* Clouds */
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 40px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+            animation: floatCloud 40s linear infinite;
+        }
+        .cloud::after, .cloud::before {
+            content: ''; position: absolute; background: inherit; border-radius: 50%;
+        }
+        
+        /* Cloud Variations */
+        .c1 { width: 180px; height: 60px; top: 12%; left: -10%; }
+        .c1::after { width: 80px; height: 80px; top: -40px; left: 30px; }
+        .c1::before { width: 70px; height: 70px; top: -30px; left: 90px; }
+
+        .c2 { width: 120px; height: 45px; top: 25%; left: 40%; opacity: 0.6; animation-duration: 55s; }
+        .c2::after { width: 50px; height: 50px; top: -25px; left: 20px; }
+
+        .c3 { width: 200px; height: 70px; top: 8%; left: 70%; animation-duration: 35s; }
+        .c3::after { width: 90px; height: 90px; top: -45px; left: 40px; }
+        .c3::before { width: 80px; height: 80px; top: -35px; left: 110px; }
+
+        /* Distant Mountains (Vectorized & Expressive) */
+        .mountains-svg {
+            position: absolute;
+            bottom: 20%; /* Sits behind ground */
+            width: 110%;
+            left: -5%;
+            height: 400px;
+            z-index: 1;
+            filter: drop-shadow(0 -10px 20px rgba(0,0,0,0.1));
+        }
+
+        /* --- LEVEL CANVAS (The "Game World") --- */
+        #level-canvas {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 45%;
+            z-index: 5;
+        }
+
+        /* --- HERO --- */
+        #hero-container {
+            position: absolute;
+            bottom: 16%; /* Positioned on ground */
+            left: 18%;
+            z-index: 10;
+            width: 100px;
+            height: 100px;
+            transition: left 0.1s linear;
+            filter: drop-shadow(0px 15px 5px rgba(0,0,0,0.4));
+        }
+
+        /* --- UI LAYER --- */
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20;
+            pointer-events: none; 
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 40px;
+        }
+
+        /* --- HEADER --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            pointer-events: auto;
+        }
+
+        .game-title-group {
+            position: relative;
+            z-index: 2;
+        }
+
+        .game-title {
+            font-family: var(--font-display);
+            font-size: 7rem;
+            line-height: 0.9;
+            color: #fff;
+            text-transform: uppercase;
+            text-shadow: 
+                6px 6px 0px var(--c-hero-dark),
+                12px 12px 0px rgba(0,0,0,0.1);
+            letter-spacing: -2px;
+            transform: skewX(-5deg);
+            margin-left: 20px;
+        }
+        
+        .game-title span {
+            color: var(--c-accent);
+            display: inline-block;
+            transform: skewX(5deg); /* Counter skew for text inside */
+            animation: bounceTitle 3s infinite ease-in-out;
+        }
+
+        /* Thematic World Label */
+        .world-label {
+            margin-top: 10px;
+            margin-left: 24px;
+            display: inline-block;
+            background: linear-gradient(to right, #8D6E63, #5D4037);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 3px solid #3E2723;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            position: relative;
+            transform: skewX(-5deg);
+        }
+        
+        .world-label::before, .world-label::after {
+            content: '';
+            position: absolute;
+            width: 8px; height: 8px;
+            background: #3E2723;
+            border-radius: 50%;
+            top: 50%; transform: translateY(-50%);
+        }
+        .world-label::before { left: 8px; }
+        .world-label::after { right: 8px; }
+
+        .world-label span {
+            display: block;
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            color: #fff;
+            letter-spacing: 1px;
+            text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+            transform: skewX(5deg); /* Counter skew */
+        }
+
+        /* --- COLLECTIBLES TRACKER --- */
+        .tracker-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--glass-border);
+            padding: 12px 30px;
+            border-radius: var(--radius-lg); /* Unified Radius */
+            color: white;
+            display: flex;
+            gap: 30px;
+            box-shadow: var(--shadow-card);
+            pointer-events: auto;
+        }
+
+        .tracker-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .tracker-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        
+        .icon-coin { background: var(--c-accent); color: #B8860B; }
+        .icon-life { background: var(--c-hero); color: #fff; }
+
+        .tracker-val {
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            line-height: 1;
+        }
+        
+        .tracker-max {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            opacity: 0.8;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        /* --- BOTTOM CONTROLS --- */
+        .bottom-ui {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            gap: 20px;
+            pointer-events: auto;
+        }
+
+        /* World Selector */
+        .world-selector {
+            background: var(--glass-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--glass-border);
+            padding: 12px 20px;
+            border-radius: var(--radius-lg); /* Unified */
+            display: flex;
+            gap: 15px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .world-btn {
+            width: 50px; height: 50px;
+            border-radius: var(--radius-md); /* Unified */
+            border: 2px solid rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            opacity: 0.6;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .world-btn:hover { transform: translateY(-3px); opacity: 1; }
+        .world-btn.active { 
+            border-color: #fff; 
+            transform: translateY(-5px) scale(1.05); 
+            opacity: 1;
+            box-shadow: 0 0 20px rgba(255,255,255,0.4);
+        }
+        
+        /* Patterns */
+        .w-grass { background: linear-gradient(135deg, #7CFC00, #228B22); }
+        .w-ice { background: linear-gradient(135deg, #E0FFFF, #00BFFF); }
+        .w-fire { background: linear-gradient(135deg, #FF4500, #8B0000); }
+
+        /* Controls Guide (High Contrast, Clean) */
+        .controls-guide {
+            background: rgba(0, 0, 0, 0.6); /* Darker, clearer */
+            backdrop-filter: blur(4px);
+            padding: 12px 24px;
+            border-radius: var(--radius-md);
+            color: rgba(255,255,255,0.9);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .controls-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--c-accent);
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+
+        .key-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .key {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.4);
+        }
+
+        /* --- START BUTTON --- */
+        .start-container {
+            position: absolute;
+            bottom: 10%; /* Anchored near ground */
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 30;
+            pointer-events: auto;
+            text-align: center;
+            width: 100%;
+        }
+
+        .start-btn {
+            background: var(--c-hero);
+            color: white;
+            border: none;
+            padding: 18px 60px;
+            font-size: 2rem;
+            font-family: var(--font-display);
+            text-transform: uppercase;
+            border-radius: var(--radius-lg); /* Unified */
+            cursor: pointer;
+            /* 3D Tactile Style */
+            box-shadow: 
+                inset 0 6px 0 rgba(255,255,255,0.3),
+                inset 0 -6px 0 rgba(0,0,0,0.2),
+                0 10px 20px rgba(0,0,0,0.3);
+            transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            letter-spacing: 1px;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        .start-btn:hover {
+            transform: translateX(-50%) translateY(-4px);
+            box-shadow: 
+                inset 0 6px 0 rgba(255,255,255,0.4),
+                inset 0 -6px 0 rgba(0,0,0,0.2),
+                0 20px 40px rgba(0,0,0,0.4);
+            filter: brightness(1.1);
+        }
+
+        .start-btn:active {
+            transform: translateX(-50%) translateY(2px);
+            box-shadow: 
+                inset 0 2px 5px rgba(0,0,0,0.2),
+                0 5px 10px rgba(0,0,0,0.3);
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes floatCloud {
+            0% { transform: translateX(-200px); }
+            100% { transform: translateX(120vw); }
+        }
+        @keyframes bounceTitle {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-8px) rotate(2deg); }
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0) scaleY(1); }
+            15% { transform: translateY(0) scaleY(0.85) scaleX(1.1); } /* Squash */
+            50% { transform: translateY(-15px) scaleY(1.05) scaleX(0.95); } /* Stretch */
+            85% { transform: translateY(0) scaleY(0.95) scaleX(1.05); }
+        }
+        @keyframes blink {
+            0%, 95%, 100% { transform: scaleY(1); }
+            97% { transform: scaleY(0.1); }
+        }
+
+        /* SVG Styles */
+        .hero-svg {
+            width: 100%;
+            height: 100%;
+            animation: bounce 2.5s ease-in-out infinite;
+        }
+        .eye { transform-origin: center; animation: blink 4s infinite; }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-screen">
+        
+        <!-- Background Parallax -->
+        <div class="bg-layer">
+            <div class="sun"></div>
+            <div class="cloud c1"></div>
+            <div class="cloud c2"></div>
+            <div class="cloud c3"></div>
+            
+            <!-- Distant Mountains SVG (Expressive Shapes) -->
+            <svg class="mountains-svg" viewBox="0 0 1000 400" preserveAspectRatio="none">
+                <!-- Far Layer -->
+                <path d="M0,400 L0,250 C150,200 250,300 350,220 C450,140 550,280 650,180 C750,80 850,250 1000,200 L1000,400 Z" fill="rgba(255,255,255,0.2)" />
+                <!-- Mid Layer -->
+                <path d="M0,400 L0,300 C100,280 200,350 300,280 C400,210 500,320 600,250 C700,180 800,320 1000,280 L1000,400 Z" fill="rgba(255,255,255,0.1)" />
+            </svg>
+        </div>
+
+        <!-- The Level Preview (Canvas) -->
+        <canvas id="level-canvas"></canvas>
+
+        <!-- Hero Character -->
+        <div id="hero-container">
+            <svg class="hero-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <!-- Body -->
+                <circle cx="50" cy="50" r="45" fill="var(--c-hero)" stroke="var(--c-hero-dark)" stroke-width="4" />
+                <!-- Shine -->
+                <path d="M25 35 Q 50 15 75 35" stroke="rgba(255,255,255,0.3)" stroke-width="5" fill="none" stroke-linecap="round" />
+                <!-- Face -->
+                <g class="face">
+                    <!-- Mouth -->
+                    <path d="M40 65 Q 50 75 60 65" stroke="black" stroke-width="3" fill="none" stroke-linecap="round" />
+                    <!-- Eyes -->
+                    <circle cx="40" cy="55" r="6" fill="black" class="eye" />
+                    <circle cx="60" cy="55" r="6" fill="black" class="eye" />
+                    <circle cx="42" cy="53" r="2" fill="white" />
+                    <circle cx="62" cy="53" r="2" fill="white" />
+                </g>
+                <!-- Hat -->
+                <path d="M30 20 L 50 5 L 70 20 Z" fill="#FFD700" stroke="#E67E22" stroke-width="3" stroke-linejoin="round" />
+                <path d="M20 20 Q 50 25 80 20" stroke="#E67E22" stroke-width="4" fill="none" stroke-linecap="round" />
+            </svg>
+        </div>
+
+        <!-- UI Overlay -->
+        <div class="ui-layer">
+            
+            <!-- Header: Title & Collectibles -->
+            <header>
+                <div class="game-title-group">
+                    <div class="game-title">
+                        Bounce <span>&</span> Dash
+                    </div>
+                    <div class="world-label" id="world-name">
+                        <span>Green Hills</span>
+                    </div>
+                </div>
+
+                <div class="tracker-card">
+                    <div class="tracker-item">
+                        <div class="tracker-icon icon-coin">$</div>
+                        <div>
+                            <div class="tracker-val" id="coin-count">012</div>
+                            <div class="tracker-max">Coins</div>
+                        </div>
+                    </div>
+                    <div style="width: 1px; background: rgba(255,255,255,0.2); margin: 0 5px;"></div>
+                    <div class="tracker-item">
+                        <div class="tracker-icon icon-life">♥</div>
+                        <div>
+                            <div class="tracker-val">3</div>
+                            <div class="tracker-max">Lives</div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Bottom: World Selector & Controls -->
+            <div class="bottom-ui">
+                <div class="world-selector">
+                    <div class="world-btn w-grass active" data-world="grass" title="Green Hills"></div>
+                    <div class="world-btn w-ice" data-world="ice" title="Ice Peaks"></div>
+                    <div class="world-btn w-fire" data-world="fire" title="Lava Lands"></div>
+                </div>
+
+                <div class="controls-guide">
+                    <div class="controls-title">Controls</div>
+                    <div class="key-row"><span class="key">←</span> <span class="key">→</span> Move</div>
+                    <div class="key-row"><span class="key">SPACE</span> Jump</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Primary Action (Anchored to ground) -->
+        <div class="start-container">
+            <button class="start-btn" onclick="alert('Game Starting...')">Start Adventure</button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CANVAS LEVEL GENERATION ---
+        const canvas = document.getElementById('level-canvas');
+        const ctx = canvas.getContext('2d');
+        let currentTheme = 'grass';
+
+        // Resize handling
+        function resize() {
+            canvas.width = canvas.parentElement.offsetWidth;
+            canvas.height = canvas.parentElement.offsetHeight;
+            drawLevel();
+        }
+        window.addEventListener('resize', resize);
+
+        // --- DRAWING HELPERS ---
+        
+        function drawGround(y, colorMain, colorDark) {
+            // Grass Top Layer
+            ctx.fillStyle = colorMain;
+            ctx.fillRect(0, y, canvas.width, 25);
+            
+            // Grass Shadow/Depth
+            ctx.fillStyle = colorDark;
+            ctx.fillRect(0, y + 15, canvas.width, 10);
+
+            // Dirt Body
+            ctx.fillStyle = '#5D4037'; // Unified dirt color
+            ctx.fillRect(0, y + 25, canvas.width, canvas.height - y);
+            
+            // Dirt Texture (Dots)
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            for(let i=0; i<canvas.width; i+=50) {
+                ctx.beginPath(); ctx.arc(i+25, y+60, 5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(i+60, y+90, 4, 0, Math.PI*2); ctx.fill();
+            }
+            
+            // Bottom Border (Ground base)
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(0, y+25, canvas.width, 4);
+        }
+
+        function drawBlock(x, y, size, type) {
+            const s = size;
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(x+8, y+8, s, s);
+
+            // Base
+            if (type === 'mystery') {
+                ctx.fillStyle = '#FF7043'; // Orange block
+                ctx.fillRect(x, y, s, s);
+                // Highlight
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fillRect(x, y, s, s/2);
+                // Border
+                ctx.strokeStyle = '#D84315';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x, y, s, s);
+                // Question Mark
+                ctx.fillStyle = '#FFD700';
+                ctx.font = `bold ${s*0.7}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('?', x + s/2, y + s/2 + 2);
+                // Bolts
+                ctx.fillStyle = '#5D4037';
+                ctx.beginPath(); ctx.arc(x+8, y+8, 3, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(x+s-8, y+8, 3, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(x+8, y+s-8, 3, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(x+s-8, y+s-8, 3, 0, Math.PI*2); ctx.fill();
+            } else {
+                // Standard Brick
+                ctx.fillStyle = '#A0522D';
+                ctx.fillRect(x, y, s, s);
+                ctx.strokeStyle = '#5D2906';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, s, s);
+                // Brick pattern
+                ctx.beginPath();
+                ctx.moveTo(x, y + s/2); ctx.lineTo(x+s, y + s/2);
+                ctx.moveTo(x + s/2, y); ctx.lineTo(x + s/2, y + s/2);
+                ctx.moveTo(x + s/4, y + s/2); ctx.lineTo(x + s/4, y + s);
+                ctx.moveTo(x + s*0.75, y + s/2); ctx.lineTo(x + s*0.75, y + s);
+                ctx.stroke();
+            }
+        }
+
+        function drawPipe(x, y, w, h, colorMain, colorDark) {
+            const headH = 45;
+            // Pipe Body
+            ctx.fillStyle = colorMain;
+            ctx.fillRect(x + 12, y + headH, w - 24, h - headH);
+            // Pipe Head
+            ctx.fillStyle = colorDark;
+            ctx.fillRect(x, y, w, headH);
+            // Highlights
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fillRect(x + 6, y, 8, headH); 
+            ctx.fillRect(x + 18, y + headH, 6, h - headH); 
+            // Outlines
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, headH);
+            ctx.strokeRect(x+12, y+headH, w-24, h-headH);
+        }
+
+        function drawFlag(x, y, h) {
+            // Pole
+            ctx.fillStyle = '#95A5A6';
+            ctx.fillRect(x, y, 10, h);
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.strokeRect(x, y, 10, h);
+            
+            // Ball on top
+            ctx.beginPath();
+            ctx.arc(x+5, y, 10, 0, Math.PI*2);
+            ctx.fillStyle = '#F1C40F';
+            ctx.fill();
+            ctx.stroke();
+
+            // Flag (Whimsical)
+            ctx.fillStyle = '#E74C3C';
+            ctx.beginPath();
+            ctx.moveTo(x+10, y+15);
+            ctx.lineTo(x+70, y+35);
+            ctx.lineTo(x+10, y+55);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Flag Pattern
+            ctx.fillStyle = 'rgba(255,255,255,0.2)';
+            ctx.beginPath();
+            ctx.moveTo(x+10, y+35);
+            ctx.lineTo(x+40, y+35);
+            ctx.lineTo(x+10, y+45);
+            ctx.fill();
+        }
+
+        function drawEnemy(x, y) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(x+20, y+35, 20, 6, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Body (Mushroom shape)
+            ctx.fillStyle = '#8E44AD'; // Purple enemy
+            ctx.beginPath();
+            ctx.arc(x+20, y+15, 22, Math.PI, 0); // Top dome
+            ctx.lineTo(x+42, y+35);
+            ctx.lineTo(x, y+35);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.stroke();
+            
+            // Eyes
+            ctx.fillStyle = 'white';
+            ctx.beginPath(); ctx.arc(x+12, y+20, 7, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+28, y+20, 7, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath(); ctx.arc(x+12, y+20, 2.5, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+28, y+20, 2.5, 0, Math.PI*2); ctx.fill();
+        }
+
+        function drawCoin(x, y) {
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.ellipse(x, y, 12, 16, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Shine
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.ellipse(x-3, y-5, 2, 8, -0.2, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        function drawBush(x, y, scale, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 30 * scale, 0, Math.PI * 2);
+            ctx.arc(x + 25*scale, y, 40 * scale, 0, Math.PI * 2);
+            ctx.arc(x + 50*scale, y, 30 * scale, 0, Math.PI * 2);
+            ctx.fill();
+            // Outline
+            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // --- THEMES ---
+        const themes = {
+            'grass': { 
+                sky: ['#0052D4', '#6FB1FC'], 
+                grass: '#4CAF50', 
+                grassDark: '#2E7D32', 
+                pipe: ['#2ECC71', '#27AE60'],
+                bush: '#228B22'
+            },
+            'ice': { 
+                sky: ['#2980B9', '#6DD5FA'], 
+                grass: '#B2EBF2', 
+                grassDark: '#80DEEA', 
+                pipe: ['#4FC3F7', '#0288D1'],
+                bush: '#00BCD4'
+            },
+            'fire': { 
+                sky: ['#4B0082', '#FF512F'], 
+                grass: '#424242', 
+                grassDark: '#212121', 
+                pipe: ['#FF5722', '#BF360C'],
+                bush: '#B71C1C'
+            }
+        };
+
+        // --- MAIN DRAW LOOP ---
+        function drawLevel() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const theme = themes[currentTheme];
+            const groundY = canvas.height - 120;
+
+            // 1. Background Elements (Bushes behind ground)
+            drawBush(canvas.width * 0.15, groundY, 1.2, theme.bush);
+            drawBush(canvas.width * 0.75, groundY, 0.9, theme.bush);
+            drawBush(canvas.width * 0.95, groundY, 1.1, theme.bush);
+
+            // 2. Ground
+            drawGround(groundY, theme.grass, theme.grassDark);
+
+            // 3. Platforms
+            // Floating blocks
+            drawBlock(canvas.width * 0.22, groundY - 130, 50, 'mystery');
+            
+            // Row of blocks
+            for(let i=0; i<3; i++) {
+                drawBlock(canvas.width * 0.4 + (i*65), groundY - 130, 60, 'brick');
+            }
+
+            // High platform
+            drawBlock(canvas.width * 0.7, groundY - 220, 60, 'brick');
+            drawBlock(canvas.width * 0.7 + 65, groundY - 220, 60, 'brick');
+            drawBlock(canvas.width * 0.7 + 130, groundY - 220, 60, 'brick');
+
+            // 4. Pipe
+            drawPipe(canvas.width * 0.6, groundY - 70, 70, 70, theme.pipe[0], theme.pipe[1]);
+
+            // 5. Flag (Goal) - Expressive
+            drawFlag(canvas.width * 0.88, groundY - 280, 280);
+
+            // 6. Coins
+            drawCoin(canvas.width * 0.22 + 25, groundY - 170);
+            drawCoin(canvas.width * 0.7 + 30, groundY - 260);
+            drawCoin(canvas.width * 0.7 + 95, groundY - 260);
+            drawCoin(canvas.width * 0.7 + 160, groundY - 260);
+
+            // 7. Enemy
+            drawEnemy(canvas.width * 0.5, groundY - 35);
+        }
+
+        // Initial draw
+        resize();
+
+        // --- INTERACTIVITY ---
+        
+        // Hero Parallax/Bounce
+        const hero = document.getElementById('hero-container');
+        const screen = document.getElementById('game-screen');
+        let mouseX = 0;
+
+        screen.addEventListener('mousemove', (e) => {
+            const rect = screen.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            
+            // Move hero slightly with mouse (parallax)
+            let percent = (mouseX / rect.width) * 15;
+            // Clamp to stay on screen
+            percent = Math.max(10, Math.min(40, percent));
+            hero.style.left = percent + '%';
+            
+            // Dynamic bounce based on movement speed or just time
+            const bounceHeight = Math.abs(Math.sin(Date.now() / 200)) * 10;
+            hero.style.transform = `translateY(-${bounceHeight}px)`;
+        });
+
+        // World Selector Logic
+        const worlds = document.querySelectorAll('.world-btn');
+        const root = document.documentElement;
+        const worldNameLabel = document.getElementById('world-name');
+        const coinCountLabel = document.getElementById('coin-count');
+        
+        worlds.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const worldKey = btn.dataset.world;
+                currentTheme = worldKey;
+
+                // UI Updates
+                worlds.forEach(w => w.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Text Updates
+                const names = { 'grass': 'Green Hills', 'ice': 'Ice Peaks', 'fire': 'Lava Lands' };
+                worldNameLabel.querySelector('span').textContent = names[worldKey];
+                
+                // Randomize coin count slightly for effect
+                coinCountLabel.textContent = Math.floor(Math.random() * 10).toString().padStart(2, '0');
+
+                // Theme Updates
+                const theme = themes[worldKey];
+                root.style.setProperty('--c-sky-top', theme.sky[0]);
+                root.style.setProperty('--c-sky-bot', theme.sky[1]);
+                
+                // Redraw Canvas
+                drawLevel();
+            });
+        });
+
+    </script>
+</body>
+</html>

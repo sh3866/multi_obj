@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    --felt-primary: #1a4233;
+    --felt-dark: #0d261d;
+    --felt-light: #235c46;
+    --wood-rim: #3e2723;
+    --wood-light: #5d4037;
+    --wood-highlight: #8d6e63;
+    --tile-body: #fdfbf7;
+    --tile-edge: #e0e0e0;
+    --tile-shadow: #b0b0b0;
+    --pip-color: #1a1a1a;
+    --accent-gold: #d4af37;
+    --accent-gold-dim: #aa8c2c;
+    --ui-bg: rgba(10, 20, 15, 0.85);
+    --ui-border: rgba(255, 255, 255, 0.1);
+    --text-light: #f0f0f0;
+    --text-muted: #a0a0a0;
+    --highlight-blue: rgba(66, 165, 245, 0.3);
+    --highlight-glow: rgba(66, 165, 245, 0.6);
+    --font-stack: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background-color: var(--felt-primary);
+    background-image: 
+      radial-gradient(circle at 50% 50%, var(--felt-light) 0%, var(--felt-primary) 40%, var(--felt-dark) 100%);
+    font-family: var(--font-stack);
+    display: flex;
+    flex-direction: column;
+    color: var(--text-light);
+  }
+
+  /* High-quality Felt Texture */
+  body::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.12'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: overlay;
+  }
+
+  /* --- Layout --- */
+  
+  #game-container {
+    position: relative;
+    flex: 1;
+    display: grid;
+    grid-template-rows: 70px 1fr 160px;
+    grid-template-columns: 1fr;
+    z-index: 1;
+  }
+
+  /* Header / HUD */
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 32px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.8), rgba(0,0,0,0.4));
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+
+  .brand {
+    font-weight: 800;
+    font-size: 1.4rem;
+    letter-spacing: 2px;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+  }
+
+  .brand svg {
+    fill: var(--accent-gold);
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+  }
+
+  .score-pill {
+    background: var(--ui-bg);
+    padding: 8px 24px;
+    border-radius: 30px;
+    border: 1px solid var(--ui-border);
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    gap: 24px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+  }
+
+  .score-pill span strong { 
+    color: var(--accent-gold); 
+    font-size: 1.1em;
+    margin-left: 4px;
+  }
+
+  /* The Table (Play Area) */
+  #table-area {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: auto; /* Allow scrolling if chain gets huge */
+    background: radial-gradient(circle at center, rgba(255,255,255,0.03) 0%, transparent 60%);
+  }
+
+  /* Hide scrollbars but keep functionality */
+  #table-area::-webkit-scrollbar { display: none; }
+  #table-area { -ms-overflow-style: none; scrollbar-width: none; }
+
+  #board-chain {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 120px; /* Space for rotation and margins */
+    min-width: min-content;
+    transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  /* Player Zone */
+  #player-zone {
+    background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 60%, transparent 100%);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 40px 32px 40px;
+    position: relative;
+    z-index: 5;
+  }
+
+  /* --- Components --- */
+
+  /* The Tile Component */
+  .tile {
+    width: 44px;
+    height: 88px;
+    background: var(--tile-body);
+    border-radius: 6px;
+    position: relative;
+    box-shadow: 
+      0 6px 12px rgba(0,0,0,0.4),
+      0 2px 4px rgba(0,0,0,0.3),
+      inset 0 1px 0 rgba(255,255,255,0.8),
+      inset 0 -1px 0 rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-style: preserve-3d;
+    margin: 0 3px;
+    border: 1px solid rgba(0,0,0,0.05);
+  }
+
+  /* Inner bevel for tile realism */
+  .tile::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+    pointer-events: none;
+  }
+
+  .tile::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 1px;
+    background: rgba(0,0,0,0.15);
+    transform: translateY(-50%);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.6);
+    z-index: 2;
+  }
+
+  .tile-half {
+    flex: 1;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    padding: 6px;
+  }
+
+  /* Pips */
+  .pip {
+    background: var(--pip-color);
+    border-radius: 50%;
+    width: 8px;
+    height: 8px;
+    align-self: center;
+    justify-self: center;
+    box-shadow: 
+      inset 0 2px 3px rgba(0,0,0,0.8),
+      0 1px 0 rgba(255,255,255,0.2);
+    position: relative;
+  }
+
+  /* Add a subtle indent effect to pips */
+  .pip::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 6px; height: 6px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #333, #000);
+  }
+
+  /* Pip positioning logic */
+  .pip:nth-child(1) { grid-area: 1 / 1; } /* TL */
+  .pip:nth-child(2) { grid-area: 1 / 3; } /* TR */
+  .pip:nth-child(3) { grid-area: 2 / 2; } /* C */
+  .pip:nth-child(4) { grid-area: 3 / 1; } /* BL */
+  .pip:nth-child(5) { grid-area: 3 / 3; } /* BR */
+  .pip:nth-child(6) { grid-area: 2 / 1; } /* ML */
+  .pip:nth-child(7) { grid-area: 2 / 3; } /* MR */
+
+  /* Specific layouts for pip counts */
+  .count-1 .pip { grid-area: 2 / 2 !important; width: 10px; height: 10px; }
+  .count-2 .pip:nth-child(n+3) { display: none; }
+  .count-3 .pip:nth-child(1), .count-3 .pip:nth-child(2), .count-3 .pip:nth-child(4), .count-3 .pip:nth-child(5), .count-3 .pip:nth-child(6), .count-3 .pip:nth-child(7) { display: none; }
+  .count-4 .pip:nth-child(3), .count-4 .pip:nth-child(6), .count-4 .pip:nth-child(7) { display: none; }
+  .count-5 .pip:nth-child(6), .count-5 .pip:nth-child(7) { display: none; }
+  .count-6 .pip:nth-child(3) { display: none; }
+
+  /* Tile States */
+  .tile:hover:not(.disabled):not(.board-tile) {
+    transform: translateY(-20px) scale(1.05);
+    box-shadow: 0 20px 30px rgba(0,0,0,0.5);
+    z-index: 10;
+  }
+
+  .tile.disabled {
+    filter: grayscale(0.6) brightness(0.9);
+    cursor: not-allowed;
+    opacity: 0.7;
+    transform: translateY(5px);
+  }
+  .tile.disabled:hover { transform: translateY(5px); box-shadow: 0 6px 12px rgba(0,0,0,0.4); }
+
+  /* Board Tiles (Horizontal) */
+  .tile.board-tile {
+    width: 88px;
+    height: 44px;
+    flex-direction: row;
+    transform: none;
+    margin: 0 2px;
+    cursor: default;
+  }
+  .tile.board-tile::before {
+    width: 1px; height: 100%;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+  }
+  
+  /* Rotations for board */
+  .tile.rot-90 { 
+    transform: rotate(90deg); 
+    margin: 0 12px; /* More space for vertical doubles */
+  }
+
+  /* Draw Pile */
+  .draw-pile {
+    width: 44px;
+    height: 88px;
+    background: linear-gradient(135deg, var(--wood-light), var(--wood-rim));
+    border-radius: 6px;
+    position: relative;
+    box-shadow: 
+      0 6px 12px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.1);
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 1px solid rgba(0,0,0,0.3);
+    transition: transform 0.2s;
+  }
+  
+  .draw-pile::before, .draw-pile::after {
+    content: '';
+    position: absolute;
+    width: 100%; height: 100%;
+    background: linear-gradient(135deg, var(--wood-light), var(--wood-rim));
+    border-radius: 6px;
+    top: 0; left: 0;
+    border: 1px solid rgba(0,0,0,0.3);
+  }
+  .draw-pile::before { transform: translate(-3px, 3px); z-index: -1; }
+  .draw-pile::after { transform: translate(-6px, 6px); z-index: -2; }
+  
+  .draw-label {
+    z-index: 2;
+    color: rgba(255,255,255,0.7);
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+
+  .draw-pile:hover { transform: translateY(-4px); }
+
+  /* Action Buttons */
+  .action-btn {
+    background: linear-gradient(to bottom, var(--wood-light), var(--wood-rim));
+    border: none;
+    color: #fff;
+    padding: 12px 32px;
+    border-radius: 4px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    box-shadow: 
+      0 6px 0 var(--wood-rim), 
+      0 8px 15px rgba(0,0,0,0.4);
+    transition: all 0.1s;
+    font-size: 0.9rem;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .action-btn:active {
+    transform: translateY(6px);
+    box-shadow: 0 0 0 var(--wood-rim), inset 0 2px 5px rgba(0,0,0,0.6);
+  }
+  .action-btn:disabled {
+    background: #444;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+    color: #777;
+    border-color: transparent;
+  }
+
+  /* Match Cue */
+  #match-cue {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.95);
+    color: #1a1a1a;
+    padding: 10px 24px;
+    border-radius: 30px;
+    font-size: 1rem;
+    font-weight: 700;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    z-index: 100;
+    border: 1px solid var(--accent-gold);
+  }
+  #match-cue.visible { 
+    opacity: 1; 
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* SVG Icons */
+  .icon { width: 24px; height: 24px; fill: currentColor; }
+
+  /* Animations */
+  @keyframes dealTile {
+    from { opacity: 0; transform: translateY(-50px) scale(0.8); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  
+  .tile { animation: dealTile 0.4s ease-out backwards; }
+  .tile:nth-child(1) { animation-delay: 0.05s; }
+  .tile:nth-child(2) { animation-delay: 0.1s; }
+  .tile:nth-child(3) { animation-delay: 0.15s; }
+  .tile:nth-child(4) { animation-delay: 0.2s; }
+  .tile:nth-child(5) { animation-delay: 0.25s; }
+  .tile:nth-child(6) { animation-delay: 0.3s; }
+  .tile:nth-child(7) { animation-delay: 0.35s; }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <header>
+    <div class="brand">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 9h-2V7h-2v5H6v2h2v5h2v-5h2v-2z"/></svg>
+      Play with Tiles
+    </div>
+    <div class="score-pill">
+      <span>You: <strong id="score-player">0</strong></span>
+      <span>Opp: <strong id="score-opp">0</strong></span>
+    </div>
+  </header>
+
+  <div id="table-area">
+    <div id="match-cue">Needs 6 or 4</div>
+    <div id="board-chain">
+      <!-- Chain renders here -->
+    </div>
+  </div>
+
+  <div id="player-zone">
+    <div class="draw-pile" id="draw-btn">
+      <span class="draw-label">Draw</span>
+    </div>
+    
+    <div id="hand-container" style="display:flex; gap: 6px; align-items: flex-end;">
+      <!-- Hand renders here -->
+    </div>
+
+    <button class="action-btn" id="pass-btn" disabled>Pass</button>
+  </div>
+</div>
+
+<script>
+  /**
+   * DOMINO GAME LOGIC & RENDERER
+   */
+
+  // --- Data Structures ---
+  class Tile {
+    constructor(v1, v2, id) {
+      this.v1 = v1;
+      this.v2 = v2;
+      this.id = id;
+      this.rotation = 0; // 0, 90, 180, 270
+      this.isDouble = v1 === v2;
+    }
+  }
+
+  const GameState = {
+    deck: [],
+    board: [], // Array of { tile, orientation: 'normal'|'flipped'|'rotated' }
+    playerHand: [],
+    opponentHand: [],
+    turn: 'player', // 'player' or 'opponent'
+    ends: { left: null, right: null }, // Values exposed at ends of chain
+    scores: { player: 0, opponent: 0 }
+  };
+
+  // --- Pip Logic ---
+  // Grid positions 1-9 (3x3)
+  // 1 2 3
+  // 4 5 6
+  // 7 8 9
+  const pipMap = {
+    0: [],
+    1: [5],
+    2: [3, 7],
+    3: [3, 5, 7],
+    4: [1, 3, 7, 9],
+    5: [1, 3, 5, 7, 9],
+    6: [1, 3, 4, 6, 7, 9]
+  };
+
+  // --- Initialization ---
+  function initGame() {
+    // Generate Deck
+    let idCounter = 0;
+    for (let i = 0; i <= 6; i++) {
+      for (let j = i; j <= 6; j++) {
+        GameState.deck.push(new Tile(i, j, idCounter++));
+      }
+    }
+    
+    // Shuffle
+    GameState.deck.sort(() => Math.random() - 0.5);
+
+    // Deal
+    GameState.playerHand = GameState.deck.splice(0, 7);
+    GameState.opponentHand = GameState.deck.splice(0, 7);
+
+    // Start Game
+    updateUI();
+    checkTurn();
+  }
+
+  // --- Rendering ---
+
+  function createTileElement(tile, isBoard = false) {
+    const el = document.createElement('div');
+    el.className = `tile ${isBoard ? 'board-tile' : ''}`;
+    el.dataset.id = tile.id;
+
+    // Create two halves
+    const halves = [tile.v1, tile.v2];
+    
+    halves.forEach(val => {
+      const half = document.createElement('div');
+      half.className = `tile-half count-${val}`;
+      
+      // Add pips based on value
+      const pips = pipMap[val];
+      // Create 9 slots, fill active ones
+      for(let i=1; i<=9; i++) {
+        const pip = document.createElement('div');
+        if(pips.includes(i)) {
+          pip.className = 'pip';
+        }
+        half.appendChild(pip);
+      }
+      el.appendChild(half);
+    });
+
+    return el;
+  }
+
+  function renderHand() {
+    const container = document.getElementById('hand-container');
+    container.innerHTML = '';
+
+    GameState.playerHand.forEach(tile => {
+      const el = createTileElement(tile);
+      // Check validity
+      const isValid = isValidMove(tile);
+      if (!isValid && GameState.turn === 'player') {
+        el.classList.add('disabled');
+      } else if (isValid && GameState.turn === 'player') {
+        el.style.cursor = 'pointer';
+      }
+      
+      el.addEventListener('click', () => {
+        if (GameState.turn === 'player' && isValid) {
+          playTile(tile);
+        }
+      });
+      container.appendChild(el);
+    });
+  }
+
+  function renderBoard() {
+    const container = document.getElementById('board-chain');
+    container.innerHTML = '';
+
+    GameState.board.forEach(item => {
+      const el = createTileElement(item.tile, true);
+      
+      // Apply rotation styles
+      // item.orientation: 0 (v1 left, v2 right), 1 (v1 right, v2 left)
+      // If double, we rotate 90deg
+      
+      if (item.tile.isDouble) {
+        el.classList.add('rot-90');
+        // For doubles, visual orientation doesn't change connectivity logic much visually
+        // but let's flip halves if needed? Standard dominoes rotate doubles 90deg.
+      } else {
+        // If orientation is 1 (flipped), we need to swap visual halves
+        if (item.orientation === 1) {
+          el.style.flexDirection = 'row-reverse';
+        }
+      }
+      container.appendChild(el);
+    });
+
+    // Auto-scroll to center if board is huge
+    const tableArea = document.getElementById('table-area');
+    if (container.scrollWidth > tableArea.clientWidth) {
+        // Center the content
+        const scrollTarget = (container.scrollWidth - tableArea.clientWidth) / 2;
+        tableArea.scrollLeft = scrollTarget;
+    }
+
+    updateMatchCue();
+  }
+
+  function updateUI() {
+    renderHand();
+    renderBoard();
+    document.getElementById('score-player').innerText = GameState.scores.player;
+    document.getElementById('score-opp').innerText = GameState.scores.opponent;
+    
+    const drawBtn = document.getElementById('draw-btn');
+    const passBtn = document.getElementById('pass-btn');
+
+    // Update Controls
+    if (GameState.turn === 'player') {
+      drawBtn.style.opacity = '1';
+      drawBtn.style.pointerEvents = 'auto';
+      passBtn.disabled = canDrawOrPlay(); // Can only pass if no moves AND empty deck
+    } else {
+      drawBtn.style.opacity = '0.5';
+      drawBtn.style.pointerEvents = 'none';
+      passBtn.disabled = true;
+    }
+  }
+
+  function updateMatchCue() {
+    const cue = document.getElementById('match-cue');
+    if (GameState.board.length === 0) {
+      cue.classList.remove('visible');
+      return;
+    }
+    
+    // Logic: Show what values are needed
+    let leftVal = GameState.ends.left;
+    let rightVal = GameState.ends.right;
+
+    // If single tile, ends are same.
+    // If multiple, ends are different.
+    
+    if (leftVal === rightVal) {
+      cue.innerText = `Match: ${leftVal}`;
+    } else {
+      cue.innerText = `Match: ${leftVal} or ${rightVal}`;
+    }
+    cue.classList.add('visible');
+  }
+
+  // --- Game Logic ---
+
+  function isValidMove(tile) {
+    if (GameState.board.length === 0) return true;
+    
+    // Check if tile matches either end
+    const { left, right } = GameState.ends;
+    
+    // Match Left
+    if (tile.v1 === left || tile.v2 === left) return true;
+    // Match Right
+    if (tile.v1 === right || tile.v2 === right) return true;
+
+    return false;
+  }
+
+  function canDrawOrPlay() {
+    if (GameState.deck.length > 0) return false;
+    // Check if any tile in hand is playable
+    return !GameState.playerHand.some(t => isValidMove(t));
+  }
+
+  function playTile(tile) {
+    // Remove from hand
+    GameState.playerHand = GameState.playerHand.filter(t => t.id !== tile.id);
+
+    // Place on board
+    if (GameState.board.length === 0) {
+      // First tile
+      GameState.board.push({ tile: tile, orientation: 0 });
+      GameState.ends = { left: tile.v1, right: tile.v2 };
+    } else {
+      // Logic to determine side and orientation
+      const { left, right } = GameState.ends;
+      
+      // Prioritize Right side if ambiguous? Or random?
+      // Let's check Right match
+      if (tile.v1 === right || tile.v2 === right) {
+        // Play on Right
+        // We need the side touching 'right' to match.
+        // If tile.v1 === right, order is [v1, v2] -> [v2 is new end]
+        // If tile.v2 === right, order is [v2, v1] -> [v1 is new end] (Orientation 1)
+        
+        if (tile.v1 === right) {
+          GameState.board.push({ tile: tile, orientation: 0 });
+          GameState.ends.right = tile.v2;
+        } else {
+          GameState.board.push({ tile: tile, orientation: 1 });
+          GameState.ends.right = tile.v1;
+        }
+      } 
+      // Check Left match
+      else if (tile.v1 === left || tile.v2 === left) {
+        // Play on Left (Unshift)
+        // If tile.v2 === left, order is [v1, v2] -> [v1 is new end] (Orientation 0)
+        // If tile.v1 === left, order is [v2, v1] -> [v2 is new end] (Orientation 1)
+        
+        if (tile.v2 === left) {
+          GameState.board.unshift({ tile: tile, orientation: 0 });
+          GameState.ends.left = tile.v1;
+        } else {
+          GameState.board.unshift({ tile: tile, orientation: 1 });
+          GameState.ends.left = tile.v2;
+        }
+      }
+    }
+
+    GameState.turn = 'opponent';
+    updateUI();
+    
+    // Trigger AI turn
+    setTimeout(aiTurn, 1200);
+  }
+
+  function drawTile() {
+    if (GameState.deck.length > 0 && GameState.turn === 'player') {
+      const tile = GameState.deck.pop();
+      GameState.playerHand.push(tile);
+      updateUI();
+    }
+  }
+
+  function passTurn() {
+    if (GameState.turn === 'player' && canDrawOrPlay()) {
+      GameState.turn = 'opponent';
+      updateUI();
+      setTimeout(aiTurn, 1200);
+    }
+  }
+
+  // --- Simple AI ---
+  function aiTurn() {
+    // 1. Check hand for valid moves
+    let moveFound = false;
+    const validTiles = GameState.opponentHand.filter(t => isValidMove(t));
+
+    if (validTiles.length > 0) {
+      // Pick random valid tile (simple strategy)
+      const tileToPlay = validTiles[0];
+      
+      // Remove from AI hand
+      GameState.opponentHand = GameState.opponentHand.filter(t => t.id !== tileToPlay.id);
+      
+      // Place on board (Same logic as player)
+      if (GameState.board.length === 0) {
+        GameState.board.push({ tile: tileToPlay, orientation: 0 });
+        GameState.ends = { left: tileToPlay.v1, right: tileToPlay.v2 };
+      } else {
+        const { left, right } = GameState.ends;
+        
+        if (tileToPlay.v1 === right || tileToPlay.v2 === right) {
+           if (tileToPlay.v1 === right) {
+            GameState.board.push({ tile: tileToPlay, orientation: 0 });
+            GameState.ends.right = tileToPlay.v2;
+          } else {
+            GameState.board.push({ tile: tileToPlay, orientation: 1 });
+            GameState.ends.right = tileToPlay.v1;
+          }
+        } else {
+           if (tileToPlay.v2 === left) {
+            GameState.board.unshift({ tile: tileToPlay, orientation: 0 });
+            GameState.ends.left = tileToPlay.v1;
+          } else {
+            GameState.board.unshift({ tile: tileToPlay, orientation: 1 });
+            GameState.ends.left = tileToPlay.v2;
+          }
+        }
+      }
+      moveFound = true;
+    } else if (GameState.deck.length > 0) {
+      // Draw
+      GameState.opponentHand.push(GameState.deck.pop());
+      // AI draws once then passes? Or draws until match? Standard rules vary. 
+      // Let's make AI draw once then pass for simplicity.
+      moveFound = true; // technically an action taken
+    }
+
+    // Check Win Condition (Empty Hand)
+    if (GameState.playerHand.length === 0) {
+      alert("You Win!");
+      resetGame();
+      return;
+    }
+    if (GameState.opponentHand.length === 0) {
+      alert("Opponent Wins!");
+      resetGame();
+      return;
+    }
+
+    // Check Blocked Game (Both pass) - Simplified check
+    // If AI had no moves and deck empty, and Player had no moves...
+    // For this demo, we just switch turn back.
+    
+    GameState.turn = 'player';
+    updateUI();
+  }
+
+  function resetGame() {
+    GameState.board = [];
+    GameState.deck = [];
+    GameState.playerHand = [];
+    GameState.opponentHand = [];
+    GameState.ends = { left: null, right: null };
+    initGame();
+  }
+
+  // --- Event Listeners ---
+  document.getElementById('draw-btn').addEventListener('click', drawTile);
+  document.getElementById('pass-btn').addEventListener('click', passTurn);
+
+  // --- Start ---
+  initGame();
+
+</script>
+</body>
+</html>

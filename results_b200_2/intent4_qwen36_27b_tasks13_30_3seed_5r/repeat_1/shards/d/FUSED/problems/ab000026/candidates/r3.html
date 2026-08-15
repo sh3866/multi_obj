@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    --felt-primary: #2c5f3f;
+    --felt-dark: #1a3826;
+    --felt-texture: #245035;
+    --wood-dark: #1f140e;
+    --wood-mid: #3a2418;
+    --wood-light: #5c3d2e;
+    --wood-highlight: #7a5240;
+    --tile-body: #fdfbf7;
+    --tile-shadow: #dcd6c8;
+    --pip-color: #111;
+    --gold: #d4af37;
+    --gold-glow: rgba(212, 175, 55, 0.6);
+    --text-main: #e0e0e0;
+    --text-muted: #8c8c8c;
+    --font-display: 'Georgia', 'Times New Roman', serif;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+  body {
+    background: #050505;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    font-family: var(--font-ui);
+    color: var(--text-main);
+  }
+
+  /* --- Environment --- */
+  #game-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 50% 40%, var(--felt-primary) 0%, var(--felt-dark) 70%, #0a160d 100%);
+    box-shadow: inset 0 0 200px rgba(0,0,0,0.95);
+    overflow: hidden;
+  }
+
+  /* Noise Texture Overlay */
+  #game-stage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.12'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* --- The Wood Rim --- */
+  .rim {
+    position: absolute;
+    inset: 0;
+    border: 40px solid var(--wood-dark);
+    border-image: linear-gradient(to bottom, var(--wood-light) 0%, var(--wood-dark) 15%, var(--wood-mid) 50%, var(--wood-dark) 85%, #0f0a07 100%) 1;
+    box-shadow: 
+      inset 0 0 20px rgba(0,0,0,0.9), 
+      inset 0 0 60px rgba(0,0,0,0.8),
+      0 0 30px rgba(0,0,0,0.8);
+    pointer-events: none;
+    z-index: 50;
+  }
+  
+  /* Inner Rim Bevel */
+  .rim::after {
+    content: '';
+    position: absolute;
+    inset: 32px;
+    border: 2px solid rgba(255,255,255,0.05);
+    pointer-events: none;
+  }
+
+  /* --- Header & UI --- */
+  .top-bar {
+    position: absolute;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 60;
+  }
+
+  .brand {
+    font-family: var(--font-display);
+    color: var(--gold);
+    text-align: center;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+    padding-bottom: 8px;
+    width: 100%;
+  }
+
+  .brand h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    line-height: 1;
+    margin: 0;
+    text-transform: uppercase;
+  }
+
+  .brand span {
+    display: block;
+    font-size: 14px;
+    font-style: italic;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 0.5px;
+    margin-top: 6px;
+  }
+
+  /* --- Scoreboard (Leather Plaque) --- */
+  .score-plaque {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    background: #2a2a2a;
+    padding: 12px 40px;
+    border-radius: 4px;
+    border: 2px solid #111;
+    box-shadow: 
+      inset 0 2px 5px rgba(255,255,255,0.1),
+      inset 0 -2px 5px rgba(0,0,0,0.8),
+      0 10px 20px rgba(0,0,0,0.5);
+    position: relative;
+  }
+
+  /* Stitching effect */
+  .score-plaque::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: 1px dashed rgba(255,255,255,0.15);
+    pointer-events: none;
+  }
+
+  .score-item {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .score-item .lbl {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #888;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+
+  .score-item .val {
+    font-size: 32px;
+    font-weight: 700;
+    color: #eee;
+    font-family: var(--font-display);
+    text-shadow: 0 2px 2px rgba(0,0,0,0.8);
+  }
+
+  .score-item.active .val {
+    color: var(--gold);
+    text-shadow: 0 0 15px var(--gold-glow);
+  }
+
+  .score-item.active .lbl {
+    color: var(--gold);
+  }
+
+  .turn-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 4px;
+    height: 40px;
+    background: #111;
+    border-radius: 2px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+  }
+
+  .turn-indicator span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--gold);
+    box-shadow: 0 0 10px var(--gold-glow);
+    border-radius: 2px;
+    transition: height 0.3s ease;
+  }
+
+  /* --- Opponent Area --- */
+  .opponent-area {
+    position: absolute;
+    top: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 40;
+  }
+
+  .opponent-name {
+    font-size: 14px;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 2px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .opponent-tiles-visual {
+    display: flex;
+    gap: 4px;
+  }
+
+  .mini-tile {
+    width: 12px;
+    height: 22px;
+    background: #1a1a1a;
+    border-radius: 2px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+    background-image: repeating-linear-gradient(45deg, #1a1a1a, #1a1a1a 3px, #222 3px, #222 6px);
+    border: 1px solid #333;
+  }
+
+  /* --- Board Area --- */
+  #board-container {
+    position: absolute;
+    top: 150px;
+    bottom: 180px;
+    left: 80px;
+    right: 80px;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  #board-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* --- Draw Pile (Boneyard) --- */
+  .boneyard {
+    position: absolute;
+    left: 90px;
+    bottom: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 40;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .boneyard:hover {
+    transform: translateY(-8px);
+  }
+
+  .boneyard-stack {
+    position: relative;
+    width: 50px;
+    height: 80px;
+    transform: rotate(-5deg);
+  }
+
+  .boneyard-tile {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: #2e1e15;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    border: 1px solid #1a110d;
+    background-image: repeating-linear-gradient(45deg, #2e1e15, #2e1e15 4px, #3a281d 4px, #3a281d 8px);
+  }
+
+  /* Create the stack effect */
+  .boneyard-tile:nth-child(1) { transform: translate(0, 0); z-index: 1; }
+  .boneyard-tile:nth-child(2) { transform: translate(1px, -1px); z-index: 2; }
+  .boneyard-tile:nth-child(3) { transform: translate(2px, -2px); z-index: 3; }
+  .boneyard-tile:nth-child(4) { transform: translate(3px, -3px); z-index: 4; }
+  .boneyard-tile:nth-child(5) { transform: translate(4px, -4px); z-index: 5; }
+  .boneyard-tile:nth-child(6) { transform: translate(5px, -5px); z-index: 6; }
+
+  /* Edge of tile simulation */
+  .boneyard-tile::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 4px;
+  }
+
+  .boneyard-count {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+    background: rgba(0,0,0,0.6);
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+  }
+
+  /* --- Player Hand --- */
+  .player-hand-container {
+    position: absolute;
+    bottom: -30px;
+    left: 0;
+    right: 0;
+    height: 200px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding-bottom: 20px;
+    z-index: 100;
+    perspective: 1200px;
+  }
+
+  .hand-rack {
+    display: flex;
+    gap: 20px;
+    padding: 25px 40px;
+    background: linear-gradient(180deg, #3e2723 0%, #261612 100%);
+    border-radius: 24px 24px 0 0;
+    border-top: 4px solid #5d4037;
+    box-shadow: 0 -20px 60px rgba(0,0,0,0.8);
+    transform-origin: bottom center;
+    transform: scale(1);
+  }
+
+  /* Wood grain texture for rack */
+  .hand-rack::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(90deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.1) 4px);
+    border-radius: 24px 24px 0 0;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .hand-tile {
+    width: 70px;
+    height: 120px;
+    background: var(--tile-body);
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 
+      0 10px 20px rgba(0,0,0,0.6),
+      inset 0 0 0 1px rgba(0,0,0,0.1),
+      inset 0 2px 4px rgba(255,255,255,0.8);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 2px solid transparent;
+  }
+
+  /* Playable Highlight: Glowing Gold */
+  .hand-tile.playable {
+    border-color: var(--gold);
+    box-shadow: 
+      0 10px 20px rgba(0,0,0,0.6),
+      0 0 20px var(--gold-glow),
+      inset 0 2px 4px rgba(255,255,255,0.9);
+  }
+
+  .hand-tile:hover {
+    transform: translateY(-30px) scale(1.15) rotate(0deg);
+    box-shadow: 0 30px 40px rgba(0,0,0,0.7);
+    z-index: 105;
+  }
+
+  .tile-half {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #fff 0%, #f0ece4 100%);
+  }
+
+  .tile-divider {
+    height: 2px;
+    background: #dcd6c8;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8), 0 -1px 0 rgba(0,0,0,0.1);
+    width: 80%;
+    align-self: center;
+  }
+
+  /* --- Match Cue (Open Ends) --- */
+  .match-cue-container {
+    position: absolute;
+    top: 160px;
+    right: 90px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 50;
+    background: rgba(0,0,0,0.4);
+    padding: 15px;
+    border-radius: 12px;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .match-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 4px;
+  }
+
+  .open-ends {
+    display: flex;
+    gap: 12px;
+  }
+
+  .open-end-val {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-weight: 800;
+    font-size: 18px;
+    border-radius: 6px;
+    box-shadow: 0 0 10px var(--gold-glow);
+  }
+
+</style>
+</head>
+<body>
+
+<div id="game-stage">
+  <div class="rim"></div>
+
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="brand">
+      <h1>Play with Tiles</h1>
+      <span>Classic Dominoes</span>
+    </div>
+    
+    <div class="score-plaque">
+      <div class="score-item active">
+        <div class="lbl">You</div>
+        <div class="val">42</div>
+      </div>
+      
+      <div class="turn-indicator">
+        <!-- Active side indicator -->
+        <span style="height: 100%;"></span> 
+      </div>
+
+      <div class="score-item">
+        <div class="lbl">Opponent</div>
+        <div class="val">35</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Opponent -->
+  <div class="opponent-area">
+    <div class="opponent-name">Opponent</div>
+    <div class="opponent-tiles-visual">
+      <div class="mini-tile"></div><div class="mini-tile"></div>
+      <div class="mini-tile"></div><div class="mini-tile"></div>
+      <div class="mini-tile"></div>
+    </div>
+  </div>
+
+  <!-- Match Cue -->
+  <div class="match-cue-container">
+    <div class="match-label">Open Ends</div>
+    <div class="open-ends">
+      <div class="open-end-val">6</div>
+      <div class="open-end-val">5</div>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div id="board-container">
+    <svg id="board-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <!-- Tile Gradient for 3D effect -->
+        <linearGradient id="tileGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="100%" stop-color="#e8e4d9"/>
+        </linearGradient>
+        
+        <!-- Drop Shadow for tiles -->
+        <filter id="tileShadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur"/>
+          <feOffset dx="2" dy="6" result="offsetBlur"/>
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.5"/>
+          </feComponentTransfer>
+          <feMerge> 
+            <feMergeNode/>
+            <feMergeNode in="SourceGraphic"/> 
+          </feMerge>
+        </filter>
+
+        <!-- Pip Definition -->
+        <g id="pip">
+          <circle cx="0" cy="0" r="4.5" fill="#111" />
+          <!-- Inner bevel for pip depth -->
+          <circle cx="0.5" cy="0.5" r="4.5" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+        </g>
+      </defs>
+      <!-- Chain injected via JS -->
+    </svg>
+  </div>
+
+  <!-- Draw Pile -->
+  <div class="boneyard">
+    <div class="boneyard-stack">
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+    </div>
+    <div class="boneyard-count">12 Left</div>
+  </div>
+
+  <!-- Player Hand -->
+  <div class="player-hand-container">
+    <div class="hand-rack" id="hand-rack">
+      <!-- Tiles injected via JS -->
+    </div>
+  </div>
+</div>
+
+<script>
+  // Game Data - Chain Logic
+  // Chain flows from bottom-left to top-right roughly
+  const chainData = [
+    { a: 6, b: 2, x: 180, y: 420, angle: 10 }, // Start
+    { a: 2, b: 5, x: 270, y: 400, angle: 25 },
+    { a: 5, b: 3, x: 360, y: 370, angle: 40 },
+    { a: 3, b: 4, x: 450, y: 320, angle: 55 },
+    { a: 4, b: 1, x: 540, y: 260, angle: 70 },
+    { a: 1, b: 6, x: 630, y: 190, angle: 85 },
+    { a: 6, b: 3, x: 720, y: 120, angle: 100 },
+    { a: 3, b: 3, x: 810, y: 60, angle: 115 },
+    { a: 3, b: 1, x: 900, y: 30, angle: 130 },
+    { a: 1, b: 4, x: 980, y: 80, angle: 145 },
+    { a: 4, b: 2, x: 1040, y: 150, angle: 160 },
+    { a: 2, b: 6, x: 1070, y: 230, angle: 175 },
+    { a: 6, b: 5, x: 1060, y: 310, angle: 190 },
+    { a: 5, b: 5, x: 1010, y: 380, angle: 205 },
+    { a: 5, b: 5, x: 940, y: 430, angle: 220 } // End
+  ];
+
+  // Populate Player Hand
+  const handData = [
+    { a: 5, b: 1, playable: true },  // Matches 5
+    { a: 3, b: 6, playable: true },  // Matches 6
+    { a: 2, b: 4, playable: false },
+    { a: 5, b: 5, playable: true },  // Matches 5
+    { a: 1, b: 3, playable: true },  // Matches 6 (via logic)
+    { a: 4, b: 4, playable: false },
+    { a: 2, b: 2, playable: false },
+  ];
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const TILE_W = 50;
+  const TILE_H = 90;
+
+  // Helper: Create Pips
+  function createPips(count) {
+    const g = document.createElementNS(SVG_NS, 'g');
+    if (count === 0) return g;
+    
+    // Standard Domino Patterns
+    const positions = {
+      1: [[0,0]],
+      2: [[0,-14], [0,14]],
+      3: [[0,-14], [0,0], [0,14]],
+      4: [[-10,-10], [10,-10], [-10,10], [10,10]],
+      5: [[-10,-10], [10,-10], [0,0], [-10,10], [10,10]],
+      6: [[-10,-14], [10,-14], [-10,0], [10,0], [-10,14], [10,14]]
+    };
+
+    positions[count].forEach(pos => {
+      const use = document.createElementNS(SVG_NS, 'use');
+      use.setAttributeNS("http://www.w3.org/1999/xlink", "href", "#pip");
+      use.setAttribute('transform', `translate(${pos[0]}, ${pos[1]})`);
+      g.appendChild(use);
+    });
+    return g;
+  }
+
+  // Render Board Chain
+  const boardSvg = document.getElementById('board-svg');
+  
+  chainData.forEach(tile => {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('transform', `translate(${tile.x}, ${tile.y}) rotate(${tile.angle})`);
+    g.style.filter = "url(#tileShadow)";
+
+    // Tile Body
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', -TILE_W/2);
+    rect.setAttribute('y', -TILE_H/2);
+    rect.setAttribute('width', TILE_W);
+    rect.setAttribute('height', TILE_H);
+    rect.setAttribute('rx', 6);
+    rect.setAttribute('fill', 'url(#tileGrad)');
+    rect.setAttribute('stroke', '#dcd6c8');
+    rect.setAttribute('stroke-width', '1');
+    g.appendChild(rect);
+
+    // Divider
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', -TILE_W/2 + 6);
+    line.setAttribute('x2', TILE_W/2 - 6);
+    line.setAttribute('y1', 0);
+    line.setAttribute('y2', 0);
+    line.setAttribute('stroke', '#dcd6c8');
+    line.setAttribute('stroke-width', 1);
+    g.appendChild(line);
+
+    // Pips
+    const topPips = createPips(tile.a);
+    topPips.setAttribute('transform', `translate(0, -${TILE_H/4})`);
+    const botPips = createPips(tile.b);
+    botPips.setAttribute('transform', `translate(0, ${TILE_H/4})`);
+    
+    g.appendChild(topPips);
+    g.appendChild(botPips);
+
+    boardSvg.appendChild(g);
+  });
+
+  // Add Glow End Markers (Replaces dashed circles)
+  function createMarker(x, y, val) {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('transform', `translate(${x}, ${y})`);
+    
+    // Solid Gold Background
+    const bgCircle = document.createElementNS(SVG_NS, 'circle');
+    bgCircle.setAttribute('r', 22);
+    bgCircle.setAttribute('fill', 'rgba(0,0,0,0.6)');
+    bgCircle.setAttribute('stroke', '#d4af37');
+    bgCircle.setAttribute('stroke-width', 2);
+    
+    // Pulsing Glow Ring
+    const glowCircle = document.createElementNS(SVG_NS, 'circle');
+    glowCircle.setAttribute('r', 24);
+    glowCircle.setAttribute('fill', 'none');
+    glowCircle.setAttribute('stroke', '#d4af37');
+    glowCircle.setAttribute('stroke-width', 2);
+    glowCircle.setAttribute('opacity', '0.5');
+    
+    // Animation
+    const animate = document.createElementNS(SVG_NS, 'animate');
+    animate.setAttribute('attributeName', 'r');
+    animate.setAttribute('values', '22; 30; 22');
+    animate.setAttribute('dur', '2s');
+    animate.setAttribute('repeatCount', 'indefinite');
+    
+    const animateOpacity = document.createElementNS(SVG_NS, 'animate');
+    animateOpacity.setAttribute('attributeName', 'opacity');
+    animateOpacity.setAttribute('values', '0.8; 0; 0.8');
+    animateOpacity.setAttribute('dur', '2s');
+    animateOpacity.setAttribute('repeatCount', 'indefinite');
+
+    glowCircle.appendChild(animate);
+    glowCircle.appendChild(animateOpacity);
+
+    // Number
+    const t = document.createElementNS(SVG_NS, 'text');
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('dy', '7');
+    t.setAttribute('fill', '#d4af37');
+    t.setAttribute('font-family', 'Georgia, serif');
+    t.setAttribute('font-weight', 'bold');
+    t.setAttribute('font-size', '22');
+    t.textContent = val;
+
+    g.appendChild(bgCircle);
+    g.appendChild(glowCircle);
+    g.appendChild(t);
+    return g;
+  }
+
+  // Left End (Start of chain)
+  boardSvg.appendChild(createMarker(145, 430, 6));
+  // Right End (End of chain)
+  boardSvg.appendChild(createMarker(900, 455, 5));
+
+  // Render Player Hand
+  const handRack = document.getElementById('hand-rack');
+
+  handData.forEach(tile => {
+    const el = document.createElement('div');
+    el.className = `hand-tile ${tile.playable ? 'playable' : ''}`;
+    
+    // Top Half
+    const top = document.createElement('div');
+    top.className = 'tile-half';
+    // Create SVG for pips inside DOM
+    const topSvg = document.createElementNS(SVG_NS, 'svg');
+    topSvg.setAttribute('viewBox', '-18 -18 36 36');
+    topSvg.style.overflow = 'visible';
+    top.appendChild(createPips(tile.a));
+    top.appendChild(topSvg);
+    
+    // Divider
+    const div = document.createElement('div');
+    div.className = 'tile-divider';
+    
+    // Bottom Half
+    const bot = document.createElement('div');
+    bot.className = 'tile-half';
+    const botSvg = document.createElementNS(SVG_NS, 'svg');
+    botSvg.setAttribute('viewBox', '-18 -18 36 36');
+    botSvg.style.overflow = 'visible';
+    bot.appendChild(createPips(tile.b));
+    bot.appendChild(botSvg);
+
+    el.appendChild(top);
+    el.appendChild(div);
+    el.appendChild(bot);
+
+    // Interaction
+    el.addEventListener('click', () => {
+      if (tile.playable) {
+        // Visual feedback for play
+        el.style.transform = 'translateY(-60px) scale(0.8)';
+        el.style.opacity = '0';
+        setTimeout(() => {
+          el.style.transform = '';
+          el.style.opacity = '1';
+          // In a real game, this would move the tile to the board
+        }, 400);
+      }
+    });
+
+    handRack.appendChild(el);
+  });
+
+</script>
+</body>
+</html>

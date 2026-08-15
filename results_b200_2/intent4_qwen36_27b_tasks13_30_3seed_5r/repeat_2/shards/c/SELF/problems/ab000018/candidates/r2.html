@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road: High Fidelity</title>
+    <style>
+        :root {
+            --ui-text: #333;
+            --ui-bg: #ffffff;
+            --ui-shadow: rgba(0, 0, 0, 0.2);
+            --btn-bg: rgba(255, 255, 255, 0.25);
+            --btn-border: rgba(255, 255, 255, 0.5);
+            --font-stack: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: var(--font-stack);
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD - Top Bar */
+        .hud {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            pointer-events: none;
+        }
+
+        .score-pill {
+            background: var(--ui-bg);
+            padding: 8px 28px;
+            border-radius: 50px;
+            box-shadow: 0 8px 20px var(--ui-shadow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 80px;
+            transform: translateY(0);
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .score-pill.pop {
+            transform: scale(1.15);
+        }
+
+        .label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #aaa;
+            margin-bottom: 2px;
+        }
+
+        .value {
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--ui-text);
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .value.best {
+            color: #ff9f43;
+        }
+
+        /* Controls - Bottom */
+        .controls-wrapper {
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            pointer-events: auto;
+            margin-bottom: 10px;
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: 70px 70px 70px;
+            grid-template-rows: 70px 70px;
+            gap: 12px;
+        }
+
+        .btn {
+            width: 70px;
+            height: 70px;
+            background: var(--btn-bg);
+            border: 2px solid var(--btn-border);
+            border-radius: 18px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .btn svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));
+        }
+
+        .btn:active, .btn.active {
+            background: rgba(255, 255, 255, 0.6);
+            transform: translateY(4px) scale(0.95);
+            box-shadow: 0 0 0 transparent;
+        }
+
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        /* Tutorial */
+        .tutorial {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.9);
+            font-weight: 800;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            pointer-events: none;
+            text-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            animation: fadeOut 4s forwards;
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 0; transform: translate(-50%, -40%); }
+            10% { opacity: 1; transform: translate(-50%, -50%); }
+            80% { opacity: 1; transform: translate(-50%, -50%); }
+            100% { opacity: 0; transform: translate(-50%, -60%); }
+        }
+
+        @media (max-width: 600px) {
+            .d-pad { transform: scale(0.9); margin-top: 10px; }
+            .score-pill { padding: 6px 20px; min-width: 60px; }
+            .value { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="hud">
+            <div class="score-pill" id="score-pill">
+                <div class="label">Score</div>
+                <div class="value" id="score">0</div>
+            </div>
+            <div class="score-pill">
+                <div class="label">Best</div>
+                <div class="value best" id="best">12</div>
+            </div>
+        </div>
+
+        <div class="controls-wrapper">
+            <div class="d-pad">
+                <div class="btn btn-up" id="btn-up">
+                    <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                </div>
+                <div class="btn btn-left" id="btn-left">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+                </div>
+                <div class="btn btn-down" id="btn-down">
+                    <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                </div>
+                <div class="btn btn-right" id="btn-right">
+                    <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tutorial">Tap Arrows to Cross</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * CROSSY ROAD: VISUAL OVERHAUL
+         * Improved projection, richer palette, better assets, shadows, and lighting.
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        // --- Configuration & Palette ---
+        const CONFIG = {
+            fov: 500, // Slightly wider FOV for more "gamey" feel
+            blockSize: 100, 
+            horizonY: 0.38, // Horizon pushed up slightly
+            colors: {
+                skyTop: '#54a0ff',
+                skyBot: '#48dbfb',
+                grass1: '#1dd1a1',
+                grass2: '#10ac84',
+                road: '#576574',
+                roadLine: '#feca57',
+                water: '#0abde3',
+                waterLight: '#48dbfb',
+                wood: '#8d6e63',
+                woodDark: '#5d4037',
+                woodLight: '#a1887f'
+            }
+        };
+
+        // --- State ---
+        let camera = { z: 0 };
+        let player = { 
+            x: 0, 
+            y: 0, 
+            z: 0, 
+            targetY: 0, 
+            squish: 1, 
+            rot: 0, 
+            targetRot: 0,
+            dead: false,
+            color: '#fff',
+            combColor: '#ff3f34'
+        };
+        let lanes = [];
+        let particles = [];
+        let score = 0;
+        let time = 0;
+
+        // --- Resize Handling ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math Helpers ---
+        const project = (x, y, z) => {
+            const relZ = z - camera.z;
+            if (relZ < -CONFIG.fov + 50) return { x: 0, y: 0, scale: 0, visible: false }; // Clip slightly earlier
+            
+            const scale = CONFIG.fov / (CONFIG.fov + relZ);
+            const x2d = (x * scale) + (width / 2);
+            const y2d = (y * scale) + (height * CONFIG.horizonY);
+            return { x: x2d, y: y2d, scale: scale, visible: true };
+        };
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+        const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+        // --- Classes ---
+
+        class Particle {
+            constructor(x, y, z, color) {
+                this.x = x; this.y = y; this.z = z;
+                this.vx = rand(-3, 3); this.vy = rand(-6, -2); this.vz = rand(-3, 3);
+                this.color = color;
+                this.life = 1.0;
+                this.size = rand(4, 8);
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.z += this.vz;
+                this.vy += 0.25; 
+                this.life -= 0.025;
+            }
+        }
+
+        class Lane {
+            constructor(zIndex) {
+                this.z = zIndex * CONFIG.blockSize;
+                this.type = this.determineType(zIndex);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+                this.initContent();
+            }
+
+            determineType(z) {
+                if (z < 5) return 'grass';
+                // Rhythm: Grass, Road, Water, Grass, Road, Road, Water
+                const mod = z % 6;
+                if (mod === 1) return 'road';
+                if (mod === 2) return 'water';
+                if (mod === 4 || mod === 5) return 'road';
+                return 'grass';
+            }
+
+            initContent() {
+                if (this.type === 'road') {
+                    const count = randInt(2, 4);
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-width * 1.5, width * 1.5),
+                            speed: rand(3, 9) * (Math.random() > 0.5 ? 1 : -1),
+                            color: this.getRandomCarColor(),
+                            w: rand(45, 80),
+                            h: rand(30, 55),
+                            d: rand(45, 70)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = randInt(2, 3);
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-width, width),
+                            speed: rand(1, 4) * (Math.random() > 0.5 ? 1 : -1),
+                            length: rand(120, 300)
+                        });
+                    }
+                } else {
+                    const count = randInt(3, 7);
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            x: rand(-width/1.2, width/1.2),
+                            type: Math.random() > 0.7 ? 'tree' : (Math.random() > 0.5 ? 'bush' : 'rock'),
+                            scale: rand(0.8, 1.4),
+                            colorVar: Math.random()
+                        });
+                    }
+                }
+            }
+
+            getRandomCarColor() {
+                const colors = ['#ff3f34', '#2e86de', '#feca57', '#ff9f43', '#a55eea', '#1dd1a1'];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    if (v.x > width * 2) v.x = -width * 2;
+                    if (v.x < -width * 2) v.x = width * 2;
+                });
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    if (l.x > width * 2) l.x = -width * 2;
+                    if (l.x < -width * 2) l.x = width * 2;
+                });
+            }
+
+            draw() {
+                const zRel = this.z - camera.z;
+                if (zRel < -CONFIG.fov || zRel > 2500) return;
+
+                // Ground Plane
+                const pStart = project(-width * 3, 0, this.z);
+                const pEnd = project(width * 3, 0, this.z);
+                const pStartNext = project(-width * 3, 0, this.z + CONFIG.blockSize);
+                const pEndNext = project(width * 3, 0, this.z + CONFIG.blockSize);
+
+                if (!pStart.visible) return;
+
+                ctx.beginPath();
+                ctx.moveTo(pStart.x, pStart.y);
+                ctx.lineTo(pEnd.x, pEnd.y);
+                ctx.lineTo(pEndNext.x, pEndNext.y);
+                ctx.lineTo(pStartNext.x, pStartNext.y);
+                ctx.closePath();
+
+                if (this.type === 'grass') {
+                    ctx.fillStyle = (Math.floor(this.z / CONFIG.blockSize) % 2 === 0) 
+                        ? CONFIG.colors.grass1 
+                        : CONFIG.colors.grass2;
+                } else if (this.type === 'road') {
+                    ctx.fillStyle = CONFIG.colors.road;
+                } else if (this.type === 'water') {
+                    ctx.fillStyle = CONFIG.colors.water;
+                }
+                ctx.fill();
+
+                // Details
+                if (this.type === 'road') {
+                    ctx.beginPath();
+                    const lineStart = project(-width/3, 0, this.z);
+                    const lineEnd = project(width/3, 0, this.z);
+                    ctx.moveTo(lineStart.x, lineStart.y);
+                    ctx.lineTo(lineEnd.x, lineEnd.y);
+                    ctx.strokeStyle = CONFIG.colors.roadLine;
+                    ctx.lineWidth = 5 * pStart.scale;
+                    ctx.setLineDash([25 * pStart.scale, 25 * pStart.scale]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (this.type === 'water') {
+                    ctx.strokeStyle = CONFIG.colors.waterLight;
+                    ctx.lineWidth = 3 * pStart.scale;
+                    for(let i=-3; i<=3; i+=0.6) {
+                        const s = project(i * (width/4), 0, this.z);
+                        const e = project(i * (width/4) + 80, 0, this.z);
+                        ctx.beginPath();
+                        ctx.moveTo(s.x, s.y);
+                        ctx.lineTo(e.x, e.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- 3D Drawing Helpers ---
+        
+        // Helper to darken/lighten hex colors
+        function adjustColor(hex, amount) {
+            let r = parseInt(hex.substring(1,3),16);
+            let g = parseInt(hex.substring(3,5),16);
+            let b = parseInt(hex.substring(5,7),16);
+            r = Math.min(255, Math.max(0, r + amount));
+            g = Math.min(255, Math.max(0, g + amount));
+            b = Math.min(255, Math.max(0, b + amount));
+            return `rgb(${r},${g},${b})`;
+        }
+
+        function drawCuboid(x, y, z, w, h, d, color, topColor, sideColor) {
+            const p = project(x, y, z);
+            const scale = p.scale;
+            if (!p.visible) return;
+
+            const hw = w * scale / 2;
+            const hh = h * scale;
+            const hd = d * scale / 2;
+
+            // Front
+            ctx.fillStyle = color;
+            ctx.fillRect(p.x - hw, p.y - hh, hw*2, hh);
+            
+            // Top
+            ctx.fillStyle = topColor;
+            ctx.beginPath();
+            ctx.moveTo(p.x - hw, p.y - hh);
+            ctx.lineTo(p.x - hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw, p.y - hh);
+            ctx.fill();
+
+            // Right Side
+            ctx.fillStyle = sideColor;
+            ctx.beginPath();
+            ctx.moveTo(p.x + hw, p.y - hh);
+            ctx.lineTo(p.x + hw + hd, p.y - hh - hd);
+            ctx.lineTo(p.x + hw + hd, p.y - hd);
+            ctx.lineTo(p.x + hw, p.y);
+            ctx.fill();
+        }
+
+        // --- Game Logic ---
+
+        const game = {
+            init: () => {
+                for(let i=0; i<25; i++) lanes.push(new Lane(i));
+                
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp') game.move(0, -1);
+                    if(e.key === 'ArrowDown') game.move(0, 1);
+                    if(e.key === 'ArrowLeft') game.move(-1, 0);
+                    if(e.key === 'ArrowRight') game.move(1, 0);
+                });
+
+                const bindBtn = (id, dx, dy) => {
+                    const btn = document.getElementById(id);
+                    const handle = (e) => {
+                        e.preventDefault();
+                        btn.classList.add('active');
+                        game.move(dx, dy);
+                        setTimeout(() => btn.classList.remove('active'), 150);
+                    };
+                    btn.addEventListener('touchstart', handle, {passive: false});
+                    btn.addEventListener('mousedown', handle);
+                };
+
+                bindBtn('btn-up', 0, -1);
+                bindBtn('btn-down', 0, 1);
+                bindBtn('btn-left', -1, 0);
+                bindBtn('btn-right', 1, 0);
+
+                requestAnimationFrame(game.loop);
+            },
+
+            move: (dx, dy) => {
+                if (player.dead) return;
+
+                // Prevent moving backwards too far
+                if (dy === 1 && player.z <= 0) return;
+
+                if (dy === -1) {
+                    player.z += CONFIG.blockSize;
+                    camera.z += CONFIG.blockSize;
+                    player.squish = 0.6;
+                    player.targetY = 0;
+                    
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    const pill = document.getElementById('score-pill');
+                    pill.classList.add('pop');
+                    setTimeout(() => pill.classList.remove('pop'), 150);
+
+                    lanes.push(new Lane(lanes.length));
+                    lanes.shift();
+
+                    // Spawn particles
+                    for(let i=0; i<8; i++) particles.push(new Particle(player.x, 0, player.z, '#fff'));
+
+                } else if (dy === 1) {
+                    player.z -= CONFIG.blockSize;
+                    camera.z -= CONFIG.blockSize;
+                    player.squish = 0.6;
+                } else if (dx !== 0) {
+                    player.x += dx * 100;
+                    player.targetRot = dx * 0.4;
+                    player.squish = 0.7;
+                }
+            },
+
+            update: () => {
+                time += 16;
+                
+                player.squish = lerp(player.squish, 1, 0.15);
+                player.rot = lerp(player.rot, player.targetRot, 0.1);
+                player.targetRot = lerp(player.targetRot, 0, 0.05);
+
+                let onLog = false;
+                let logSpeed = 0;
+                
+                lanes.forEach(lane => {
+                    lane.update();
+                    
+                    if (Math.abs(lane.z - player.z) < 10) {
+                        if (lane.type === 'road') {
+                            lane.vehicles.forEach(v => {
+                                if (Math.abs(player.x - v.x) < (v.w/2 + 15) && 
+                                    Math.abs(0 - (v.h/2)) < (v.h/2 + 15)) {
+                                    player.dead = true;
+                                    for(let i=0; i<25; i++) particles.push(new Particle(player.x, 0, player.z, player.color));
+                                    setTimeout(() => game.reset(), 1000);
+                                }
+                            });
+                        } else if (lane.type === 'water') {
+                            lane.logs.forEach(log => {
+                                if (player.x > log.x - log.length/2 && player.x < log.x + log.length/2) {
+                                    onLog = true;
+                                    logSpeed = log.speed;
+                                }
+                            });
+                            if (!onLog && !player.dead) {
+                                player.dead = true;
+                                for(let i=0; i<25; i++) particles.push(new Particle(player.x, 0, player.z, '#fff'));
+                                setTimeout(() => game.reset(), 1000);
+                            }
+                        }
+                    }
+                });
+
+                if (onLog) player.x += logSpeed;
+
+                particles.forEach(p => p.update());
+                particles = particles.filter(p => p.life > 0);
+            },
+
+            reset: () => {
+                score = 0;
+                document.getElementById('score').innerText = 0;
+                player.dead = false;
+                player.x = 0; player.z = 0;
+                camera.z = 0;
+                lanes = [];
+                for(let i=0; i<25; i++) lanes.push(new Lane(i));
+            },
+
+            draw: () => {
+                // 1. Sky
+                const grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, CONFIG.colors.skyTop);
+                grad.addColorStop(1, CONFIG.colors.skyBot);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                // 2. Collect Drawables
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    drawables.push({ type: 'lane', obj: l, z: l.z });
+                    l.decorations.forEach(d => drawables.push({ type: 'deco', obj: d, z: l.z }));
+                    l.vehicles.forEach(v => drawables.push({ type: 'vehicle', obj: v, z: l.z }));
+                    l.logs.forEach(lg => drawables.push({ type: 'log', obj: lg, z: l.z }));
+                });
+
+                drawables.push({ type: 'player', z: player.z });
+                particles.forEach(p => drawables.push({ type: 'particle', obj: p, z: p.z }));
+
+                // 3. Sort
+                drawables.sort((a, b) => a.z - b.z);
+
+                // 4. Render Loop
+                drawables.forEach(item => {
+                    if (item.type === 'lane') item.obj.draw();
+                    
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        const p = project(d.x, 0, item.z);
+                        if (!p.visible) return;
+
+                        if (d.type === 'tree') {
+                            // Shadow
+                            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                            ctx.beginPath();
+                            ctx.ellipse(p.x + 10*p.scale, p.y, 20*d.scale*p.scale, 10*d.scale*p.scale, 0, 0, Math.PI*2);
+                            ctx.fill();
+
+                            // Trunk
+                            drawCuboid(d.x, 0, item.z, 15, 35, 15, '#795548', '#8d6e63', '#5d4037');
+                            // Leaves (Two layers for style)
+                            drawCuboid(d.x, 30, item.z, 45, 45, 45, '#10ac84', '#1dd1a1', '#0e9c76');
+                            drawCuboid(d.x, 55, item.z, 30, 30, 30, '#10ac84', '#1dd1a1', '#0e9c76');
+                        } else if (d.type === 'bush') {
+                            drawCuboid(d.x, 0, item.z, 25, 18, 25, '#10ac84', '#1dd1a1', '#0e9c76');
+                        } else if (d.type === 'rock') {
+                            drawCuboid(d.x, 0, item.z, 20, 12, 20, '#8395a7', '#c8d6e5', '#576574');
+                        }
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        // Shadow
+                        const p = project(v.x, 0, item.z);
+                        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                        ctx.beginPath();
+                        ctx.ellipse(p.x, p.y, v.w/2*p.scale + 5, v.d/2*p.scale + 2, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        drawCuboid(v.x, 0, item.z, v.w, v.h, v.d, v.color, adjustColor(v.color, 40), adjustColor(v.color, -40));
+                        
+                        // Windows
+                        const winScale = 0.8;
+                        drawCuboid(v.x, 0, item.z, v.w*winScale, v.h*0.6, v.d*0.3, '#2f3640', '#353b48', '#2f3640');
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        drawCuboid(l.x, 0, item.z, l.length, 22, 28, CONFIG.colors.wood, CONFIG.colors.woodLight, CONFIG.colors.woodDark);
+                    }
+
+                    if (item.type === 'player') {
+                        if (player.dead) return;
+                        const p = project(player.x, 0, player.z);
+                        if (!p.visible) return;
+
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        ctx.scale(player.squish, 1/player.squish);
+                        ctx.rotate(player.rot);
+
+                        // Shadow
+                        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 18*p.scale, 9*p.scale, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        const s = p.scale;
+                        
+                        // Legs
+                        ctx.fillStyle = '#f1c40f';
+                        ctx.fillRect(-12*s, -18*s, 6*s, 18*s);
+                        ctx.fillRect(6*s, -18*s, 6*s, 18*s);
+
+                        // Body
+                        drawCuboid(0, -18*s, 0, 32*s, 32*s, 32*s, '#fff', '#f5f6fa', '#dcdde1');
+                        
+                        // Comb
+                        ctx.fillStyle = player.combColor;
+                        ctx.fillRect(-4*s, -50*s, 8*s, 12*s);
+
+                        // Beak
+                        ctx.fillStyle = '#f1c40f';
+                        ctx.beginPath();
+                        ctx.moveTo(16*s, -42*s);
+                        ctx.lineTo(26*s, -36*s);
+                        ctx.lineTo(16*s, -30*s);
+                        ctx.fill();
+
+                        // Eyes
+                        ctx.fillStyle = '#2f3640';
+                        ctx.beginPath();
+                        ctx.arc(12*s, -46*s, 2.5*s, 0, Math.PI*2);
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+
+                    if (item.type === 'particle') {
+                        const p = project(item.obj.x, item.obj.y, item.obj.z);
+                        if(p.visible) {
+                            ctx.fillStyle = item.obj.color;
+                            ctx.globalAlpha = item.obj.life;
+                            ctx.fillRect(p.x - item.obj.size/2, p.y - item.obj.size/2, item.obj.size, item.obj.size);
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        game.init();
+
+    </script>
+</body>
+</html>

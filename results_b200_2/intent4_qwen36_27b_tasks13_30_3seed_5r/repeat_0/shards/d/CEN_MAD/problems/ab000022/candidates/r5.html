@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bounce Dash - Adventure</title>
+    <style>
+        :root {
+            /* Palette - Earthy & Vibrant */
+            --c-sky-top: #2980b9;
+            --c-sky-bot: #6dd5fa;
+            --c-cloud: #ffffff;
+            
+            /* Mountains */
+            --c-mtn-far: #a9cce3;
+            --c-mtn-mid: #5dade2;
+            
+            /* Hills */
+            --c-hill-mid: #27ae60;
+            --c-hill-front: #1e8449;
+            
+            /* Ground (Earthier) */
+            --c-ground-top: #2ecc71;
+            --c-ground-bot: #228b22; /* Darker green */
+            --c-dirt: #d35400;
+            --c-dirt-dark: #a04000;
+
+            /* Game Elements */
+            --c-brick: #e67e22;
+            --c-brick-dark: #d35400;
+            --c-block: #f1c40f;
+            --c-block-dark: #f39c12;
+            
+            /* UI Colors */
+            --c-ui-white: #ffffff;
+            --c-ui-black: #1a1a1a;
+            --c-ui-red: #e74c3c;
+            --c-wood: #d3a365;
+            --c-wood-dark: #a67c52;
+            
+            /* Style Constants */
+            --border-thick: 4px solid var(--c-ui-black);
+            --shadow-hard: 6px 6px 0px rgba(0,0,0,0.3);
+            --radius-ui: 16px;
+            --font-main: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #111;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-main);
+            overflow: hidden;
+            color: var(--c-ui-white);
+            user-select: none;
+        }
+
+        /* Game Screen Container */
+        #game-screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 1920px;
+            max-height: 1080px;
+            background: linear-gradient(to bottom, var(--c-sky-top), var(--c-sky-bot));
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* --- PARALLAX LAYERS --- */
+        
+        /* Layer 1: Clouds */
+        .layer-sky {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        
+        .cloud {
+            position: absolute;
+            background: var(--c-cloud);
+            border-radius: 100px;
+            animation: drift linear infinite;
+        }
+        .cloud::before, .cloud::after {
+            content: ''; position: absolute; background: inherit; border-radius: 50%;
+        }
+
+        .c1 { width: 200px; height: 60px; top: 10%; left: -200px; animation-duration: 40s; }
+        .c1::before { width: 80px; height: 80px; top: -40px; left: 30px; }
+        .c1::after { width: 100px; height: 100px; top: -50px; left: 80px; }
+        
+        .c2 { width: 160px; height: 50px; top: 20%; left: -200px; animation-duration: 55s; animation-delay: -20s; opacity: 0.6; transform: scale(0.8); }
+        .c2::before { width: 70px; height: 70px; top: -35px; left: 20px; }
+
+        .c3 { width: 240px; height: 70px; top: 5%; left: -250px; animation-duration: 35s; animation-delay: -10s; }
+        .c3::before { width: 100px; height: 100px; top: -50px; left: 40px; }
+        .c3::after { width: 120px; height: 120px; top: -60px; left: 100px; }
+
+        @keyframes drift { 0% { transform: translateX(-300px); } 100% { transform: translateX(120vw); } }
+
+        /* Layer 2: Distant Mountains (No Stroke) */
+        .layer-mountains {
+            position: absolute;
+            bottom: 10%; left: 0; width: 100%; height: 60%;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .mountain {
+            position: absolute;
+            bottom: 0;
+            border-radius: 50% 50% 0 0;
+        }
+        .m1 { left: -5%; width: 60%; height: 80%; background: var(--c-mtn-far); }
+        .m2 { left: 30%; width: 50%; height: 65%; background: var(--c-mtn-mid); opacity: 0.9; }
+        .m3 { right: -10%; width: 70%; height: 90%; background: var(--c-mtn-far); }
+
+        /* Layer 3: Rolling Hills (No Stroke) */
+        .layer-hills {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%; height: 250px;
+            z-index: 4;
+            pointer-events: none;
+        }
+        .hill {
+            position: absolute;
+            bottom: -20px;
+            border-radius: 100% 100% 0 0;
+        }
+        .h1 { left: -10%; width: 55%; height: 180px; background: var(--c-hill-mid); }
+        .h2 { right: -10%; width: 65%; height: 220px; background: var(--c-hill-front); z-index: 5; }
+
+        /* Layer 4: Canvas (The Level) */
+        #level-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* Layer 5: Hero */
+        #hero-wrapper {
+            position: absolute;
+            left: 35%; 
+            bottom: 35%; /* Slightly higher start */
+            z-index: 15; 
+            width: 110px;
+            height: 110px;
+            pointer-events: none;
+            /* Action Pose Animation */
+            animation: heroJump 1.8s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+            transform-origin: bottom center;
+        }
+        
+        /* Hero Shadow */
+        #hero-shadow {
+            position: absolute;
+            bottom: 28%; /* Ground level */
+            left: 35%;
+            width: 60px;
+            height: 15px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 50%;
+            z-index: 9;
+            transform: translateX(-50%);
+            animation: shadowScale 1.8s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+        }
+
+        @keyframes heroJump {
+            0%, 100% { transform: translateY(0) scaleY(0.9) scaleX(1.1); } /* Landing/Stomp */
+            10% { transform: translateY(20px) scaleY(0.7) scaleX(1.3); } /* Squash */
+            40% { transform: translateY(-140px) scaleY(1.15) scaleX(0.9); } /* Peak Air */
+            60% { transform: translateY(-140px) scaleY(1.15) scaleX(0.9); } /* Hang Time */
+            85% { transform: translateY(10px) scaleY(0.85) scaleX(1.15); } /* Impact */
+        }
+        @keyframes shadowScale {
+            0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.2; }
+            50% { transform: translateX(-50%) scale(0.4); opacity: 0.05; }
+        }
+
+        /* --- UI LAYER --- */
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 30;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 0;
+        }
+
+        /* Header: Title & Inventory */
+        .header-area {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 40px;
+            width: 100%;
+        }
+        
+        .game-title {
+            font-size: 6rem;
+            font-weight: 900;
+            color: var(--c-ui-yellow);
+            text-transform: uppercase;
+            line-height: 0.8;
+            letter-spacing: -3px;
+            /* Crisp Stroke Effect */
+            -webkit-text-stroke: 2px var(--c-ui-black);
+            text-shadow: 6px 6px 0px var(--c-ui-black);
+            transform: skewX(-5deg);
+        }
+        .game-title span {
+            display: block;
+            font-size: 7.5rem;
+            color: var(--c-ui-white);
+            -webkit-text-stroke: 2px var(--c-ui-black);
+            text-shadow: 8px 8px 0px var(--c-ui-red);
+        }
+
+        /* Inventory Panel (Diegetic) */
+        .inventory-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border: var(--border-thick);
+            border-radius: 12px;
+            padding: 10px 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            box-shadow: var(--shadow-hard);
+            transform: rotate(2deg);
+            pointer-events: auto;
+        }
+        .inv-slot {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 900;
+            color: var(--c-ui-black);
+            font-size: 1.5rem;
+        }
+        .inv-icon {
+            width: 30px; height: 30px;
+            border: 3px solid var(--c-ui-black);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .inv-coin { background: #f1c40f; }
+        .inv-star { background: #e74c3c; clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); border: none; }
+
+        /* Center: Start Button */
+        .start-container {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 40;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Mushroom Button */
+        .mushroom-btn {
+            background: var(--c-ui-red);
+            border: var(--border-thick);
+            width: 140px;
+            height: 120px;
+            border-radius: 100px 100px 30px 30px;
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.1s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 10px 0 var(--c-ui-black), 0 20px 20px rgba(0,0,0,0.4);
+            margin-bottom: 15px;
+        }
+        .mushroom-btn:hover { transform: translateY(-5px); }
+        .mushroom-btn:active { transform: translateY(5px); box-shadow: 0 5px 0 var(--c-ui-black); }
+        
+        /* Mushroom Spots */
+        .spot {
+            position: absolute;
+            background: var(--c-ui-white);
+            border: 3px solid var(--c-ui-black);
+            border-radius: 50%;
+        }
+        .s1 { width: 30px; height: 30px; top: 20px; left: 25px; }
+        .s2 { width: 20px; height: 20px; top: 25px; right: 30px; }
+        .s3 { width: 25px; height: 25px; top: 60px; left: 50%; transform: translateX(-50%); }
+        
+        /* Mushroom Stem/Label */
+        .mushroom-label {
+            position: absolute;
+            bottom: -40px;
+            background: #f1c40f;
+            padding: 8px 24px;
+            border: var(--border-thick);
+            border-radius: 20px;
+            font-weight: 900;
+            color: var(--c-ui-black);
+            text-transform: uppercase;
+            font-size: 1.2rem;
+            letter-spacing: 1px;
+            box-shadow: 3px 3px 0 var(--c-ui-black);
+        }
+
+        /* Bottom: Unified Strip */
+        .bottom-strip {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(5px);
+            border-top: 4px solid var(--c-ui-black);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 60px;
+            padding: 15px 0;
+            pointer-events: auto;
+        }
+
+        /* Map Selector (Signpost) */
+        .world-map {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: #ecf0f1;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 3px solid var(--c-ui-black);
+            transform: skewX(-5deg);
+        }
+        .map-pin {
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            border: 3px solid var(--c-ui-black);
+            cursor: pointer;
+            transition: transform 0.2s;
+            position: relative;
+        }
+        .map-pin:hover { transform: scale(1.2); }
+        .map-pin.active { border-color: var(--c-ui-red); transform: scale(1.1); }
+        .map-pin::after {
+            content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+            width: 4px; height: 8px; background: var(--c-ui-black);
+        }
+        .w-grass { background: #2ecc71; }
+        .w-ice { background: #3498db; }
+        .w-fire { background: #e74c3c; }
+
+        /* Controls Board (Scroll) */
+        .controls-board {
+            background: var(--c-wood);
+            border: 3px solid var(--c-ui-black);
+            padding: 8px 16px;
+            border-radius: 6px;
+            display: flex;
+            gap: 15px;
+            color: var(--c-ui-black);
+            font-weight: 800;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+        }
+        .key-group { display: flex; align-items: center; gap: 5px; }
+        .key {
+            background: #fff;
+            border: 2px solid var(--c-ui-black);
+            border-bottom: 4px solid var(--c-ui-black);
+            border-radius: 4px;
+            width: 20px; height: 20px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px;
+        }
+        .key-space { width: 50px; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .game-title { font-size: 3rem; }
+            .game-title span { font-size: 4rem; }
+            .bottom-strip { gap: 20px; flex-direction: column; padding: 10px; }
+            .controls-board { display: none; }
+            .mushroom-btn { width: 100px; height: 85px; }
+            .spot { transform: scale(0.7); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-screen">
+        
+        <!-- LAYER 1: SKY & CLOUDS -->
+        <div class="layer-sky">
+            <div class="cloud c1"></div>
+            <div class="cloud c2"></div>
+            <div class="cloud c3"></div>
+        </div>
+
+        <!-- LAYER 2: MOUNTAINS (Background) -->
+        <div class="layer-mountains">
+            <div class="mountain m1"></div>
+            <div class="mountain m2"></div>
+            <div class="mountain m3"></div>
+        </div>
+
+        <!-- LAYER 3: HILLS (Midground) -->
+        <div class="layer-hills">
+            <div class="hill h1"></div>
+            <div class="hill h2"></div>
+        </div>
+
+        <!-- LAYER 4: GAMEPLAY CANVAS -->
+        <canvas id="level-canvas"></canvas>
+
+        <!-- HERO CHARACTER -->
+        <div id="hero-shadow"></div>
+        <div id="hero-wrapper">
+            <svg class="hero-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <!-- Action Pose: Leaning forward -->
+                <g transform="rotate(-10 50 50)">
+                    <!-- Legs (Bent) -->
+                    <path d="M35 70 L25 85 L40 90 L50 75" fill="#C0392B" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round"/>
+                    <path d="M65 70 L75 85 L60 90 L50 75" fill="#E74C3C" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round"/>
+                    
+                    <!-- Body -->
+                    <circle cx="50" cy="50" r="38" fill="#E74C3C" stroke="#1a1a1a" stroke-width="4" />
+                    
+                    <!-- Eyes (Determined) -->
+                    <g fill="white" stroke="#1a1a1a" stroke-width="2">
+                        <ellipse cx="38" cy="42" rx="7" ry="10" />
+                        <ellipse cx="62" cy="42" rx="7" ry="10" />
+                    </g>
+                    <g fill="#1a1a1a">
+                        <circle cx="40" cy="42" r="3" />
+                        <circle cx="64" cy="42" r="3" />
+                    </g>
+                    <!-- Mouth (Open) -->
+                    <path d="M42 62 Q 50 75 58 62 Z" fill="#1a1a1a" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" />
+                    
+                    <!-- Hat (Flying back slightly) -->
+                    <g transform="rotate(10 50 10)">
+                        <path d="M25 20 L 50 5 L 75 20 Z" fill="#F1C40F" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round" />
+                        <rect x="20" y="20" width="60" height="10" rx="4" fill="#F1C40F" stroke="#1a1a1a" stroke-width="4" />
+                        <circle cx="50" cy="5" r="6" fill="#E74C3C" stroke="#1a1a1a" stroke-width="4" />
+                    </g>
+                </g>
+            </svg>
+        </div>
+
+        <!-- UI LAYER -->
+        <div class="ui-layer">
+            
+            <header class="header-area">
+                <div class="game-title">BOUNCE<br><span>DASH</span></div>
+                
+                <div class="inventory-panel">
+                    <div class="inv-slot">
+                        <div class="inv-icon inv-coin"></div>
+                        <div>042</div>
+                    </div>
+                    <div class="inv-slot">
+                        <div class="inv-icon inv-star"></div>
+                        <div>03</div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Center Start Button -->
+            <div class="start-container">
+                <button class="mushroom-btn">
+                    <div class="spot s1"></div>
+                    <div class="spot s2"></div>
+                    <div class="spot s3"></div>
+                    <div class="mushroom-label">START</div>
+                </button>
+            </div>
+
+            <!-- Bottom Unified Strip -->
+            <div class="bottom-strip">
+                <!-- Map Selector -->
+                <div class="world-map">
+                    <div class="map-pin w-grass active" onclick="setTheme('grass')"></div>
+                    <div class="map-pin w-ice" onclick="setTheme('ice')"></div>
+                    <div class="map-pin w-fire" onclick="setTheme('fire')"></div>
+                </div>
+
+                <!-- Controls Board -->
+                <div class="controls-board">
+                    <div class="key-group">
+                        <div class="key">←</div>
+                        <div class="key">→</div>
+                        <span>MOVE</span>
+                    </div>
+                    <div class="key-group">
+                        <div class="key key-space">SPACE</div>
+                        <span>JUMP</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CANVAS SETUP ---
+        const canvas = document.getElementById('level-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Theme Configurations
+        const themes = {
+            grass: { 
+                sky: ['#2980b9', '#6dd5fa'], 
+                mtnFar: '#a9cce3', mtnMid: '#5dade2',
+                hillMid: '#27ae60', hillFront: '#1e8449',
+                gTop: '#2ecc71', gBot: '#228b22', 
+                dirt: '#d35400', dirtDark: '#a04000',
+                block: '#f1c40f', blockDark: '#f39c12'
+            },
+            ice: { 
+                sky: ['#83a4d4', '#b6fbff'], 
+                mtnFar: '#d6eaf8', mtnMid: '#aed6f1',
+                hillMid: '#a9dfbf', hillFront: '#74b9ff',
+                gTop: '#d4e6f1', gBot: '#a9cce3', 
+                dirt: '#bdc3c7', dirtDark: '#95a5a6',
+                block: '#74b9ff', blockDark: '#0984e3'
+            },
+            fire: { 
+                sky: ['#ff9966', '#ff5e62'], 
+                mtnFar: '#ffccbc', mtnMid: '#ff8a65',
+                hillMid: '#57606f', hillFront: '#2f3640',
+                gTop: '#34495e', gBot: '#2c3e50', 
+                dirt: '#2f3640', dirtDark: '#17202a',
+                block: '#f39c12', blockDark: '#d35400'
+            }
+        };
+
+        let currentTheme = themes.grass;
+
+        function setTheme(themeName) {
+            currentTheme = themes[themeName];
+            const root = document.documentElement;
+            root.style.setProperty('--c-sky-top', currentTheme.sky[0]);
+            root.style.setProperty('--c-sky-bot', currentTheme.sky[1]);
+            root.style.setProperty('--c-mtn-far', currentTheme.mtnFar);
+            root.style.setProperty('--c-mtn-mid', currentTheme.mtnMid);
+            root.style.setProperty('--c-hill-mid', currentTheme.hillMid);
+            root.style.setProperty('--c-hill-front', currentTheme.hillFront);
+            root.style.setProperty('--c-ground-top', currentTheme.gTop);
+            root.style.setProperty('--c-ground-bot', currentTheme.gBot);
+            
+            document.querySelectorAll('.map-pin').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.w-${themeName}`).classList.add('active');
+            
+            drawLevel();
+        }
+
+        // --- RESIZE HANDLING ---
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            canvas.logicalWidth = rect.width;
+            canvas.logicalHeight = rect.height;
+            drawLevel();
+        }
+        window.addEventListener('resize', resize);
+
+        // --- DRAWING HELPERS (Bold Flat Style) ---
+        
+        function drawRect(x, y, w, h, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4; // Unified Stroke Weight
+            ctx.strokeRect(x, y, w, h);
+        }
+
+        function drawBlock3D(x, y, w, h, topColor, sideColor) {
+            // Top Face
+            ctx.fillStyle = topColor;
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x, y, w, h);
+            
+            // Bottom Extrusion
+            ctx.fillStyle = sideColor;
+            ctx.fillRect(x, y + h, w, 14);
+            ctx.beginPath();
+            ctx.moveTo(x, y+h);
+            ctx.lineTo(x, y+h+14);
+            ctx.lineTo(x+w, y+h+14);
+            ctx.lineTo(x+w, y+h);
+            ctx.stroke();
+        }
+
+        function drawPipe(x, y, w, h) {
+            const main = currentTheme.gTop; // Match theme green
+            const dark = currentTheme.gBot; // Darker
+            
+            // Pipe Body
+            drawRect(x + 10, y + 30, w - 20, h - 30, main);
+            // Highlight
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(x + 15, y + 30, 10, h - 30);
+            
+            // Pipe Top
+            drawRect(x, y, w, 40, main);
+            // Top Highlight
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(x + 5, y + 5, 12, 30);
+            
+            // Dark Rim
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x, y + 40, w, 6);
+        }
+
+        function drawFlag(x, y, h) {
+            // Pole
+            drawRect(x, y, 8, h, '#95a5a6');
+            
+            // Top Ball
+            ctx.beginPath();
+            ctx.arc(x+4, y, 10, 0, Math.PI*2);
+            ctx.fillStyle = '#f1c40f';
+            ctx.fill();
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Flag (Triangle)
+            ctx.fillStyle = '#e74c3c';
+            ctx.beginPath();
+            ctx.moveTo(x+8, y+15);
+            ctx.lineTo(x+60, y+35);
+            ctx.lineTo(x+8, y+65);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        function drawEnemy(x, y) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(x+20, y+35, 20, 8, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Body (Mushroom shape)
+            ctx.fillStyle = '#8e44ad';
+            ctx.beginPath();
+            ctx.arc(x+20, y+15, 25, Math.PI, 0); // Top dome
+            ctx.lineTo(x+45, y+35);
+            ctx.lineTo(x-5, y+35);
+            ctx.fill();
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Spots
+            ctx.fillStyle = '#9b59b6';
+            ctx.beginPath(); ctx.arc(x+10, y+5, 5, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+30, y+5, 4, 0, Math.PI*2); ctx.fill();
+            
+            // Eyes
+            ctx.fillStyle = 'white';
+            ctx.beginPath(); ctx.arc(x+10, y+20, 6, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+30, y+20, 6, 0, Math.PI*2); ctx.fill();
+            
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath(); ctx.arc(x+12, y+20, 2, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+32, y+20, 2, 0, Math.PI*2); ctx.fill();
+        }
+
+        function drawMysteryBlock(x, y, s) {
+            drawBlock3D(x, y, s, s, currentTheme.block, currentTheme.blockDark);
+            
+            // Question Mark
+            ctx.fillStyle = '#fff';
+            ctx.font = `900 ${s*0.7}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 5;
+            ctx.strokeText('?', x + s/2, y + s/2 + 4);
+            ctx.fillText('?', x + s/2, y + s/2 + 4);
+            
+            // Dots on corners
+            const dotSize = 5;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x+4, y+4, dotSize, dotSize);
+            ctx.fillRect(x+s-4-dotSize, y+4, dotSize, dotSize);
+            ctx.fillRect(x+4, y+s-4-dotSize, dotSize, dotSize);
+            ctx.fillRect(x+s-4-dotSize, y+s-4-dotSize, dotSize, dotSize);
+        }
+
+        function drawCoin(x, y) {
+            ctx.fillStyle = '#F1C40F';
+            ctx.beginPath();
+            ctx.ellipse(x, y, 12, 16, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Shine
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.ellipse(x-4, y-6, 3, 6, -0.2, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        // --- MAIN LEVEL RENDER ---
+        function drawLevel() {
+            const w = canvas.logicalWidth;
+            const h = canvas.logicalHeight;
+            
+            ctx.clearRect(0, 0, w, h);
+
+            // Ground Level
+            const groundY = h * 0.72;
+
+            // 1. Draw Ground
+            // Top Grass
+            ctx.fillStyle = currentTheme.gTop;
+            ctx.fillRect(0, groundY, w, 30);
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(w, groundY); ctx.stroke();
+
+            // Dirt
+            ctx.fillStyle = currentTheme.dirt;
+            ctx.fillRect(0, groundY + 30, w, 100);
+            
+            // Dirt Texture
+            ctx.fillStyle = currentTheme.dirtDark;
+            for(let i=0; i<w; i+=80) {
+                ctx.beginPath(); ctx.arc(i+40, groundY+60, 6, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(i+10, groundY+90, 6, 0, Math.PI*2); ctx.fill();
+            }
+
+            // 2. Platforms
+            // Low Platform (Hero stands here)
+            drawBlock3D(w * 0.2, groundY - 120, 240, 30, currentTheme.gTop, currentTheme.dirt);
+            
+            // High Platform
+            drawBlock3D(w * 0.75, groundY - 240, 200, 30, currentTheme.gTop, currentTheme.dirt);
+            
+            // Mystery Block
+            drawMysteryBlock(w * 0.25, groundY - 210, 55);
+
+            // 3. Elements
+            drawPipe(w * 0.65, groundY - 90, 90, 90);
+            drawEnemy(w * 0.5, groundY - 40);
+            
+            // Goal Flag
+            drawFlag(w * 0.92, groundY - 320, 320);
+
+            // 4. Coins
+            drawCoin(w * 0.25 + 25, groundY - 260);
+            drawCoin(w * 0.75 + 40, groundY - 280);
+            drawCoin(w * 0.75 + 90, groundY - 280);
+            drawCoin(w * 0.75 + 140, groundY - 280);
+
+            // 5. Decor (Bushes)
+            const drawBush = (x, y, s) => {
+                ctx.fillStyle = currentTheme.gBot;
+                ctx.beginPath();
+                ctx.arc(x, y, 25*s, 0, Math.PI*2);
+                ctx.arc(x+25*s, y, 35*s, 0, Math.PI*2);
+                ctx.arc(x+50*s, y, 25*s, 0, Math.PI*2);
+                ctx.fill();
+                ctx.strokeStyle = '#1a1a1a';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            };
+            drawBush(w * 0.15, groundY, 1.2);
+            drawBush(w * 0.85, groundY, 0.9);
+        }
+
+        // --- INTERACTIVITY ---
+        const hero = document.getElementById('hero-wrapper');
+        const shadow = document.getElementById('hero-shadow');
+        const screen = document.getElementById('game-screen');
+
+        // Parallax-ish Hero movement
+        screen.addEventListener('mousemove', (e) => {
+            const rect = screen.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            let percent = (x / rect.width) * 100;
+            
+            // Clamp hero to left-center area
+            if(percent > 45) percent = 45;
+            if(percent < 10) percent = 10;
+            
+            hero.style.left = percent + '%';
+            shadow.style.left = percent + '%';
+        });
+
+        // Initialize
+        resize();
+
+    </script>
+</body>
+</html>

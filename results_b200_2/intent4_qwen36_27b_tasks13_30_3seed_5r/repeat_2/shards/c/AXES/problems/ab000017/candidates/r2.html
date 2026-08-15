@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Cube — Professional Puzzle Interface</title>
+<style>
+  :root {
+    /* Palette: Deep Space & Tactile UI */
+    --bg-deep: #050507;
+    --bg-panel: #141419;
+    --bg-panel-light: #1f2026;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-highlight: rgba(255, 255, 255, 0.15);
+    
+    /* Typography */
+    --font-main: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'Courier New', Courier, monospace;
+    
+    /* Accents */
+    --text-main: #ffffff;
+    --text-muted: #888895;
+    --accent-red: #ff453a;
+    --accent-yellow: #ffd60a;
+    --accent-blue: #0a84ff;
+    
+    /* Cube Colors (Vibrant) */
+    --c-white: #f5f5f5;
+    --c-yellow: #fef200;
+    --c-red: #ff3b30;
+    --c-orange: #ff9500;
+    --c-green: #34c759;
+    --c-blue: #007aff;
+    --c-plastic: #1a1a1a;
+
+    /* Dimensions & Spacing (8px Grid) */
+    --cube-unit: 56px;
+    --cube-gap: 3px;
+    --radius-std: 12px;
+    --radius-lg: 24px;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-font-smoothing: antialiased; }
+  
+  body {
+    margin: 0;
+    background-color: var(--bg-deep);
+    /* Atmospheric Depth */
+    background-image: radial-gradient(circle at 50% 40%, #1c1e26 0%, #050507 70%);
+    color: var(--text-main);
+    font-family: var(--font-main);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* --- Layout Structure --- */
+
+  /* Top: Unified Game State Header */
+  header {
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 20px;
+    position: relative;
+    z-index: 20;
+    gap: 16px;
+  }
+
+  /* Stats Row */
+  .stats-row {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 8px;
+  }
+
+  .stat-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-subtle);
+    padding: 8px 24px;
+    border-radius: 50px;
+    backdrop-filter: blur(10px);
+    min-width: 100px;
+  }
+
+  .stat-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .stat-value {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  
+  /* High contrast accents for stats */
+  .stat-value.timer { color: var(--accent-blue); text-shadow: 0 0 12px rgba(10, 132, 255, 0.4); }
+  .stat-value.moves { color: var(--accent-yellow); text-shadow: 0 0 12px rgba(255, 214, 10, 0.3); }
+
+  /* Size Selector: Tactile Switch */
+  .size-selector {
+    display: flex;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-std);
+    padding: 4px;
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  .size-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 24px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .size-btn.active {
+    background: var(--bg-panel-light);
+    color: var(--text-main);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    border: 1px solid var(--border-highlight);
+  }
+
+  .size-btn:hover:not(.active) { color: var(--text-main); }
+
+  /* Center: The Stage */
+  main {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+    overflow: hidden;
+  }
+
+  /* --- The Cube Scene --- */
+  .scene {
+    width: calc(var(--cube-unit) * 3 + var(--cube-gap) * 2); /* Base sizing, JS updates */
+    height: calc(var(--cube-unit) * 3 + var(--cube-gap) * 2);
+    transform-style: preserve-3d;
+    transform: rotateX(-30deg) rotateY(-45deg);
+    transition: transform 0.1s linear;
+    cursor: grab;
+    margin-top: -20px;
+  }
+  
+  .scene:active { cursor: grabbing; }
+
+  .cube-assembly {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+  }
+
+  /* --- 3D Cubie Construction --- */
+  .cubie {
+    position: absolute;
+    width: var(--cube-unit);
+    height: var(--cube-unit);
+    transform-style: preserve-3d;
+  }
+
+  .face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: var(--c-plastic);
+    /* Consistent geometry: rounded plastic corners */
+    border-radius: 14px; 
+    /* Rim light effect */
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); 
+    backface-visibility: hidden;
+  }
+
+  /* The Sticker */
+  .sticker {
+    position: absolute;
+    top: 5px; left: 5px; right: 5px; bottom: 5px;
+    border-radius: 10px;
+    /* Tactile Sticker Finish */
+    box-shadow: 
+      inset 1px 1px 2px rgba(255,255,255,0.4), 
+      inset -1px -1px 2px rgba(0,0,0,0.2),
+      0 1px 1px rgba(0,0,0,0.6);
+  }
+
+  /* Face Transforms */
+  .face.front  { transform: translateZ(calc(var(--cube-unit)/2)); }
+  .face.back   { transform: rotateY(180deg) translateZ(calc(var(--cube-unit)/2)); }
+  .face.right  { transform: rotateY(90deg) translateZ(calc(var(--cube-unit)/2)); }
+  .face.left   { transform: rotateY(-90deg) translateZ(calc(var(--cube-unit)/2)); }
+  .face.top    { transform: rotateX(90deg) translateZ(calc(var(--cube-unit)/2)); }
+  .face.bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-unit)/2)); }
+
+  /* Colors */
+  .f-U .sticker { background: var(--c-white); }
+  .f-D .sticker { background: var(--c-yellow); }
+  .f-F .sticker { background: var(--c-green); }
+  .f-B .sticker { background: var(--c-blue); }
+  .f-R .sticker { background: var(--c-red); }
+  .f-L .sticker { background: var(--c-orange); }
+
+  /* --- Footer Controls --- */
+  .controls-area {
+    position: absolute;
+    bottom: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    z-index: 20;
+  }
+
+  /* Formula Panel */
+  .formula-panel {
+    width: 90%;
+    max-width: 600px;
+    background: rgba(20, 20, 25, 0.8);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-std);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    min-height: 60px;
+  }
+
+  .panel-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+
+  .move-log {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow: hidden;
+    flex: 1;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .move-chip {
+    background: var(--bg-panel-light);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-highlight);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes popIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* Action Buttons */
+  .action-bar {
+    display: flex;
+    gap: 16px;
+    width: 90%;
+    max-width: 600px;
+    justify-content: space-between;
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main);
+    padding: 14px 20px;
+    border-radius: var(--radius-std);
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    flex: 1;
+    justify-content: center;
+  }
+
+  .btn:hover {
+    background: var(--bg-panel-light);
+    transform: translateY(-2px);
+    border-color: var(--border-highlight);
+  }
+
+  .btn:active { transform: translateY(0); }
+
+  /* Semantic Button Colors */
+  .btn-hint { color: var(--accent-yellow); border-color: rgba(255, 214, 10, 0.2); }
+  .btn-hint:hover { background: rgba(255, 214, 10, 0.1); }
+  
+  .btn-undo { color: var(--text-muted); }
+  
+  .btn-reset { color: var(--text-muted); }
+
+  /* Primary Scramble: High Contrast */
+  .btn-primary {
+    background: #ffffff;
+    color: #000;
+    border: none;
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+    flex: 1.5; /* More weight */
+  }
+  .btn-primary:hover {
+    background: #f0f0f0;
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.4);
+  }
+
+  .btn-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* --- Responsive --- */
+  @media (max-width: 600px) {
+    :root { --cube-unit: 45px; --cube-gap: 2px; }
+    header { padding-top: 10px; height: auto; }
+    .controls-area { bottom: 20px; }
+    .btn { padding: 12px; font-size: 0.85rem; }
+    .formula-panel { padding: 8px 12px; min-height: 50px; }
+    .stats-row { gap: 16px; }
+    .stat-pill { padding: 6px 16px; min-width: 80px; }
+    .stat-value { font-size: 1.2rem; }
+    .size-btn { padding: 6px 12px; font-size: 0.8rem; }
+    .action-bar { flex-direction: column; }
+    .btn-group { width: 100%; }
+  }
+
+</style>
+</head>
+<body>
+
+<header>
+  <!-- Consolidated Top Metrics -->
+  <div class="stats-row">
+    <div class="stat-pill">
+      <div class="stat-label">Moves</div>
+      <div class="stat-value moves" id="move-count">0</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-label">Time</div>
+      <div class="stat-value timer" id="timer">00:00</div>
+    </div>
+  </div>
+
+  <div class="size-selector">
+    <button class="size-btn" onclick="initCube(2)">2×2</button>
+    <button class="size-btn active" onclick="initCube(3)">3×3</button>
+    <button class="size-btn" onclick="initCube(4)">4×4</button>
+    <button class="size-btn" onclick="initCube(5)">5×5</button>
+  </div>
+</header>
+
+<main id="scene-container">
+  <div class="scene" id="scene">
+    <div class="cube-assembly" id="cube"></div>
+  </div>
+</main>
+
+<div class="controls-area">
+  <!-- Formula Panel (Explicitly Placed) -->
+  <div class="formula-panel">
+    <div class="panel-label">Log</div>
+    <div class="move-log" id="move-log">
+      <!-- Scramble formula appears here -->
+    </div>
+  </div>
+
+  <!-- Clarified Bottom Controls -->
+  <div class="action-bar">
+    <div class="btn-group">
+      <button class="btn btn-undo" onclick="undoMove()">
+        <svg class="btn-icon" viewBox="0 0 24 24"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+        Undo
+      </button>
+      <button class="btn btn-hint" onclick="requestHint()">
+        <svg class="btn-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        Hint
+      </button>
+      <button class="btn btn-reset" onclick="resetTimer()">
+        <svg class="btn-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+        Reset
+      </button>
+    </div>
+    
+    <!-- Primary Action: Scramble -->
+    <button class="btn btn-primary" onclick="scrambleCube()">
+      <svg class="btn-icon" viewBox="0 0 24 24" style="stroke: #000;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+      Scramble
+    </button>
+  </div>
+</div>
+
+<script>
+  // --- Constants ---
+  const COLORS = {
+    U: 'f-U', D: 'f-D', F: 'f-F', B: 'f-B', R: 'f-R', L: 'f-L', X: 'f-inner'
+  };
+  
+  // --- State ---
+  let N = 3;
+  let cubies = [];
+  let moveHistory = [];
+  let isAnimating = false;
+  let scrambleList = [];
+  
+  // Timer
+  let startTime = null;
+  let timerInterval = null;
+
+  // View
+  let rotX = -30;
+  let rotY = -45;
+  let isDragging = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+
+  // DOM
+  const cubeEl = document.getElementById('cube');
+  const sceneEl = document.getElementById('scene');
+  const moveCountEl = document.getElementById('move-count');
+  const timerEl = document.getElementById('timer');
+  const moveLogEl = document.getElementById('move-log');
+
+  // --- Initialization ---
+
+  function initCube(size) {
+    if (isAnimating) return;
+    N = size;
+    cubies = [];
+    cubeEl.innerHTML = '';
+    moveHistory = [];
+    scrambleList = [];
+    moveCountEl.innerText = '0';
+    moveLogEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.8rem; font-style:italic;">Ready.</span>';
+    resetTimer();
+    
+    // UI Updates
+    document.querySelectorAll('.size-btn').forEach(b => {
+      b.classList.remove('active');
+      if(b.innerText.startsWith(size + '×')) b.classList.add('active');
+    });
+
+    const offset = (N - 1) / 2;
+    const unit = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-unit')) + parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-gap'));
+
+    for (let x = 0; x < N; x++) {
+      for (let y = 0; y < N; y++) {
+        for (let z = 0; z < N; z++) {
+          createCubie(x, y, z, offset, unit);
+        }
+      }
+    }
+    
+    // Reset View slightly randomized for "premium" feel
+    rotX = -30 + (Math.random() * 10 - 5);
+    rotY = -45 + (Math.random() * 10 - 5);
+    updateSceneRotation();
+  }
+
+  function createCubie(x, y, z, offset, unitSize) {
+    const el = document.createElement('div');
+    el.className = 'cubie';
+    
+    let faceHTML = '';
+    // Logic: x(0=L,N-1=R), y(0=U,N-1=D), z(0=B,N-1=F)
+    
+    // Front/Back (Z)
+    if (z === N-1) faceHTML += `<div class="face front"><div class="sticker ${COLORS.F}"></div></div>`;
+    else if (z === 0) faceHTML += `<div class="face back"><div class="sticker ${COLORS.B}"></div></div>`;
+    else faceHTML += `<div class="face front"></div><div class="face back"></div>`;
+
+    // Right/Left (X)
+    if (x === N-1) faceHTML += `<div class="face right"><div class="sticker ${COLORS.R}"></div></div>`;
+    else if (x === 0) faceHTML += `<div class="face left"><div class="sticker ${COLORS.L}"></div></div>`;
+    else faceHTML += `<div class="face right"></div><div class="face left"></div>`;
+
+    // Top/Bottom (Y)
+    if (y === 0) faceHTML += `<div class="face top"><div class="sticker ${COLORS.U}"></div></div>`;
+    else if (y === N-1) faceHTML += `<div class="face bottom"><div class="sticker ${COLORS.D}"></div></div>`;
+    else faceHTML += `<div class="face top"></div><div class="face bottom"></div>`;
+
+    el.innerHTML = faceHTML;
+
+    const px = (x - offset) * unitSize;
+    const py = (y - offset) * unitSize;
+    const pz = (z - offset) * unitSize;
+    
+    el.style.transform = `translate3d(${px}px, ${py}px, ${pz}px)`;
+    
+    cubies.push({
+      el: el,
+      coords: {x, y, z},
+      rotation: ''
+    });
+    
+    cubeEl.appendChild(el);
+  }
+
+  // --- Interaction ---
+
+  sceneEl.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    sceneEl.style.transition = 'none';
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - lastMouseX;
+    const deltaY = e.clientY - lastMouseY;
+    rotY += deltaX * 0.5;
+    rotX -= deltaY * 0.5;
+    rotX = Math.max(-90, Math.min(90, rotX));
+    updateSceneRotation();
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  });
+
+  window.addEventListener('mouseup', () => { 
+    isDragging = false; 
+    sceneEl.style.transition = 'transform 0.1s linear';
+  });
+
+  // Touch support
+  sceneEl.addEventListener('touchstart', (e) => {
+    isDragging = true;
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+    sceneEl.style.transition = 'none';
+  }, {passive: true});
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.touches[0].clientX - lastMouseX;
+    const deltaY = e.touches[0].clientY - lastMouseY;
+    rotY += deltaX * 0.5;
+    rotX -= deltaY * 0.5;
+    rotX = Math.max(-90, Math.min(90, rotX));
+    updateSceneRotation();
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+  }, {passive: true});
+
+  window.addEventListener('touchend', () => { 
+    isDragging = false; 
+    sceneEl.style.transition = 'transform 0.1s linear';
+  });
+
+  function updateSceneRotation() {
+    sceneEl.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+  }
+
+  // --- Rotation Logic ---
+
+  function rotateSlice(axis, index, direction) {
+    if (isAnimating) return;
+    isAnimating = true;
+
+    const sliceCubies = cubies.filter(c => c.coords[axis] === index);
+    const pivot = document.createElement('div');
+    pivot.style.position = 'absolute';
+    pivot.style.transformStyle = 'preserve-3d';
+    pivot.style.width = '100%';
+    pivot.style.height = '100%';
+    cubeEl.appendChild(pivot);
+
+    sliceCubies.forEach(c => pivot.appendChild(c.el));
+
+    const deg = 90 * direction;
+    let rotateStr = '';
+    if (axis === 'x') rotateStr = `rotateX(${deg}deg)`;
+    if (axis === 'y') rotateStr = `rotateY(${deg}deg)`;
+    if (axis === 'z') rotateStr = `rotateZ(${deg}deg)`;
+
+    pivot.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    pivot.style.transform = rotateStr;
+
+    setTimeout(() => {
+      sliceCubies.forEach(c => {
+        const {x, y, z} = c.coords;
+        const oldX = x, oldY = y, oldZ = z;
+
+        // Logic for coordinate rotation
+        if (axis === 'x') {
+          // R move: y->z, z->(N-1-y)
+          if (direction === 1) { c.coords.y = oldZ; c.coords.z = (N-1) - oldY; }
+          else { c.coords.z = oldY; c.coords.y = (N-1) - oldZ; }
+        } else if (axis === 'y') {
+          // U move: x->(N-1-z), z->x
+          if (direction === 1) { c.coords.x = (N-1) - oldZ; c.coords.z = oldX; }
+          else { c.coords.z = (N-1) - oldX; c.coords.x = oldZ; }
+        } else if (axis === 'z') {
+          // F move: x->y, y->(N-1-x)
+          if (direction === 1) { c.coords.x = oldY; c.coords.y = (N-1) - oldX; }
+          else { c.coords.y = oldX; c.coords.x = (N-1) - oldY; }
+        }
+
+        // Bake rotation
+        c.rotation = rotateStr + ' ' + c.rotation;
+        
+        const offset = (N - 1) / 2;
+        const unit = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-unit')) + parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cube-gap'));
+        const px = (c.coords.x - offset) * unit;
+        const py = (c.coords.y - offset) * unit;
+        const pz = (c.coords.z - offset) * unit;
+        
+        c.el.style.transform = c.rotation + ` translate3d(${px}px, ${py}px, ${pz}px)`;
+        cubeEl.appendChild(c.el);
+      });
+      
+      pivot.remove();
+      isAnimating = false;
+    }, 300);
+  }
+
+  // --- Game Logic ---
+
+  function scrambleCube() {
+    if (isAnimating) return;
+    resetTimer();
+    startTimer();
+    moveHistory = [];
+    scrambleList = [];
+    moveCountEl.innerText = '0';
+    moveLogEl.innerHTML = '';
+    
+    const moves = 15 + N * 3;
+    let count = 0;
+    
+    const interval = setInterval(() => {
+      if (count >= moves) {
+        clearInterval(interval);
+        return;
+      }
+      
+      const axes = ['x', 'y', 'z'];
+      const axis = axes[Math.floor(Math.random() * 3)];
+      const index = Math.floor(Math.random() * N);
+      const dir = Math.random() > 0.5 ? 1 : -1;
+      
+      // Store scramble
+      scrambleList.push({axis, index, dir});
+      
+      performMove(axis, index, dir, false); 
+      count++;
+    }, 250);
+  }
+
+  function performMove(axis, index, dir, record = true) {
+    rotateSlice(axis, index, dir);
+    
+    if (record) {
+      moveHistory.push({axis, index, dir});
+      moveCountEl.innerText = moveHistory.length;
+      
+      const chip = document.createElement('div');
+      chip.className = 'move-chip';
+      let label = axis.toUpperCase() + (index + 1);
+      if (dir === -1) label += "'";
+      chip.innerText = label;
+      moveLogEl.appendChild(chip);
+      moveLogEl.scrollTop = moveLogEl.scrollHeight;
+    }
+  }
+
+  function undoMove() {
+    if (isAnimating || moveHistory.length === 0) return;
+    const last = moveHistory.pop();
+    moveCountEl.innerText = moveHistory.length;
+    if (moveLogEl.lastChild) moveLogEl.removeChild(moveLogEl.lastChild);
+    if (moveLogEl.innerHTML === '') moveLogEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.8rem; font-style:italic;">Ready.</span>';
+    performMove(last.axis, last.index, last.dir * -1, false);
+  }
+
+  function requestHint() {
+    if (isAnimating) return;
+    // Simple hint: Show the next move of the scramble in reverse (if available) or random valid move
+    // For this demo, we just highlight the next logical move if we were solving the scramble
+    // But since we don't have a solver, we'll just flash the "Hint" button
+    const btn = document.querySelector('.btn[onclick="requestHint()"]');
+    const originalBg = btn.style.background;
+    btn.style.background = 'var(--accent-yellow)';
+    btn.style.color = '#000';
+    setTimeout(() => {
+      btn.style.background = originalBg;
+      btn.style.color = 'var(--accent-yellow)';
+    }, 300);
+  }
+
+  function resetTimer() {
+    clearInterval(timerInterval);
+    timerEl.innerText = "00:00";
+    startTime = null;
+  }
+
+  function startTimer() {
+    if (startTime) return;
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+      const delta = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(delta / 60).toString().padStart(2, '0');
+      const s = (delta % 60).toString().padStart(2, '0');
+      timerEl.innerText = `${m}:${s}`;
+    }, 1000);
+  }
+
+  // Init
+  initCube(3);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Rush: Descent</title>
+<style>
+    :root {
+        --c-sky-top: #0f172a;
+        --c-sky-horizon: #38bdf8;
+        --c-ice-base: #e2e8f0;
+        --c-ice-highlight: #ffffff;
+        --c-ice-shadow: #94a3b8;
+        --c-ui-bg: rgba(15, 23, 42, 0.4);
+        --c-ui-border: rgba(255, 255, 255, 0.2);
+        --c-accent: #00f0ff;
+        --c-danger: #ff2a6d;
+        --c-white: #ffffff;
+        --font-ui: 'Arial Black', 'Helvetica Neue', sans-serif;
+        --font-num: 'Impact', 'Arial Black', sans-serif;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden; background-color: var(--c-sky-top);
+        font-family: var(--font-ui);
+        color: var(--c-white);
+    }
+
+    /* --- LAYERS --- */
+    #gameCanvas {
+        display: block;
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 1;
+    }
+
+    /* 2. Visualize Speed: Motion Blur & Shake */
+    #speed-overlay {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 2;
+        pointer-events: none;
+        background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.6) 100%);
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    body.fast #speed-overlay {
+        opacity: 1;
+    }
+
+    body.fast #gameCanvas {
+        /* CSS Shake for high speed */
+        animation: cameraShake 0.1s infinite;
+    }
+
+    @keyframes cameraShake {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(-1px, 1px); }
+        50% { transform: translate(1px, -1px); }
+        75% { transform: translate(-1px, -1px); }
+        100% { transform: translate(1px, 1px); }
+    }
+
+    /* --- UI LAYER --- */
+    #ui-layer {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 10;
+        pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* 5. Refine UI: Progress Bar */
+    .progress-container {
+        width: 100%;
+        padding: 16px 24px 0 24px;
+        display: flex; justify-content: center;
+    }
+    .progress-track {
+        width: 100%; max-width: 400px; height: 6px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 3px;
+        position: relative;
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .progress-fill {
+        height: 100%; background: var(--c-accent);
+        width: 0%; transition: width 0.1s linear;
+        box-shadow: 0 0 10px var(--c-accent);
+        border-radius: 3px;
+    }
+    .progress-flag {
+        position: absolute; right: 0; top: 50%; transform: translateY(-50%) translateX(50%);
+        width: 12px; height: 16px;
+        background: var(--c-danger);
+        clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 100% 100%);
+        box-shadow: 0 0 5px var(--c-danger);
+    }
+
+    /* 5. Refine UI: HUD Cluster */
+    .hud-top {
+        display: flex; justify-content: center; align-items: flex-start;
+        padding: 20px 24px;
+        position: relative;
+        gap: 16px;
+    }
+
+    .panel {
+        background: var(--c-ui-bg);
+        border: 1px solid var(--c-ui-border);
+        border-radius: 16px;
+        padding: 12px 24px;
+        color: white;
+        display: flex; flex-direction: column;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        min-width: 140px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    /* Subtle sheen on panels */
+    .panel::before {
+        content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%;
+        background: linear-gradient(to bottom, rgba(255,255,255,0.1), transparent);
+        pointer-events: none;
+    }
+
+    .label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #94a3b8;
+        margin-bottom: 2px;
+        font-weight: 700;
+    }
+
+    .value-row {
+        display: flex; align-items: baseline;
+    }
+
+    .value {
+        font-family: var(--font-num);
+        font-size: 36px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -1px;
+    }
+
+    .unit {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--c-accent);
+        margin-left: 4px;
+        opacity: 0.9;
+    }
+    
+    .unit.danger { color: var(--c-danger); }
+
+    /* 5. Refine UI: Controls */
+    .hud-bottom {
+        padding: 24px;
+        display: flex; justify-content: space-between; align-items: flex-end;
+        pointer-events: none;
+    }
+
+    .controls-area {
+        display: flex; gap: 20px;
+        pointer-events: auto;
+    }
+
+    .btn-control {
+        width: 72px; height: 72px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer;
+        transition: all 0.1s ease;
+        color: var(--c-white);
+        backdrop-filter: blur(4px);
+    }
+
+    .btn-control:active, .btn-control.pressed {
+        background: rgba(0, 240, 255, 0.15);
+        border-color: var(--c-accent);
+        transform: scale(0.95);
+        box-shadow: 0 0 15px var(--c-accent);
+    }
+    
+    .btn-control svg { width: 32px; height: 32px; fill: currentColor; }
+
+    /* Gate Warning */
+    .gate-warning {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+        opacity: 0; pointer-events: none;
+        transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        text-align: center;
+    }
+    .gate-warning.active { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .gate-text {
+        font-family: var(--font-num);
+        font-size: 48px;
+        color: var(--c-danger);
+        text-shadow: 0 0 20px var(--c-danger);
+        letter-spacing: 4px;
+    }
+
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+<div id="speed-overlay"></div>
+
+<div id="ui-layer">
+    <!-- 5. Progress with Flag -->
+    <div class="progress-container">
+        <div class="progress-track">
+            <div class="progress-fill" id="progressBar"></div>
+            <div class="progress-flag"></div>
+        </div>
+    </div>
+
+    <!-- 5. Grouped HUD Cluster -->
+    <div class="hud-top">
+        <div class="panel">
+            <div class="label">Distance</div>
+            <div class="value-row">
+                <div class="value" id="distVal">0</div>
+                <div class="unit">M</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="label">Velocity</div>
+            <div class="value-row">
+                <div class="value" id="speedVal">0</div>
+                <div class="unit danger">KM/H</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="gate-warning" id="gateOverlay">
+        <div class="gate-text">GATE</div>
+    </div>
+
+    <!-- 5. Lighter Controls -->
+    <div class="hud-bottom">
+        <div class="controls-area">
+            <div class="btn-control" id="btnLeft">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="btn-control" id="btnRight">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ALPINE RUSH: REDESIGNED ENGINE
+ * Focus: Visual depth, 3D perspective, stylized assets, polished UI.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const body = document.body;
+
+// --- CONFIGURATION ---
+const CFG = {
+    roadWidth: 2400,
+    segmentLength: 100,
+    cameraHeight: 1200,
+    cameraDepth: 0.8, 
+    drawDistance: 150,
+    fogDensity: 4
+};
+
+// --- STATE ---
+let width, height;
+let frame = 0;
+let speed = 0;
+let targetSpeed = 280; 
+let playerX = 0; 
+let playerTilt = 0;
+let distance = 0;
+let cameraZ = 0;
+let shakeIntensity = 0;
+
+// --- ASSETS & DATA ---
+let segments = [];
+let particles = []; 
+let snowPattern = null;
+
+// UI Elements
+const uiSpeed = document.getElementById('speedVal');
+const uiDist = document.getElementById('distVal');
+const uiProgress = document.getElementById('progressBar');
+const uiGate = document.getElementById('gateOverlay');
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+
+// --- RESIZE ---
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+    createSnowTexture();
+}
+window.addEventListener('resize', resize);
+
+// 1. Alpine Environment: Procedural Snow Texture
+function createSnowTexture() {
+    const pCanvas = document.createElement('canvas');
+    pCanvas.width = 256;
+    pCanvas.height = 256;
+    const pCtx = pCanvas.getContext('2d');
+    
+    // Base Ice Color
+    pCtx.fillStyle = '#E2E8F0';
+    pCtx.fillRect(0,0,256,256);
+    
+    // Noise/Grain
+    for(let i=0; i<6000; i++) {
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        const alpha = Math.random() * 0.15;
+        pCtx.fillStyle = `rgba(255,255,255,${alpha})`;
+        pCtx.fillRect(x,y,1,1);
+    }
+    // Subtle icy veins
+    for(let i=0; i<10; i++) {
+        pCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+        pCtx.lineWidth = Math.random() * 2;
+        pCtx.beginPath();
+        pCtx.moveTo(Math.random()*256, Math.random()*256);
+        pCtx.lineTo(Math.random()*256, Math.random()*256);
+        pCtx.stroke();
+    }
+    snowPattern = ctx.createPattern(pCanvas, 'repeat');
+}
+
+resize();
+
+// --- INPUT ---
+let inputLeft = false, inputRight = false;
+
+const handleInput = (dir, active) => {
+    if(dir === 'left') inputLeft = active;
+    if(dir === 'right') inputRight = active;
+    
+    const btn = dir === 'left' ? btnLeft : btnRight;
+    if(active) btn.classList.add('pressed');
+    else btn.classList.remove('pressed');
+};
+
+const addInputListeners = (el, dir) => {
+    el.addEventListener('mousedown', () => handleInput(dir, true));
+    el.addEventListener('mouseup', () => handleInput(dir, false));
+    el.addEventListener('mouseleave', () => handleInput(dir, false));
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir, true); });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); handleInput(dir, false); });
+};
+addInputListeners(btnLeft, 'left');
+addInputListeners(btnRight, 'right');
+
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', true);
+    if(e.key === 'ArrowRight') handleInput('right', true);
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', false);
+    if(e.key === 'ArrowRight') handleInput('right', false);
+});
+
+// --- MATH HELPERS ---
+function project(p, cameraX, cameraY, cameraZ, cameraDepth) {
+    // Standard 3D projection logic
+    const scale = cameraDepth / (p.z - cameraZ);
+    const x = (1 + scale * (p.x - cameraX)) * width / 2;
+    const y = (1 - scale * (p.y - cameraY)) * height / 2;
+    const w = scale * CFG.roadWidth * width / 2; 
+    return { x, y, scale, w };
+}
+
+// --- WORLD GENERATION ---
+function createRoad() {
+    segments = [];
+    const totalSegments = 2000;
+    
+    for (let i = 0; i < totalSegments; i++) {
+        // Sine waves for curves
+        const curve = (Math.sin(i * 0.01) * 3) + (Math.sin(i * 0.003) * 6);
+        // Hills
+        const y = Math.sin(i * 0.02) * 1000;
+        
+        segments.push({
+            index: i,
+            p: { x: 0, y: y, z: i * CFG.segmentLength },
+            curve: curve,
+            color: Math.floor(i / 3) % 2 ? 'dark' : 'light',
+            objects: []
+        });
+    }
+
+    // Populate Objects
+    segments.forEach((seg, i) => {
+        if (i > 20 && i % 8 === 0) {
+            const side = Math.random() > 0.5 ? 1 : -1;
+            seg.objects.push({ type: 'tree', offset: side * (1.8 + Math.random() * 1.0) });
+        }
+        if (i > 20 && i % 15 === 0) {
+            const side = Math.random() > 0.5 ? 1 : -1;
+            seg.objects.push({ type: 'rock', offset: side * (1.2 + Math.random() * 0.4) });
+        }
+        if (i > 60 && i % 100 === 0) {
+            seg.objects.push({ type: 'gate', offset: 0 });
+        }
+    });
+}
+createRoad();
+
+// --- PARTICLE SYSTEM ---
+function spawnSnow(x, y) {
+    if (speed < 40) return;
+    // Snow sprays outwards from skis
+    particles.push({
+        x: x + (Math.random() - 0.5) * 100,
+        y: y + Math.random() * 20,
+        vx: (Math.random() - 0.5) * 30,
+        vy: Math.random() * 35 + 20,
+        life: 1.0,
+        size: Math.random() * 8 + 4
+    });
+}
+
+// --- RENDER HELPERS ---
+function drawPoly(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.lineTo(x4, y4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// 3. Gameplay Elements: High Contrast Objects
+function drawTree(ctx, x, y, scale) {
+    const h = 1400 * scale;
+    const w = 600 * scale;
+    // Trunk
+    ctx.fillStyle = '#1C1917';
+    ctx.fillRect(x - w/15, y - h/3, w/8, h/3);
+    // Pine Layers
+    ctx.fillStyle = '#0F172A'; 
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w, y - h*0.3);
+    ctx.lineTo(x + w, y - h*0.3);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, y - h*0.75);
+    ctx.lineTo(x - w*0.9, y);
+    ctx.lineTo(x + w*0.9, y);
+    ctx.fill();
+    // Snow Cap
+    ctx.fillStyle = '#F8FAFC';
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w/4, y - h*0.75);
+    ctx.lineTo(x + w/4, y - h*0.75);
+    ctx.fill();
+}
+
+function drawRock(ctx, x, y, scale) {
+    const s = 600 * scale;
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x - s/2, y);
+    ctx.lineTo(x + s/2, y);
+    ctx.fill();
+    ctx.fillStyle = '#E2E8F0';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x - s/3, y - s/2);
+    ctx.lineTo(x, y - s/2);
+    ctx.fill();
+}
+
+function drawGate(ctx, x, y, scale) {
+    const w = 2000 * scale;
+    const h = 800 * scale;
+    const poleW = 60 * scale;
+    
+    // Poles
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = '#FF2A6D';
+    ctx.fillStyle = '#FF2A6D';
+    ctx.fillRect(x - w/2, y - h, poleW, h);
+    ctx.fillRect(x + w/2 - poleW, y - h, poleW, h);
+    ctx.shadowBlur = 0;
+    
+    // Banner
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(x - w/2, y - h, w, h/3);
+    ctx.fillStyle = '#FFF';
+    ctx.font = `bold ${70*scale}px Impact`;
+    ctx.textAlign = 'center';
+    ctx.fillText("GATE", x, y - h + (h/3)*0.7);
+}
+
+// 4. Elevated Rider Asset
+function drawRider(ctx, tilt) {
+    ctx.save();
+    ctx.rotate(tilt);
+    
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.beginPath();
+    ctx.ellipse(0, 10, 60, 15, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Board (Larger, aerodynamic)
+    ctx.fillStyle = '#00F0FF'; 
+    ctx.beginPath();
+    ctx.roundRect(-60, 5, 120, 16, 8);
+    ctx.fill();
+    
+    // Legs
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.moveTo(-20, 5);
+    ctx.lineTo(-30, 30);
+    ctx.lineTo(-15, 30);
+    ctx.lineTo(0, 5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(20, 5);
+    ctx.lineTo(30, 30);
+    ctx.lineTo(15, 30);
+    ctx.lineTo(0, 5);
+    ctx.fill();
+
+    // Body (Tucked)
+    ctx.fillStyle = '#FF2A6D'; 
+    ctx.beginPath();
+    ctx.moveTo(-25, 5);
+    ctx.lineTo(25, 5);
+    ctx.lineTo(30, 50);
+    ctx.lineTo(-30, 50);
+    ctx.fill();
+
+    // Head
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(0, -15, 18, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Goggles
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(-14, -20, 28, 10);
+    
+    // Arms (Back)
+    ctx.strokeStyle = '#FF2A6D';
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-20, 15);
+    ctx.lineTo(-50, 35);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(20, 15);
+    ctx.lineTo(50, 35);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// --- MAIN RENDER ---
+function render() {
+    // 1. Alpine Environment: Sky Gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, '#0F172A'); 
+    grad.addColorStop(0.4, '#1E293B');
+    grad.addColorStop(0.7, '#38BDF8'); 
+    grad.addColorStop(1, '#F1F5F9'); 
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Shake Logic
+    let shakeX = 0, shakeY = 0;
+    if (shakeIntensity > 0) {
+        shakeX = (Math.random() - 0.5) * shakeIntensity;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+    }
+
+    // Road Logic
+    const baseSegmentIndex = Math.floor(cameraZ / CFG.segmentLength);
+    const cameraDepth = CFG.cameraDepth;
+    let maxY = height;
+    
+    // Curve accumulation
+    let cumCurve = 0;
+    for(let n = 0; n < CFG.drawDistance; n++) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        cumCurve += segments[idx].curve;
+        segments[idx].cumCurve = cumCurve; 
+    }
+
+    // Draw Road (Back to Front)
+    for(let n = CFG.drawDistance - 1; n > 0; n--) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        const nextIdx = (baseSegmentIndex + n + 1) % segments.length;
+        const seg = segments[idx];
+        const nextSeg = segments[nextIdx];
+
+        let z = seg.p.z - cameraZ;
+        if (z <= 0) continue; 
+
+        const p1 = project(
+            { x: seg.p.x - cumCurve * 100, y: seg.p.y, z: z }, 
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+        
+        let nextZ = z + CFG.segmentLength;
+        let nextCurve = cumCurve + nextSeg.curve;
+        const p2 = project(
+            { x: nextSeg.p.x - nextCurve * 100, y: nextSeg.p.y, z: nextZ },
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+
+        if (p1.y >= maxY) continue;
+
+        // Ground (Snow)
+        const w1 = p1.w * 4.0;
+        const w2 = p2.w * 4.0;
+        
+        // Checkerboard effect on snow for depth perception
+        ctx.fillStyle = snowPattern; 
+        if(seg.color === 'dark') {
+             ctx.fillStyle = 'rgba(203, 213, 225, 0.8)'; 
+        }
+        drawPoly(ctx, p1.x - w1, p1.y, p1.x + w1, p1.y, p2.x + w2, p2.y, p2.x - w2, p2.y, ctx.fillStyle);
+
+        // Road (Ice Track)
+        const r1 = p1.w;
+        const r2 = p2.w;
+        
+        // Simulate "Deep Navy to Bright Cyan" transition per segment distance
+        const alpha = 1 - (n / CFG.drawDistance); 
+        ctx.fillStyle = `rgba(56, 189, 248, ${0.2 + (alpha * 0.5)})`; 
+        
+        drawPoly(ctx, p1.x - r1, p1.y, p1.x + r1, p1.y, p2.x + r2, p2.y, p2.x - r2, p2.y, ctx.fillStyle);
+
+        // Lane Markers
+        if (seg.color === 'light') {
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            const lm1 = r1 * 0.02;
+            const lm2 = r2 * 0.02;
+            drawPoly(ctx, p1.x - lm1, p1.y, p1.x + lm1, p1.y, p2.x + lm2, p2.y, p2.x - lm2, p2.y, '#FFF');
+            
+            // Neon Edges
+            ctx.fillStyle = '#FF2A6D';
+            drawPoly(ctx, p1.x - r1 - lm1, p1.y, p1.x - r1 + lm1, p1.y, p2.x - r2 + lm2, p2.y, p2.x - r2 - lm2, p2.y, '#FF2A6D');
+            drawPoly(ctx, p1.x + r1 - lm1, p1.y, p1.x + r1 + lm1, p1.y, p2.x + r2 + lm2, p2.y, p2.x + r2 - lm2, p2.y, '#FF2A6D');
+        }
+
+        // Fog
+        const fogAlpha = Math.pow(n / CFG.drawDistance, 3) * 0.8;
+        if(fogAlpha > 0.01) {
+            ctx.fillStyle = `rgba(241, 245, 249, ${fogAlpha})`;
+            ctx.fillRect(0, p2.y, width, p1.y - p2.y);
+        }
+
+        maxY = p1.y;
+    }
+
+    // Draw Objects (Back to Front)
+    for(let n = CFG.drawDistance - 1; n > 0; n--) {
+        const idx = (baseSegmentIndex + n) % segments.length;
+        const seg = segments[idx];
+        let z = seg.p.z - cameraZ;
+        if (z <= 0) continue;
+
+        let cumC = 0;
+        for(let k=0; k<=n; k++) cumC += segments[(baseSegmentIndex + k) % segments.length].curve;
+        
+        const p = project(
+            { x: seg.p.x - cumC * 100, y: seg.p.y, z: z }, 
+            playerX * CFG.roadWidth, CFG.cameraHeight, 0, cameraDepth
+        );
+
+        if (p.y >= maxY) continue;
+
+        seg.objects.forEach(obj => {
+            const objX = p.x + (obj.offset * p.w);
+            if(obj.type === 'tree') drawTree(ctx, objX, p.y, p.scale);
+            if(obj.type === 'rock') drawRock(ctx, objX, p.y, p.scale);
+            if(obj.type === 'gate') drawGate(ctx, p.x, p.y, p.scale);
+        });
+    }
+
+    // 4. Player (Stylized Snowboarder)
+    const playerScreenX = width / 2;
+    const playerScreenY = height - 60; 
+    
+    ctx.save();
+    ctx.translate(playerScreenX, playerScreenY);
+    // Scale up significantly to anchor the screen
+    ctx.scale(1.5, 1.5); 
+    drawRider(ctx, playerTilt);
+    ctx.restore();
+
+    // Particles (Snow Spray)
+    particles.forEach((p, i) => {
+        ctx.fillStyle = `rgba(255,255,255,${p.life})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+        ctx.fill();
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.03;
+        if(p.life <= 0) particles.splice(i, 1);
+    });
+
+    if (shakeIntensity > 0) ctx.restore();
+}
+
+// --- GAME LOOP ---
+let lastTime = 0;
+function loop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.1);
+    lastTime = time;
+
+    // Physics
+    if (speed < targetSpeed) speed += 150 * dt;
+    else if (speed > targetSpeed) speed -= 60 * dt;
+    
+    cameraZ += speed * 2.5; 
+    distance += speed * dt * 0.5;
+
+    // Steering
+    const steerSpeed = 4.0 * dt;
+    if (inputLeft) {
+        playerX -= steerSpeed;
+        playerTilt = Math.max(playerTilt - 12*dt, -0.8);
+    } else if (inputRight) {
+        playerX += steerSpeed;
+        playerTilt = Math.min(playerTilt + 12*dt, 0.8);
+    } else {
+        playerTilt *= 0.9;
+    }
+    playerX = Math.max(-1.5, Math.min(1.5, playerX));
+
+    // Shake Decay
+    if(shakeIntensity > 0) shakeIntensity -= 50 * dt;
+    if(shakeIntensity < 0) shakeIntensity = 0;
+
+    // FX Logic
+    if(Math.random() > 0.1) spawnSnow(width/2, height - 60);
+
+    // UI Updates
+    uiSpeed.innerText = Math.floor(speed);
+    uiDist.innerHTML = Math.floor(distance);
+    uiProgress.style.width = `${(distance % 2000) / 20}%`;
+
+    // Gate Check
+    const currentSeg = segments[Math.floor(cameraZ / CFG.segmentLength) % segments.length];
+    if(currentSeg && currentSeg.objects.some(o => o.type === 'gate')) {
+        uiGate.classList.add('active');
+        if(shakeIntensity < 10) shakeIntensity = 10;
+    } else {
+        uiGate.classList.remove('active');
+    }
+
+    // Speed Lines CSS Class Toggle
+    if(speed > 140) body.classList.add('fast');
+    else body.classList.remove('fast');
+
+    render();
+    requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

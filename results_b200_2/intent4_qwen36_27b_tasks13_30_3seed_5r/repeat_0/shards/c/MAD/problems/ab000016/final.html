@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHRONO-RUNNER // REDESIGNED</title>
+    <style>
+        :root {
+            /* Palette: Modern Desert Retro */
+            --bg-sky: #F4F4F0;
+            --bg-horizon: #E8E4D9;
+            --accent-sun: #FF5F40;
+            --ground-solid: #2B2B2B; /* Charcoal, flat */
+            --ground-detail: #444444;
+            --ink: #111111; /* Silhouette Black */
+            --ui-text: #2B2B2B;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            background-color: #111; /* Outer frame */
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: var(--font-mono);
+        }
+
+        /* Game Container */
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 1600px;
+            max-height: 900px;
+            background: var(--bg-sky);
+            overflow: hidden;
+            box-shadow: 0 0 60px rgba(0,0,0,0.6);
+        }
+
+        /* Scanline / Noise Overlay */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            background: repeating-linear-gradient(
+                to bottom,
+                transparent 0px,
+                transparent 2px,
+                rgba(0, 0, 0, 0.03) 4px
+            );
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        /* HUD Layer */
+        .hud-layer {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            font-family: var(--font-mono);
+            color: var(--ui-text);
+        }
+
+        .score-row {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 8px;
+        }
+
+        .hud-item {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .label {
+            font-size: 14px;
+            font-weight: 700;
+            opacity: 0.5;
+            letter-spacing: 1px;
+        }
+
+        .value {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: -1px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .speed-indicator {
+            font-size: 13px;
+            font-weight: 700;
+            opacity: 0.4;
+            letter-spacing: 1px;
+            border-top: 1px solid rgba(43, 43, 43, 0.2);
+            padding-top: 4px;
+        }
+
+        /* Central Instruction Overlay */
+        .instruction-overlay {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            pointer-events: none;
+            text-align: center;
+            transition: opacity 0.2s ease;
+        }
+
+        .instruction-box {
+            background: var(--bg-sky);
+            color: var(--ink);
+            padding: 12px 24px;
+            border: 2px solid var(--ink);
+            box-shadow: 6px 6px 0px rgba(0,0,0,0.15);
+            display: inline-block;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        .instruction-text {
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        /* Game Over */
+        .game-over-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            z-index: 30;
+            background: var(--bg-sky);
+            padding: 40px 60px;
+            border: 4px solid var(--ink);
+            box-shadow: 12px 12px 0px rgba(0,0,0,0.1);
+        }
+
+        .game-over-title {
+            font-size: 48px;
+            font-weight: 900;
+            color: var(--ink);
+            letter-spacing: -2px;
+            margin-bottom: 10px;
+        }
+
+        .retry-text {
+            font-size: 16px;
+            letter-spacing: 1px;
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- Scanline Overlay -->
+        <div class="scanlines"></div>
+
+        <!-- HUD -->
+        <div class="hud-layer">
+            <div class="score-row">
+                <div class="hud-item">
+                    <span class="label">HI</span>
+                    <span class="value" id="high-score">00000</span>
+                </div>
+                <div class="hud-item">
+                    <span class="label">SCORE</span>
+                    <span class="value" id="score">00000</span>
+                </div>
+            </div>
+            <div class="speed-indicator">SPEED <span id="speed-val">1.0x</span></div>
+        </div>
+
+        <!-- Canvas -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Instructions -->
+        <div class="instruction-overlay" id="instructions">
+            <div class="instruction-box">
+                <div class="instruction-text">PRESS SPACE TO JUMP</div>
+            </div>
+        </div>
+
+        <!-- Game Over -->
+        <div class="game-over-panel" id="game-over">
+            <div class="game-over-title">CRASHED</div>
+            <div class="retry-text">PRESS SPACE TO RETRY</div>
+        </div>
+    </div>
+
+<script>
+    /**
+     * REVISED ENGINE
+     * Changes Applied:
+     * 1. Dino scale increased to ~80px height.
+     * 2. Sun scaled down and stylized with "retro scanlines" (slices).
+     * 3. Ground flattened to solid charcoal color.
+     * 4. Added Mountain/Dune layer for depth.
+     * 5. Added Cactus and Pterodactyl entities.
+     * 6. Unified typography and UI styling.
+     */
+    
+    // Palette
+    const C = {
+        sky: '#F4F4F0',
+        horizon: '#E8E4D9',
+        sun: '#FF5F40',
+        sunSlice: '#F4F4F0', // Matches Sky for cutout
+        ground: '#2B2B2B',   // Flat Charcoal
+        groundDetail: '#3A3A3A',
+        ink: '#111111',      // Silhouette Black
+        mountain: '#D6D2C9'  // Subtle background element
+    };
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d', { alpha: false }); 
+    
+    // UI Elements
+    const ui = {
+        score: document.getElementById('score'),
+        highScore: document.getElementById('high-score'),
+        speed: document.getElementById('speed-val'),
+        gameOver: document.getElementById('game-over'),
+        instructions: document.getElementById('instructions')
+    };
+
+    // Game State
+    let game = {
+        width: 0,
+        height: 0,
+        frame: 0,
+        speed: 10,
+        score: 0,
+        highScore: 0,
+        isPlaying: false,
+        isGameOver: false,
+        groundY: 0
+    };
+
+    /**
+     * UTILITIES
+     */
+    function resize() {
+        const container = document.getElementById('game-container');
+        // High DPI support for crispness, scaled down via CSS
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        
+        // Keep internal resolution somewhat low for pixel-art feel if desired,
+        // but here we match width for crisp vectors, relying on pRect for blockiness.
+        game.width = canvas.width;
+        game.height = canvas.height;
+        game.groundY = game.height - 100;
+    }
+
+    // Pixel Perfect Drawing Helper (Snap to integer grid)
+    function pRect(x, y, w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+    }
+
+    /**
+     * ENTITIES
+     */
+
+    class Player {
+        constructor() {
+            // CRITIQUE 1: Scale increased by ~200% (Target ~80px height)
+            this.w = 70; 
+            this.h = 70;
+            this.x = 80; 
+            this.y = game.groundY - this.h;
+            this.dy = 0;
+            this.jumpForce = -21; // Adjusted for heavier feel
+            this.gravity = 1.0;
+            this.grounded = true;
+            this.runFrame = 0;
+        }
+
+        jump() {
+            if (this.grounded) {
+                this.dy = this.jumpForce;
+                this.grounded = false;
+            }
+        }
+
+        update() {
+            this.dy += this.gravity;
+            this.y += this.dy;
+
+            if (this.y + this.h > game.groundY) {
+                this.y = game.groundY - this.h;
+                this.dy = 0;
+                this.grounded = true;
+            } else {
+                this.grounded = false;
+            }
+
+            if (this.grounded) {
+                this.runFrame += 0.2;
+            }
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(Math.floor(this.x), Math.floor(this.y));
+            ctx.fillStyle = C.ink;
+            
+            // Drawing a more detailed, larger Dinosaur Silhouette
+            // Head
+            pRect(25, 0, 40, 25, C.ink); 
+            pRect(50, 5, 20, 15, C.ink); // Snout
+            pRect(45, 0, 15, 5, C.ink);  // Top head
+            
+            // Eye
+            pRect(48, 5, 4, 4, C.sky);
+
+            // Neck/Body
+            pRect(15, 25, 35, 30, C.ink);
+            
+            // Tail
+            pRect(0, 30, 15, 15, C.ink);
+            pRect(0, 25, 10, 5, C.ink); // Tail top
+            
+            // Arm
+            pRect(30, 30, 15, 8, C.ink);
+
+            // Legs (Animated)
+            const legCycle = Math.sin(this.runFrame * 2.5);
+            
+            if (this.grounded) {
+                // Back Leg
+                if (legCycle > 0) {
+                    // Extended back
+                    pRect(5, 55, 15, 15, C.ink);
+                    pRect(0, 65, 15, 5, C.ink); // Foot
+                } else {
+                    // Bent back
+                    pRect(10, 55, 15, 10, C.ink);
+                    pRect(10, 60, 10, 15, C.ink);
+                }
+
+                // Front Leg
+                if (legCycle < 0) {
+                    // Extended front
+                    pRect(30, 55, 15, 15, C.ink);
+                    pRect(30, 65, 15, 5, C.ink); // Foot
+                } else {
+                    // Bent front
+                    pRect(35, 55, 15, 10, C.ink);
+                    pRect(35, 60, 10, 15, C.ink);
+                }
+            } else {
+                // Jump Pose (Tucked legs)
+                pRect(10, 55, 12, 10, C.ink);
+                pRect(30, 55, 12, 10, C.ink);
+            }
+
+            ctx.restore();
+        }
+    }
+
+    class Obstacle {
+        constructor(type) {
+            this.type = type;
+            this.markedForDeletion = false;
+            
+            if (type === 'cactus') {
+                // CRITIQUE 2: Populate gameplay elements (Cactus)
+                const scale = 1 + Math.random() * 0.4;
+                this.w = 45 * scale;
+                this.h = (60 + Math.random() * 20) * scale;
+                this.x = game.width + 50;
+                this.y = game.groundY - this.h;
+            } else {
+                // CRITIQUE 2: Populate gameplay elements (Pterodactyl)
+                this.w = 70;
+                this.h = 50;
+                this.x = game.width + 50;
+                // Flying heights: Low (Jump over) or Mid (Run under)
+                const heights = [game.groundY - 60, game.groundY - 110];
+                this.y = heights[Math.floor(Math.random() * heights.length)];
+                this.wingFrame = 0;
+            }
+        }
+
+        update() {
+            this.x -= game.speed;
+            if (this.type === 'bird') this.wingFrame += 0.15;
+            if (this.x + this.w < -100) this.markedForDeletion = true;
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(Math.floor(this.x), Math.floor(this.y));
+            ctx.fillStyle = C.ink;
+
+            if (this.type === 'cactus') {
+                // Modern Blocky Cactus
+                // Main Stem
+                pRect(this.w * 0.3, 0, this.w * 0.4, this.h, C.ink);
+                
+                // Arms
+                // Left
+                pRect(0, this.h * 0.4, this.w * 0.3, this.h * 0.15, C.ink);
+                pRect(0, this.h * 0.2, this.w * 0.15, this.h * 0.2, C.ink);
+                
+                // Right
+                pRect(this.w * 0.7, this.h * 0.3, this.w * 0.3, this.h * 0.15, C.ink);
+                pRect(this.w * 0.85, this.h * 0.1, this.w * 0.15, this.h * 0.2, C.ink);
+                
+            } else {
+                // Pterodactyl
+                // Body
+                pRect(10, 15, 45, 12, C.ink);
+                // Beak
+                pRect(50, 18, 20, 8, C.ink);
+                // Head
+                pRect(40, 10, 12, 12, C.ink);
+
+                // Wings (Animated)
+                const wingY = Math.sin(this.wingFrame) * 25;
+                // Upper wing
+                pRect(15, 15, 25, 8, C.ink);
+                pRect(20, 15 + (wingY * 0.5), 15, 15 + wingY, C.ink);
+            }
+
+            ctx.restore();
+        }
+    }
+
+    class Background {
+        constructor() {
+            this.sunY = game.height * 0.3;
+            this.sunX = game.width * 0.75;
+            this.cloudOffset = 0;
+            this.clouds = [];
+            this.mountainOffset = 0;
+            
+            // Generate Clouds
+            for(let i=0; i<6; i++) {
+                this.clouds.push({
+                    x: Math.random() * game.width,
+                    y: Math.random() * (game.height * 0.3),
+                    w: 80 + Math.random() * 100,
+                    speed: 0.2 + Math.random() * 0.3
+                });
+            }
+
+            // Generate Mountains (Procedural points)
+            this.mountainPoints = [];
+            let mx = 0;
+            while(mx < game.width + 200) {
+                const h = 40 + Math.random() * 80;
+                const w = 60 + Math.random() * 100;
+                this.mountainPoints.push({x: mx, h: h, w: w});
+                mx += w - 20; // Overlap
+            }
+        }
+
+        update() {
+            // Move clouds
+            this.clouds.forEach(c => {
+                c.x -= c.speed;
+                if(c.x + c.w < 0) {
+                    c.x = game.width + 50;
+                    c.y = Math.random() * (game.height * 0.3);
+                }
+            });
+
+            // Parallax Mountains
+            this.mountainOffset -= game.speed * 0.1;
+            if(this.mountainOffset < -100) { // Reset logic simplified
+                this.mountainOffset = 0; 
+            }
+        }
+
+        draw() {
+            // 1. Sky
+            ctx.fillStyle = C.sky;
+            ctx.fillRect(0, 0, game.width, game.height);
+
+            // 2. Retro Sun (CRITIQUE 1 & 4: Reduced scale, Sliced effect)
+            const sunSize = 70; // Smaller
+            const sunY = game.groundY - sunSize - 40;
+            const sunX = this.sunX;
+            
+            ctx.fillStyle = C.sun;
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunSize, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Sun Slices (Scanline effect)
+            ctx.fillStyle = C.sunSlice;
+            for(let i = 0; i < 6; i++) {
+                let h = 4 + (i * 1.5); // Thinner slices
+                let y = sunY + 15 + (i * 14);
+                ctx.fillRect(sunX - sunSize, y, sunSize*2, h);
+            }
+
+            // 3. Mountains (CRITIQUE 3: Layered depth)
+            ctx.fillStyle = C.mountain;
+            ctx.beginPath();
+            ctx.moveTo(0, game.groundY);
+            this.mountainPoints.forEach(p => {
+                // Draw triangle
+                const px = (p.x + this.mountainOffset) % (game.width + 200);
+                // Wrap around logic for infinite scroll
+                let drawX = px;
+                if (drawX < -100) drawX += game.width + 200;
+
+                ctx.lineTo(drawX, game.groundY);
+                ctx.lineTo(drawX + p.w/2, game.groundY - p.h);
+                ctx.lineTo(drawX + p.w, game.groundY);
+            });
+            ctx.lineTo(game.width, game.groundY);
+            ctx.lineTo(0, game.groundY);
+            ctx.fill();
+
+            // 4. Clouds
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            this.clouds.forEach(c => {
+                // Minimalist clouds
+                ctx.fillRect(c.x, c.y, c.w, 12);
+                ctx.fillRect(c.x + 20, c.y - 10, c.w * 0.6, 10);
+            });
+        }
+    }
+
+    /**
+     * MAIN LOOP
+     */
+    let player;
+    let obstacles = [];
+    let bg;
+    let spawnTimer = 0;
+    let spawnInterval = 90;
+
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        
+        player = new Player();
+        bg = new Background();
+        
+        // Initial obstacle
+        obstacles.push(new Obstacle('cactus'));
+        obstacles[0].x = game.width + 300;
+
+        loop();
+    }
+
+    function spawnObstacle() {
+        spawnTimer--;
+        if (spawnTimer <= 0) {
+            const type = Math.random() > 0.65 ? 'bird' : 'cactus';
+            obstacles.push(new Obstacle(type));
+            
+            // Rhythmic spacing
+            const minGap = 60;
+            const maxGap = 120;
+            spawnInterval = minGap + Math.random() * (maxGap - minGap) - (game.speed * 2);
+            spawnInterval = Math.max(40, spawnInterval);
+            
+            spawnTimer = spawnInterval;
+        }
+    }
+
+    function checkCollisions() {
+        const pPad = 10; // Tighter hitbox for larger sprite
+        
+        for (let obs of obstacles) {
+            const oPad = 5;
+            
+            if (
+                player.x + pPad < obs.x + obs.w - oPad &&
+                player.x + player.w - pPad > obs.x + oPad &&
+                player.y + pPad < obs.y + obs.h - oPad &&
+                player.y + player.h - pPad > obs.y + oPad
+            ) {
+                gameOver();
+            }
+        }
+    }
+
+    function gameOver() {
+        game.isPlaying = false;
+        game.isGameOver = true;
+        ui.gameOver.style.display = 'block';
+        ui.instructions.style.opacity = '0';
+        
+        if (game.score > game.highScore) {
+            game.highScore = Math.floor(game.score);
+            ui.highScore.innerText = game.highScore.toString().padStart(5, '0');
+        }
+    }
+
+    function resetGame() {
+        game.isGameOver = false;
+        game.isPlaying = true;
+        game.score = 0;
+        game.speed = 10;
+        obstacles = [];
+        player = new Player();
+        spawnTimer = 0;
+        
+        ui.gameOver.style.display = 'none';
+        ui.instructions.style.opacity = '1';
+        
+        obstacles.push(new Obstacle('cactus'));
+        obstacles[0].x = game.width + 400;
+    }
+
+    function drawGround() {
+        // CRITIQUE 3: Solid, flat charcoal ground
+        ctx.fillStyle = C.ground;
+        ctx.fillRect(0, game.groundY, game.width, game.height - game.groundY);
+
+        // Top Edge (Horizon line)
+        ctx.fillStyle = '#000'; 
+        ctx.fillRect(0, game.groundY, game.width, 3);
+
+        // Rhythmic Texture (Moving dashes)
+        ctx.fillStyle = C.groundDetail; 
+        const offset = (game.frame * game.speed) % 50;
+        
+        // Draw dashes
+        for(let i = 0; i < game.width + 50; i+=50) {
+            let w = (i % 100 === 0) ? 30 : 15;
+            ctx.fillRect(i - offset, game.groundY + 25, w, 6);
+            
+            if(i % 150 === 0) {
+                 ctx.fillRect(i - offset + 10, game.groundY + 50, 10, 6);
+            }
+        }
+    }
+
+    function updateUI() {
+        ui.score.innerText = Math.floor(game.score).toString().padStart(5, '0');
+        ui.speed.innerText = (game.speed / 10).toFixed(1) + 'x';
+    }
+
+    function loop() {
+        // Clear
+        ctx.clearRect(0, 0, game.width, game.height);
+
+        // Background
+        bg.update();
+        bg.draw();
+
+        // Ground
+        drawGround();
+
+        if (game.isPlaying) {
+            game.frame++;
+            game.score += 0.1;
+            game.speed += 0.005; // Slowly increase speed
+
+            // Player
+            player.update();
+            player.draw();
+
+            // Obstacles
+            spawnObstacle();
+            obstacles.forEach((obs, index) => {
+                obs.update();
+                obs.draw();
+                if (obs.markedForDeletion) obstacles.splice(index, 1);
+            });
+
+            checkCollisions();
+            updateUI();
+        } else {
+            // Draw static player/obstacles if game over or paused
+            if(player) player.draw();
+            obstacles.forEach(obs => obs.draw());
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    // Input
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            e.preventDefault();
+            if (game.isGameOver) {
+                resetGame();
+            } else if (!game.isPlaying) {
+                game.isPlaying = true;
+                ui.instructions.style.opacity = '0';
+            } else {
+                player.jump();
+            }
+        }
+    });
+
+    window.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (game.isGameOver) {
+            resetGame();
+        } else if (!game.isPlaying) {
+            game.isPlaying = true;
+            ui.instructions.style.opacity = '0';
+        } else {
+            player.jump();
+        }
+    }, {passive: false});
+
+    init();
+
+</script>
+</body>
+</html>

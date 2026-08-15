@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Architecture Data Flow</title>
+<style>
+    :root {
+        --bg-color: #0f172a;
+        --grid-color: #1e293b;
+        --panel-bg: rgba(30, 41, 59, 0.7);
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        
+        /* Flow Colors */
+        --color-data: #38bdf8;      /* Sky Blue */
+        --color-instruction: #f472b6; /* Pink */
+        --color-control: #a3e635;   /* Lime */
+        --color-io: #fbbf24;        /* Amber */
+        
+        --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background-color: var(--bg-color);
+        background-image: 
+            radial-gradient(circle at 50% 50%, #1e293b 1px, transparent 1px),
+            radial-gradient(circle at 50% 50%, #1e293b 1px, transparent 1px);
+        background-size: 40px 40px;
+        background-position: 0 0, 20px 20px;
+        color: var(--text-main);
+        font-family: var(--font-stack);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* UI Overlay */
+    .ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    header {
+        position: absolute;
+        top: 40px;
+        left: 50px;
+        pointer-events: auto;
+    }
+
+    h1 {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+    }
+
+    .subtitle {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        font-weight: 500;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .legend {
+        position: absolute;
+        bottom: 40px;
+        left: 50px;
+        display: flex;
+        gap: 24px;
+        background: var(--panel-bg);
+        padding: 16px 24px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+        backdrop-filter: blur(10px);
+        pointer-events: auto;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        box-shadow: 0 0 8px currentColor;
+    }
+
+    /* SVG Container */
+    #diagram-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        z-index: 1;
+    }
+
+    svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
+    /* Component Styles */
+    .component-group {
+        cursor: pointer;
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .component-group:hover {
+        transform: translateY(-5px);
+    }
+
+    .comp-bg {
+        fill: rgba(15, 23, 42, 0.9);
+        stroke: #334155;
+        stroke-width: 2;
+        rx: 8;
+        filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
+    }
+
+    .comp-icon {
+        fill: #cbd5e1;
+    }
+
+    .comp-label {
+        fill: var(--text-main);
+        font-size: 14px;
+        font-weight: 700;
+        text-anchor: middle;
+        font-family: var(--font-stack);
+    }
+
+    .comp-sub {
+        fill: var(--text-muted);
+        font-size: 10px;
+        text-anchor: middle;
+        font-family: var(--font-stack);
+    }
+
+    /* Specific Component Accents */
+    .accent-cpu { stroke: var(--color-instruction); }
+    .accent-gpu { stroke: var(--color-data); }
+    .accent-ram { stroke: var(--color-data); }
+    .accent-storage { stroke: var(--color-io); }
+    .accent-net { stroke: var(--color-control); }
+
+    /* Animations */
+    @keyframes dash {
+        to { stroke-dashoffset: -20; }
+    }
+    
+    @keyframes flow-particle {
+        0% { stroke-dashoffset: 100; opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+
+    .path-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.05);
+        stroke-width: 2;
+        stroke-linecap: round;
+    }
+
+    .path-active {
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-dasharray: 4 16; /* Dashed look */
+        animation: dash 1s linear infinite;
+    }
+
+    /* Glowing particles */
+    .particle {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dasharray: 1 100; /* Single dot */
+        filter: drop-shadow(0 0 4px currentColor);
+    }
+
+    .p-data { stroke: var(--color-data); animation: flow-particle 2s linear infinite; }
+    .p-instruction { stroke: var(--color-instruction); animation: flow-particle 1.5s linear infinite; }
+    .p-control { stroke: var(--color-control); animation: flow-particle 2.5s linear infinite; }
+    .p-io { stroke: var(--color-io); animation: flow-particle 2s linear infinite; }
+
+    /* Interactive Hover States */
+    .highlight-group {
+        transition: opacity 0.3s;
+        opacity: 0.3;
+    }
+    
+    .highlight-group.active {
+        opacity: 1;
+    }
+
+    .dimmed {
+        opacity: 0.1 !important;
+        transition: opacity 0.3s;
+    }
+
+</style>
+</head>
+<body>
+
+    <div class="ui-layer">
+        <header>
+            <h1>System Architecture</h1>
+            <div class="subtitle">Information Flow &amp; Component Topology</div>
+        </header>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="dot" style="background-color: var(--color-instruction)"></div>
+                <span>Instructions</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background-color: var(--color-data)"></div>
+                <span>Data</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background-color: var(--color-control)"></div>
+                <span>Control</span>
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background-color: var(--color-io)"></div>
+                <span>I/O Stream</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="diagram-container">
+        <!-- SVG Content generated via JS for clean logic, but structure is static -->
+        <svg id="main-svg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+            <defs>
+                <!-- Glow Filter -->
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+            </defs>
+            
+            <g id="paths-layer"></g>
+            <g id="particles-layer"></g>
+            <g id="components-layer"></g>
+        </svg>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const svg = document.getElementById('main-svg');
+    const pathsLayer = document.getElementById('paths-layer');
+    const particlesLayer = document.getElementById('particles-layer');
+    const componentsLayer = document.getElementById('components-layer');
+
+    // --- Data Definitions ---
+    
+    // Helper to create SVG elements
+    const createSVG = (tag, attrs) => {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+        return el;
+    };
+
+    // Component Positions (x, y center)
+    const components = [
+        { id: 'cpu', label: 'CPU', sub: 'Central Processing', x: 500, y: 350, type: 'accent-cpu', icon: 'cpu' },
+        { id: 'ram', label: 'Memory', sub: 'High Speed RAM', x: 500, y: 150, type: 'accent-ram', icon: 'ram' },
+        { id: 'gpu', label: 'GPU', sub: 'Graphics Processing', x: 750, y: 350, type: 'accent-gpu', icon: 'gpu' },
+        { id: 'storage', label: 'Storage', sub: 'NVMe SSD', x: 500, y: 550, type: 'accent-storage', icon: 'hdd' },
+        { id: 'input', label: 'Input', sub: 'Keyboard / Mouse', x: 250, y: 350, type: 'accent-net', icon: 'mouse' },
+        { id: 'output', label: 'Output', sub: 'Display / Audio', x: 250, y: 150, type: 'accent-net', icon: 'monitor' },
+        { id: 'network', label: 'Network', sub: 'Ethernet / Wi-Fi', x: 250, y: 550, type: 'accent-net', icon: 'wifi' }
+    ];
+
+    // Connections (Paths)
+    const connections = [
+        { from: 'ram', to: 'cpu', type: 'instruction', label: 'Fetch' },
+        { from: 'cpu', to: 'ram', type: 'data', label: 'Store' },
+        { from: 'cpu', to: 'gpu', type: 'data', label: 'Render Data' },
+        { from: 'gpu', to: 'cpu', type: 'control', label: 'Sync' },
+        { from: 'storage', to: 'ram', type: 'data', label: 'Load' },
+        { from: 'ram', to: 'storage', type: 'data', label: 'Cache' },
+        { from: 'input', to: 'cpu', type: 'control', label: 'Events' },
+        { from: 'cpu', to: 'output', type: 'data', label: 'Display' },
+        { from: 'network', to: 'cpu', type: 'data', label: 'Packets' },
+        { from: 'cpu', to: 'network', type: 'data', label: 'Response' },
+        { from: 'storage', to: 'cpu', type: 'data', label: 'Direct' } // Direct access path
+    ];
+
+    // --- Drawing Icons ---
+    const drawIcon = (id, x, y) => {
+        let g = createSVG('g', { transform: `translate(${x-12}, ${y-12})` });
+        let rect = createSVG('rect', { x:0, y:0, width:24, height:24, rx:4, fill:'#475569' });
+        
+        // Simple paths for icons
+        if(id === 'cpu') {
+            g.appendChild(createSVG('path', { d:"M6 6h12v12H6z M9 9h6v6H9z M12 2v4 M12 18v4 M2 12h4 M18 12h4", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'ram') {
+            g.appendChild(createSVG('path', { d:"M4 4h16v16H4z M4 8h16 M4 12h16 M4 16h16", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'gpu') {
+            g.appendChild(createSVG('path', { d:"M4 4h16v16H4z M8 12l3-3 3 3 3-3", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'hdd') {
+            g.appendChild(createSVG('path', { d:"M4 4h16v16H4z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'mouse') {
+            g.appendChild(createSVG('path', { d:"M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M12 8v4", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'monitor') {
+            g.appendChild(createSVG('path', { d:"M4 4h16v12H4z M8 20h8 M12 16v4", stroke:'#fff', 'stroke-width':2, fill:'none'}));
+        } else if (id === 'wifi') {
+            g.appendChild(createSVG('path', { d:"M12 18v-2 M8 14a5 5 0 0 1 8 0 M4 10a9 9 0 0 1 16 0", stroke:'#fff', 'stroke-width':2, fill:'none', 'stroke-linecap':'round'}));
+        }
+        return g;
+    };
+
+    // --- Render Components ---
+    const compMap = {}; // Store refs for path calculation
+
+    components.forEach(c => {
+        const g = createSVG('g', { 
+            class: 'component-group', 
+            transform: `translate(${c.x - 60}, ${c.y - 40})`,
+            'data-id': c.id
+        });
+
+        // Box
+        const rect = createSVG('rect', { 
+            class: `comp-bg ${c.type}`, 
+            width: 120, height: 80 
+        });
+        
+        // Icon
+        const icon = drawIcon(c.icon, 60, 35);
+
+        // Labels
+        const textLabel = createSVG('text', { x: 60, y: 70, class: 'comp-label' });
+        textLabel.textContent = c.label;
+        
+        const textSub = createSVG('text', { x: 60, y: 85, class: 'comp-sub' });
+        textSub.textContent = c.sub;
+
+        g.appendChild(rect);
+        g.appendChild(icon);
+        g.appendChild(textLabel);
+        g.appendChild(textSub);
+        
+        componentsLayer.appendChild(g);
+        compMap[c.id] = c;
+
+        // Add Hover Logic
+        g.addEventListener('mouseenter', () => highlightPath(c.id));
+        g.addEventListener('mouseleave', () => resetHighlight());
+    });
+
+    // --- Render Paths ---
+    
+    // Bezier curve generator
+    const getPathD = (c1, c2, offset = 0) => {
+        // Calculate control points for a smooth S-curve
+        const dx = c2.x - c1.x;
+        const dy = c2.y - c1.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        // Adjust control point distance based on distance between nodes
+        const cpOffset = Math.min(dist * 0.4, 100) + offset;
+
+        // Simple heuristic for control points based on direction
+        // If vertical, control points are vertical. If horizontal, horizontal.
+        // If diagonal, mix.
+        
+        let cp1x = c1.x, cp1y = c1.y;
+        let cp2x = c2.x, cp2y = c2.y;
+
+        // Logic to route around boxes
+        if (Math.abs(dy) > Math.abs(dx)) {
+            // Vertical dominant
+            cp1y = c1.y + (dy > 0 ? 40 : -40);
+            cp2y = c2.y + (dy > 0 ? -40 : 40);
+        } else {
+            // Horizontal dominant
+            cp1x = c1.x + (dx > 0 ? 40 : -40);
+            cp2x = c2.x + (dx > 0 ? -40 : 40);
+        }
+
+        return `M ${c1.x} ${c1.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${c2.x} ${c2.y}`;
+    };
+
+    const pathGroups = {}; // Store path refs
+
+    connections.forEach((conn, index) => {
+        const start = compMap[conn.from];
+        const end = compMap[conn.to];
+        
+        // Create a group for this connection
+        const g = createSVG('g', { class: 'connection-group', 'data-from': conn.from, 'data-to': conn.to });
+
+        // 1. Background Track (Invisible but thick for hover)
+        const bgPath = createSVG('path', {
+            d: getPathD(start, end),
+            stroke: 'transparent',
+            'stroke-width': 20,
+            fill: 'none',
+            class: 'hit-area'
+        });
+
+        // 2. Visible Track
+        const trackColor = `var(--color-${conn.type})`;
+        const visiblePath = createSVG('path', {
+            d: getPathD(start, end),
+            class: 'path-bg',
+            stroke: trackColor,
+            'stroke-opacity': 0.2
+        });
+
+        // 3. Animated Dashed Line
+        const activePath = createSVG('path', {
+            d: getPathD(start, end),
+            class: 'path-active',
+            stroke: trackColor,
+            'stroke-dashoffset': index % 2 === 0 ? 0 : 10 // Offset animation
+        });
+
+        // 4. Glowing Particle
+        const particle = createSVG('path', {
+            d: getPathD(start, end),
+            class: `particle p-${conn.type}`,
+            style: `animation-delay: ${Math.random() * 2}s`
+        });
+
+        g.appendChild(bgPath);
+        g.appendChild(visiblePath);
+        g.appendChild(activePath);
+        g.appendChild(particle);
+
+        pathsLayer.appendChild(g);
+        
+        // Store ref for highlighting
+        if (!pathGroups[conn.from]) pathGroups[conn.from] = [];
+        if (!pathGroups[conn.to]) pathGroups[conn.to] = [];
+        pathGroups[conn.from].push(g);
+        pathGroups[conn.to].push(g);
+    });
+
+    // --- Interactivity ---
+
+    function highlightPath(activeId) {
+        // Dim all groups
+        document.querySelectorAll('.connection-group').forEach(el => el.classList.add('dimmed'));
+        document.querySelectorAll('.component-group').forEach(el => {
+            if(el.getAttribute('data-id') !== activeId) el.classList.add('dimmed');
+        });
+
+        // Highlight connected
+        const connectedGroups = pathGroups[activeId] || [];
+        connectedGroups.forEach(g => {
+            g.classList.remove('dimmed');
+            g.style.opacity = '1';
+            // Speed up animation
+            g.querySelector('.path-active').style.animationDuration = '0.5s';
+            g.querySelector('.particle').style.animationDuration = '0.8s';
+        });
+    }
+
+    function resetHighlight() {
+        document.querySelectorAll('.connection-group').forEach(el => {
+            el.classList.remove('dimmed');
+            el.style.opacity = '';
+            // Reset speed
+            el.querySelector('.path-active').style.animationDuration = '';
+            el.querySelector('.particle').style.animationDuration = '';
+        });
+        document.querySelectorAll('.component-group').forEach(el => el.classList.remove('dimmed'));
+    }
+
+</script>
+</body>
+</html>

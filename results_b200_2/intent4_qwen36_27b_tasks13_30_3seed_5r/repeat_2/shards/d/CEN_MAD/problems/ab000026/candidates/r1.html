@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Play with Tiles</title>
+<style>
+  :root {
+    --felt: #1e4d40;
+    --felt-dark: #12362b;
+    --wood-dark: #3e2723;
+    --wood-light: #5d4037;
+    --tile-body: #f4f1ea;
+    --tile-shadow: rgba(0,0,0,0.4);
+    --pip-color: #1a1a1a;
+    --accent: #ffc107; /* Amber/Gold */
+    --ui-bg: rgba(0, 0, 0, 0.6);
+    --text-light: #e0e0e0;
+    --font-stack: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background-color: var(--felt);
+    background-image: 
+      radial-gradient(circle at 50% 40%, var(--felt) 0%, var(--felt-dark) 100%);
+    font-family: var(--font-stack);
+    display: flex;
+    flex-direction: column;
+    color: var(--text-light);
+  }
+
+  /* Felt Texture */
+  body::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.1'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* --- Layout --- */
+  
+  #game-container {
+    position: relative;
+    flex: 1;
+    display: grid;
+    grid-template-rows: 60px 1fr 160px;
+    grid-template-columns: 1fr;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 30px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+    z-index: 10;
+  }
+
+  .brand {
+    font-weight: 800;
+    font-size: 1.4rem;
+    letter-spacing: 0.5px;
+    color: #fff;
+    text-transform: uppercase;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .brand span { color: var(--accent); }
+
+  .score-pill {
+    background: var(--ui-bg);
+    padding: 8px 20px;
+    border-radius: 30px;
+    border: 1px solid rgba(255,255,255,0.15);
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    gap: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    backdrop-filter: blur(4px);
+  }
+
+  .score-pill span strong { color: var(--accent); }
+
+  /* The Table (Play Area) */
+  #table-area {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  /* Match Cue Badges */
+  .match-cue {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.6);
+    color: var(--accent);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    border: 1px solid var(--accent);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  
+  .match-cue.visible { opacity: 1; }
+  .match-cue::before { content: ''; display: block; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+
+  #board-chain {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 100px; 
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* Player Zone */
+  #player-zone {
+    background: linear-gradient(to top, rgba(15, 25, 20, 0.95), rgba(15, 25, 20, 0.7), transparent);
+    display: flex;
+    justify-content: center; /* Center the action zone */
+    align-items: center;
+    padding: 0 40px 30px 40px;
+    position: relative;
+    gap: 40px; /* Space between Boneyard and Action Zone */
+  }
+
+  /* --- Components --- */
+
+  /* The Tile Component (Enhanced Materiality) */
+  .tile {
+    width: 44px;
+    height: 88px;
+    background: linear-gradient(135deg, #fff 0%, var(--tile-body) 100%);
+    border-radius: 6px;
+    position: relative;
+    box-shadow: 
+      0 4px 6px rgba(0,0,0,0.3),
+      0 1px 0 #fff inset;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
+    transform-origin: center bottom;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+
+  /* Inner bevel for tactile feel */
+  .tile::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);
+    pointer-events: none;
+  }
+
+  .tile::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 1px;
+    background: rgba(0,0,0,0.1);
+    transform: translateY(-50%);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.6);
+    z-index: 2;
+  }
+
+  .tile-half {
+    flex: 1;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    padding: 6px;
+  }
+
+  /* Pips (Inset effect) */
+  .pip {
+    background: var(--pip-color);
+    border-radius: 50%;
+    width: 7px;
+    height: 7px;
+    align-self: center;
+    justify-self: center;
+    box-shadow: 
+      inset 0 1px 2px rgba(0,0,0,0.9),
+      0 1px 0 rgba(255,255,255,0.3); /* subtle highlight on top of pip */
+  }
+
+  /* Pip positioning logic */
+  .pip:nth-child(1) { grid-area: 1 / 1; }
+  .pip:nth-child(2) { grid-area: 1 / 3; }
+  .pip:nth-child(3) { grid-area: 2 / 2; }
+  .pip:nth-child(4) { grid-area: 3 / 1; }
+  .pip:nth-child(5) { grid-area: 3 / 3; }
+  .pip:nth-child(6) { grid-area: 2 / 1; }
+  .pip:nth-child(7) { grid-area: 2 / 3; }
+
+  /* Pip Counts */
+  .count-1 .pip { grid-area: 2 / 2 !important; width: 9px; height: 9px; }
+  .count-2 .pip:nth-child(n+3) { display: none; }
+  .count-3 .pip:nth-child(1), .count-3 .pip:nth-child(2), .count-3 .pip:nth-child(4), .count-3 .pip:nth-child(5), .count-3 .pip:nth-child(6), .count-3 .pip:nth-child(7) { display: none; }
+  
+  /* Tile Interactions */
+  .tile:hover {
+    transform: translateY(-20px) scale(1.05);
+    box-shadow: 0 20px 30px rgba(0,0,0,0.4);
+    z-index: 20;
+  }
+
+  .tile.disabled {
+    filter: grayscale(0.6) brightness(0.9);
+    cursor: default;
+    transform: none !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+  }
+  
+  .tile.disabled:hover { transform: translateY(-5px); } /* Slight lift to show it's a tile */
+
+  /* Board Tiles (Horizontal) */
+  .tile.board-tile {
+    width: 88px;
+    height: 44px;
+    flex-direction: row;
+    cursor: default;
+    box-shadow: 0 6px 10px rgba(0,0,0,0.35);
+  }
+  .tile.board-tile:hover { transform: none; box-shadow: 0 6px 10px rgba(0,0,0,0.35); }
+  
+  .tile.board-tile::before {
+    width: 1px; height: 100%;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+  }
+  
+  /* Rotations for board */
+  .tile.rot-90 { transform: rotate(90deg); margin: 0 12px; }
+  
+  /* Boneyard (Draw Pile) */
+  .boneyard {
+    position: relative;
+    width: 44px;
+    height: 88px;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .boneyard:hover { transform: translateY(-5px); }
+
+  .boneyard-tile {
+    position: absolute;
+    width: 100%; height: 100%;
+    background: var(--wood-dark);
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    /* Wood Pattern */
+    background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0px, transparent 2px, transparent 4px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  
+  /* Stack effect */
+  .boneyard-tile:nth-child(1) { transform: translate(-2px, 2px); }
+  .boneyard-tile:nth-child(2) { transform: translate(-4px, 4px); }
+  .boneyard-tile:nth-child(3) { transform: translate(-6px, 6px); }
+  .boneyard-tile:nth-child(4) { 
+    transform: translate(-8px, 8px); 
+    background: var(--wood-light); /* Top tile slightly lighter */
+    z-index: 4;
+  }
+  
+  .boneyard-label {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Action Zone */
+  .action-zone {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: rgba(255,255,255,0.05);
+    padding: 10px 20px;
+    border-radius: 12px;
+    backdrop-filter: blur(2px);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+
+  #hand-container {
+    display: flex;
+    gap: 6px;
+    margin: 0 10px;
+  }
+
+  /* Action Buttons */
+  .action-btn {
+    background: var(--wood-light);
+    border: none;
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #3e2723, 0 5px 10px rgba(0,0,0,0.4);
+    transition: all 0.1s;
+    font-size: 0.9rem;
+  }
+  .action-btn:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 #3e2723, inset 0 2px 5px rgba(0,0,0,0.4);
+  }
+  .action-btn:disabled {
+    background: #444;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    cursor: not-allowed;
+    transform: none;
+    color: #888;
+    border-bottom: 2px solid #333;
+  }
+
+  /* SVG Icons */
+  .icon { width: 22px; height: 22px; fill: var(--accent); }
+
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <header>
+    <div class="brand">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 9h-2V7h-2v5H6v2h2v5h2v-5h2v-2z"/></svg>
+      Play with <span>Tiles</span>
+    </div>
+    <div class="score-pill">
+      <span>You: <strong id="score-player">0</strong></span>
+      <span>CPU: <strong id="score-opp">0</strong></span>
+    </div>
+  </header>
+
+  <div id="table-area">
+    <!-- Match Cues positioned absolutely relative to table area -->
+    <div id="cue-left" class="match-cue">Match: ?</div>
+    <div id="cue-right" class="match-cue">Match: ?</div>
+    
+    <div id="board-chain">
+      <!-- Chain renders here -->
+    </div>
+  </div>
+
+  <div id="player-zone">
+    <!-- Boneyard (Left) -->
+    <div class="boneyard" id="draw-btn">
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-tile"></div>
+      <div class="boneyard-label">Draw</div>
+    </div>
+
+    <!-- Action Zone (Center/Right Grouped) -->
+    <div class="action-zone">
+      <div id="hand-container">
+        <!-- Hand renders here -->
+      </div>
+      <button class="action-btn" id="pass-btn" disabled>Pass</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * DOMINO GAME LOGIC & RENDERER
+   */
+
+  // --- Data Structures ---
+  class Tile {
+    constructor(v1, v2, id) {
+      this.v1 = v1;
+      this.v2 = v2;
+      this.id = id;
+      this.isDouble = v1 === v2;
+    }
+  }
+
+  const GameState = {
+    deck: [],
+    board: [], // Array of { tile, orientation: 0|1 }
+    playerHand: [],
+    opponentHand: [],
+    turn: 'player', // 'player' or 'opponent'
+    ends: { left: null, right: null }, // Values exposed at ends of chain
+    scores: { player: 0, opponent: 0 }
+  };
+
+  // --- Pip Logic ---
+  // Grid positions 1-9 (3x3)
+  // 1 2 3
+  // 4 5 6
+  // 7 8 9
+  const pipMap = {
+    0: [],
+    1: [5],
+    2: [3, 7],
+    3: [3, 5, 7],
+    4: [1, 3, 7, 9],
+    5: [1, 3, 5, 7, 9],
+    6: [1, 3, 4, 6, 7, 9]
+  };
+
+  // --- Initialization ---
+  function initGame() {
+    // Generate Deck
+    let idCounter = 0;
+    for (let i = 0; i <= 6; i++) {
+      for (let j = i; j <= 6; j++) {
+        GameState.deck.push(new Tile(i, j, idCounter++));
+      }
+    }
+    
+    // Shuffle
+    GameState.deck.sort(() => Math.random() - 0.5);
+
+    // Deal
+    GameState.playerHand = GameState.deck.splice(0, 7);
+    GameState.opponentHand = GameState.deck.splice(0, 7);
+
+    // Start Game
+    updateUI();
+    checkTurn();
+  }
+
+  // --- Rendering ---
+
+  function createTileElement(tile, isBoard = false) {
+    const el = document.createElement('div');
+    el.className = `tile ${isBoard ? 'board-tile' : ''}`;
+    el.dataset.id = tile.id;
+
+    // Create two halves
+    const halves = [tile.v1, tile.v2];
+    
+    halves.forEach(val => {
+      const half = document.createElement('div');
+      half.className = `tile-half count-${val}`;
+      
+      // Add pips based on value
+      const pips = pipMap[val];
+      // Create 9 slots, fill active ones
+      for(let i=1; i<=9; i++) {
+        const pip = document.createElement('div');
+        if(pips.includes(i)) {
+          pip.className = 'pip';
+        }
+        half.appendChild(pip);
+      }
+      el.appendChild(half);
+    });
+
+    return el;
+  }
+
+  function renderHand() {
+    const container = document.getElementById('hand-container');
+    container.innerHTML = '';
+
+    GameState.playerHand.forEach(tile => {
+      const el = createTileElement(tile);
+      // Check validity
+      const isValid = isValidMove(tile);
+      if (!isValid && GameState.turn === 'player') {
+        el.classList.add('disabled');
+      } else if (GameState.turn !== 'player') {
+        el.classList.add('disabled');
+      }
+      
+      el.addEventListener('click', () => {
+        if (GameState.turn === 'player' && isValid) {
+          playTile(tile);
+        }
+      });
+      container.appendChild(el);
+    });
+  }
+
+  function renderBoard() {
+    const container = document.getElementById('board-chain');
+    container.innerHTML = '';
+
+    GameState.board.forEach(item => {
+      const el = createTileElement(item.tile, true);
+      
+      // Apply rotation styles
+      // item.orientation: 0 (v1 left, v2 right), 1 (v1 right, v2 left)
+      
+      if (item.tile.isDouble) {
+        el.classList.add('rot-90');
+      } else {
+        // If orientation is 1 (flipped), we need to swap visual halves
+        if (item.orientation === 1) {
+          el.style.flexDirection = 'row-reverse';
+        }
+      }
+      container.appendChild(el);
+    });
+
+    // Center the board visually
+    const chainWidth = container.scrollWidth;
+    const areaWidth = document.getElementById('table-area').clientWidth;
+    // Simple centering logic: if chain is small, center it.
+    // In a real app we'd use a transform based on the active end, 
+    // but for this demo, centering the whole flex container is safer.
+    if(chainWidth < areaWidth) {
+        container.style.justifyContent = 'center';
+    } else {
+        container.style.justifyContent = 'center'; // Flex handles this, but ensures alignment
+    }
+
+    updateMatchCue();
+  }
+
+  function updateUI() {
+    renderHand();
+    renderBoard();
+    document.getElementById('score-player').innerText = GameState.scores.player;
+    document.getElementById('score-opp').innerText = GameState.scores.opponent;
+    
+    const drawBtn = document.getElementById('draw-btn');
+    const passBtn = document.getElementById('pass-btn');
+
+    // Update Controls
+    if (GameState.turn === 'player') {
+      drawBtn.style.opacity = '1';
+      drawBtn.style.pointerEvents = 'auto';
+      drawBtn.style.filter = 'none';
+      
+      // Pass is only enabled if deck is empty AND no moves possible
+      passBtn.disabled = !canDrawOrPlay(); 
+      if(!passBtn.disabled) passBtn.innerText = "Pass";
+      else passBtn.innerText = "Pass";
+    } else {
+      drawBtn.style.opacity = '0.4';
+      drawBtn.style.pointerEvents = 'none';
+      drawBtn.style.filter = 'grayscale(0.8)';
+      passBtn.disabled = true;
+      passBtn.innerText = "CPU Turn";
+    }
+  }
+
+  function updateMatchCue() {
+    const cueLeft = document.getElementById('cue-left');
+    const cueRight = document.getElementById('cue-right');
+    
+    // Reset
+    cueLeft.classList.remove('visible');
+    cueRight.classList.remove('visible');
+
+    if (GameState.board.length === 0) return;
+    
+    const leftVal = GameState.ends.left;
+    const rightVal = GameState.ends.right;
+
+    // If the board has items, we have ends.
+    // Position logic:
+    // We need to find the actual DOM elements at the ends of the chain to position the badges near them.
+    const chain = document.getElementById('board-chain');
+    const tiles = chain.querySelectorAll('.tile');
+    
+    if (tiles.length > 0) {
+        const firstTile = tiles[0];
+        const lastTile = tiles[tiles.length - 1];
+
+        // Get positions relative to table-area
+        const rectFirst = firstTile.getBoundingClientRect();
+        const rectLast = lastTile.getBoundingClientRect();
+        const rectParent = document.getElementById('table-area').getBoundingClientRect();
+
+        // Position Left Cue
+        cueLeft.style.left = (rectFirst.left - rectParent.left - 40) + 'px';
+        cueLeft.style.top = (rectFirst.top - rectParent.top + 10) + 'px';
+        cueLeft.innerText = `Match: ${leftVal}`;
+        cueLeft.classList.add('visible');
+
+        // Position Right Cue
+        cueRight.style.right = (rectParent.right - rectLast.right - 40) + 'px';
+        cueRight.style.top = (rectLast.top - rectParent.top + 10) + 'px';
+        cueRight.innerText = `Match: ${rightVal}`;
+        cueRight.classList.add('visible');
+    }
+  }
+
+  // --- Game Logic ---
+
+  function isValidMove(tile) {
+    if (GameState.board.length === 0) return true;
+    
+    const { left, right } = GameState.ends;
+    
+    // Match Left
+    if (tile.v1 === left || tile.v2 === left) return true;
+    // Match Right
+    if (tile.v1 === right || tile.v2 === right) return true;
+
+    return false;
+  }
+
+  function canDrawOrPlay() {
+    // If deck has cards, we cannot pass
+    if (GameState.deck.length > 0) return false;
+    
+    // Check if any tile in hand is playable
+    return !GameState.playerHand.some(t => isValidMove(t));
+  }
+
+  function checkTurn() {
+    // Helper to ensure UI reflects state
+    updateUI();
+  }
+
+  function playTile(tile) {
+    // Remove from hand
+    GameState.playerHand = GameState.playerHand.filter(t => t.id !== tile.id);
+
+    // Place on board
+    if (GameState.board.length === 0) {
+      // First tile
+      GameState.board.push({ tile: tile, orientation: 0 });
+      GameState.ends = { left: tile.v1, right: tile.v2 };
+    } else {
+      const { left, right } = GameState.ends;
+      
+      // Logic: Prioritize Right side if ambiguous? 
+      // For a better UX, if it matches BOTH, we could ask, but for simple auto-play:
+      // We check Right match first.
+      
+      let played = false;
+
+      // Check Right
+      if (tile.v1 === right || tile.v2 === right) {
+        // Play on Right
+        if (tile.v1 === right) {
+          GameState.board.push({ tile: tile, orientation: 0 });
+          GameState.ends.right = tile.v2;
+        } else {
+          GameState.board.push({ tile: tile, orientation: 1 });
+          GameState.ends.right = tile.v1;
+        }
+        played = true;
+      } 
+      // Check Left
+      else if (tile.v1 === left || tile.v2 === left) {
+        // Play on Left (Unshift)
+        if (tile.v2 === left) {
+          GameState.board.unshift({ tile: tile, orientation: 0 });
+          GameState.ends.left = tile.v1;
+        } else {
+          GameState.board.unshift({ tile: tile, orientation: 1 });
+          GameState.ends.left = tile.v2;
+        }
+        played = true;
+      }
+    }
+
+    GameState.turn = 'opponent';
+    updateUI();
+    
+    // Trigger AI turn
+    setTimeout(aiTurn, 1000);
+  }
+
+  function drawTile() {
+    if (GameState.deck.length > 0 && GameState.turn === 'player') {
+      const tile = GameState.deck.pop();
+      GameState.playerHand.push(tile);
+      updateUI();
+    }
+  }
+
+  function passTurn() {
+    if (GameState.turn === 'player' && canDrawOrPlay()) {
+      // Check if opponent can play (simplified blocked game detection)
+      // In a real game, both must pass to declare blocked.
+      GameState.turn = 'opponent';
+      updateUI();
+      setTimeout(aiTurn, 1000);
+    }
+  }
+
+  // --- Simple AI ---
+  function aiTurn() {
+    // 1. Check hand for valid moves
+    const validTiles = GameState.opponentHand.filter(t => isValidMove(t));
+
+    if (validTiles.length > 0) {
+      // Pick random valid tile (simple strategy)
+      const tileToPlay = validTiles[Math.floor(Math.random() * validTiles.length)];
+      
+      // Remove from AI hand
+      GameState.opponentHand = GameState.opponentHand.filter(t => t.id !== tileToPlay.id);
+      
+      // Place on board
+      if (GameState.board.length === 0) {
+        GameState.board.push({ tile: tileToPlay, orientation: 0 });
+        GameState.ends = { left: tileToPlay.v1, right: tileToPlay.v2 };
+      } else {
+        const { left, right } = GameState.ends;
+        
+        // AI Logic: Play Right if possible, else Left
+        if (tileToPlay.v1 === right || tileToPlay.v2 === right) {
+           if (tileToPlay.v1 === right) {
+            GameState.board.push({ tile: tileToPlay, orientation: 0 });
+            GameState.ends.right = tileToPlay.v2;
+          } else {
+            GameState.board.push({ tile: tileToPlay, orientation: 1 });
+            GameState.ends.right = tileToPlay.v1;
+          }
+        } else {
+           if (tileToPlay.v2 === left) {
+            GameState.board.unshift({ tile: tileToPlay, orientation: 0 });
+            GameState.ends.left = tileToPlay.v1;
+          } else {
+            GameState.board.unshift({ tile: tileToPlay, orientation: 1 });
+            GameState.ends.left = tileToPlay.v2;
+          }
+        }
+      }
+    } else if (GameState.deck.length > 0) {
+      // Draw
+      GameState.opponentHand.push(GameState.deck.pop());
+      // AI draws once then passes for simplicity
+    }
+
+    // Check Win Condition (Empty Hand)
+    if (GameState.playerHand.length === 0) {
+      setTimeout(() => alert("You Win!"), 100);
+      resetGame();
+      return;
+    }
+    if (GameState.opponentHand.length === 0) {
+      setTimeout(() => alert("CPU Wins!"), 100);
+      resetGame();
+      return;
+    }
+
+    GameState.turn = 'player';
+    updateUI();
+  }
+
+  function resetGame() {
+    GameState.board = [];
+    GameState.deck = [];
+    GameState.playerHand = [];
+    GameState.opponentHand = [];
+    GameState.ends = { left: null, right: null };
+    initGame();
+  }
+
+  // --- Event Listeners ---
+  document.getElementById('draw-btn').addEventListener('click', drawTile);
+  document.getElementById('pass-btn').addEventListener('click', passTurn);
+  
+  // Handle resize to fix cue positions
+  window.addEventListener('resize', () => {
+     updateMatchCue();
+  });
+
+  // --- Start ---
+  initGame();
+
+</script>
+</body>
+</html>

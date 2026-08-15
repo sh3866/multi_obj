@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Rush: Velocity</title>
+<style>
+    :root {
+        --c-bg: #0B1120;
+        --c-ui-glass: rgba(15, 23, 42, 0.65);
+        --c-ui-border: rgba(255, 255, 255, 0.15);
+        --c-accent: #22D3EE; /* Cyan */
+        --c-accent-glow: rgba(34, 211, 238, 0.6);
+        --c-danger: #F43F5E;
+        --c-text: #F8FAFC;
+        --c-text-dim: #94A3B8;
+        
+        --font-display: 'Impact', 'Arial Black', sans-serif;
+        --font-ui: system-ui, -apple-system, sans-serif;
+        --font-mono: 'Courier New', monospace;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden; background-color: var(--c-bg);
+        font-family: var(--font-ui);
+    }
+
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* --- UI LAYER --- */
+    #ui-layer {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        z-index: 10;
+    }
+
+    /* Top Bar */
+    .hud-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 24px; width: 100%;
+    }
+
+    .card {
+        background: linear-gradient(160deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95));
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--c-ui-border);
+        padding: 12px 24px;
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        transform: skewX(-15deg);
+        display: flex; flex-direction: column;
+        min-width: 120px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Decorative accent line */
+    .card::before {
+        content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%;
+        background: var(--c-accent); box-shadow: 0 0 10px var(--c-accent);
+    }
+
+    .card > * { transform: skewX(15deg); } 
+
+    .card-label {
+        font-size: 11px; font-weight: 800; color: var(--c-accent);
+        letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px;
+    }
+
+    .card-value {
+        font-family: var(--font-mono); font-size: 32px; color: var(--c-text);
+        font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        line-height: 1;
+    }
+
+    .card-value span { font-size: 16px; color: var(--c-text-dim); margin-left: 4px; }
+
+    /* Progress Bar */
+    .progress-track {
+        position: absolute; top: 0; left: 0; width: 100%; height: 6px;
+        background: rgba(0,0,0,0.5);
+    }
+    .progress-fill {
+        height: 100%; background: var(--c-accent);
+        width: 0%;
+        box-shadow: 0 0 15px var(--c-accent-glow);
+        transition: width 0.1s linear;
+    }
+
+    /* Gate Warning */
+    .gate-alert {
+        position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+        opacity: 0; transition: opacity 0.2s; pointer-events: none;
+        z-index: 20;
+    }
+    .gate-alert.active { opacity: 1; animation: pulse 0.8s infinite ease-in-out; }
+    
+    .alert-badge {
+        background: rgba(244, 63, 94, 0.95);
+        color: white; padding: 10px 32px;
+        border-radius: 99px;
+        font-weight: 900; font-size: 16px;
+        letter-spacing: 3px;
+        box-shadow: 0 0 40px rgba(244, 63, 94, 0.6);
+        border: 2px solid rgba(255,255,255,0.4);
+        text-transform: uppercase;
+        backdrop-filter: blur(4px);
+    }
+
+    /* Bottom Controls */
+    .hud-bottom {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        padding: 40px;
+    }
+
+    .controls {
+        display: flex; gap: 24px; pointer-events: auto;
+    }
+
+    .btn {
+        width: 70px; height: 70px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 50%;
+        backdrop-filter: blur(8px);
+        display: flex; justify-content: center; align-items: center;
+        transition: all 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+        color: rgba(255,255,255,0.7);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    .btn:active, .btn.pressed {
+        background: var(--c-accent);
+        border-color: #fff;
+        transform: scale(0.92);
+        box-shadow: 0 0 25px var(--c-accent-glow);
+        color: #0f172a;
+    }
+
+    .btn svg { width: 28px; height: 28px; stroke-width: 3px; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Speedometer */
+    .speed-container {
+        text-align: right; position: relative;
+    }
+
+    .speed-label {
+        font-size: 12px; color: var(--c-accent); letter-spacing: 3px; font-weight: 800; margin-bottom: 0;
+    }
+
+    .speed-val {
+        font-family: var(--font-display);
+        font-size: 96px; color: white;
+        line-height: 0.8; letter-spacing: -4px;
+        text-shadow: 4px 4px 0px rgba(0,0,0,0.3);
+        font-style: italic;
+    }
+    .speed-unit {
+        font-family: var(--font-ui);
+        font-size: 18px; font-weight: 700; color: var(--c-text-dim); letter-spacing: 1px;
+        vertical-align: super; margin-left: 8px;
+    }
+
+    .speed-bar {
+        width: 220px; height: 8px;
+        background: rgba(0,0,0,0.4);
+        border-radius: 4px;
+        margin-top: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
+        transform: skewX(-15deg);
+    }
+    .speed-fill {
+        height: 100%; width: 0%;
+        background: linear-gradient(90deg, var(--c-accent), #fff);
+        box-shadow: 0 0 15px var(--c-accent);
+    }
+
+    @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <div class="progress-track"><div class="progress-fill" id="progressBar"></div></div>
+
+    <div class="hud-top">
+        <div class="card">
+            <div class="card-label">Distance</div>
+            <div class="card-value" id="distVal">0<span>m</span></div>
+        </div>
+        <div class="card" style="border-color: rgba(255,255,255,0.2);">
+            <div class="card-label" style="color: #fff;">Time</div>
+            <div class="card-value" id="timeVal">00:00</div>
+        </div>
+    </div>
+
+    <div class="gate-alert" id="gateAlert">
+        <div class="alert-badge">⚠️ Gate Ahead</div>
+    </div>
+
+    <div class="hud-bottom">
+        <div class="controls">
+            <div class="btn" id="btnLeft">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6" /></svg>
+            </div>
+            <div class="btn" id="btnRight">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 18l6-6-6-6" /></svg>
+            </div>
+        </div>
+
+        <div class="speed-container">
+            <div class="speed-label">VELOCITY</div>
+            <div>
+                <span class="speed-val" id="speedVal">0</span>
+                <span class="speed-unit">KM/H</span>
+            </div>
+            <div class="speed-bar"><div class="speed-fill" id="speedFill"></div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ALPINE RUSH: REBUILT
+ * High-fidelity pseudo-3D engine with modern aesthetic.
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+// --- Configuration ---
+const config = {
+    roadWidth: 2200,
+    segmentLength: 120,
+    rumbleLength: 3,
+    cameraHeight: 1100,
+    cameraDepth: 0.8, // FOV
+    drawDistance: 300,
+    maxSpeed: 260,
+    accel: 90,
+    decel: 50,
+    turnSpeed: 4.0,
+    centrifugal: 0.3
+};
+
+// --- State ---
+let width, height;
+let frame = 0;
+let speed = 0;
+let playerX = 0; // -1 to 1
+let playerTilt = 0;
+let distance = 0;
+let startTime = Date.now();
+let shake = 0;
+let segments = [];
+
+// --- UI Refs ---
+const ui = {
+    speed: document.getElementById('speedVal'),
+    dist: document.getElementById('distVal'),
+    time: document.getElementById('timeVal'),
+    progress: document.getElementById('progressBar'),
+    gate: document.getElementById('gateAlert'),
+    speedFill: document.getElementById('speedFill'),
+    btnLeft: document.getElementById('btnLeft'),
+    btnRight: document.getElementById('btnRight')
+};
+
+// --- Input ---
+let input = { left: false, right: false };
+
+const setInput = (dir, active) => {
+    input[dir] = active;
+    const btn = dir === 'left' ? ui.btnLeft : ui.btnRight;
+    active ? btn.classList.add('pressed') : btn.classList.remove('pressed');
+};
+
+['mousedown', 'touchstart'].forEach(evt => {
+    ui.btnLeft.addEventListener(evt, (e) => { e.preventDefault(); setInput('left', true); });
+    ui.btnRight.addEventListener(evt, (e) => { e.preventDefault(); setInput('right', true); });
+});
+['mouseup', 'mouseleave', 'touchend'].forEach(evt => {
+    ui.btnLeft.addEventListener(evt, (e) => { e.preventDefault(); setInput('left', false); });
+    ui.btnRight.addEventListener(evt, (e) => { e.preventDefault(); setInput('right', false); });
+});
+
+window.addEventListener('keydown', e => {
+    if(e.key === 'ArrowLeft') setInput('left', true);
+    if(e.key === 'ArrowRight') setInput('right', true);
+});
+window.addEventListener('keyup', e => {
+    if(e.key === 'ArrowLeft') setInput('left', false);
+    if(e.key === 'ArrowRight') setInput('right', false);
+});
+
+// --- Math & 3D ---
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function project(p, camX, camY, camZ, camDepth) {
+    const scale = camDepth / (p.z - camZ);
+    const x = (1 + scale * (p.x - camX)) * width / 2;
+    const y = (1 - scale * (p.y - camY)) * height / 2;
+    const w = scale * config.roadWidth * width / 2;
+    return { x, y, scale, w };
+}
+
+function createRoad() {
+    segments = [];
+    for (let i = 0; i < 2000; i++) {
+        // Procedural Curves & Hills
+        const curve = (Math.sin(i * 0.01) * 4) + (Math.sin(i * 0.003) * 8);
+        const hill = Math.sin(i * 0.02) * 1500;
+        
+        segments.push({
+            index: i,
+            p: { x: 0, y: hill, z: i * config.segmentLength },
+            curve: curve,
+            color: Math.floor(i / config.rumbleLength) % 2 ? 'dark' : 'light'
+        });
+    }
+}
+createRoad();
+
+// --- Rendering Helpers ---
+function drawPoly(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.lineTo(x4, y4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Improved Tree with better shading and detail
+function drawTree(ctx, x, y, scale) {
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 400*scale, 100*scale, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Trunk
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(x - 20*scale, y - 400*scale, 40*scale, 400*scale);
+
+    // Tree Body (Pine style - Layered)
+    ctx.fillStyle = '#0F172A'; 
+    ctx.beginPath();
+    ctx.moveTo(x, y - 1400*scale);
+    ctx.lineTo(x - 350*scale, y - 300*scale);
+    ctx.lineTo(x + 350*scale, y - 300*scale);
+    ctx.fill();
+
+    // Snow Cap (Highlight)
+    ctx.fillStyle = '#F1F5F9';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 1400*scale);
+    ctx.lineTo(x - 180*scale, y - 900*scale);
+    ctx.lineTo(x + 180*scale, y - 900*scale);
+    ctx.fill();
+}
+
+function drawRock(ctx, x, y, scale) {
+    ctx.fillStyle = '#1E293B';
+    ctx.beginPath();
+    ctx.moveTo(x - 200*scale, y);
+    ctx.lineTo(x - 150*scale, y - 250*scale);
+    ctx.lineTo(x + 100*scale, y - 300*scale);
+    ctx.lineTo(x + 250*scale, y);
+    ctx.fill();
+    
+    // Snow on rock
+    ctx.fillStyle = '#E2E8F0';
+    ctx.beginPath();
+    ctx.moveTo(x - 150*scale, y - 250*scale);
+    ctx.lineTo(x + 100*scale, y - 300*scale);
+    ctx.lineTo(x + 50*scale, y - 200*scale);
+    ctx.lineTo(x - 100*scale, y - 180*scale);
+    ctx.fill();
+}
+
+function drawGate(ctx, x, y, scale) {
+    const w = 2000 * scale;
+    const h = 800 * scale;
+    
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, w/1.5, h/5, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Pillars
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(x - w/2, y - h, 60*scale, h);
+    ctx.fillRect(x + w/2 - 60*scale, y - h, 60*scale, h);
+
+    // Banner
+    ctx.fillStyle = '#F43F5E';
+    ctx.fillRect(x - w/2, y - h, w, 160*scale);
+    
+    // Banner Stripes
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(x - w/2, y - h + 40*scale, w, 40*scale);
+    
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${70*scale}px Impact, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText("GATE", x, y - h + 120*scale);
+}
+
+function render() {
+    // Sky Gradient (Deep Blue to Ice White)
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, '#020617'); // Very dark blue
+    grad.addColorStop(0.5, '#1D4ED8');
+    grad.addColorStop(1, '#E0F2FE');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Camera Shake
+    let shakeX = 0, shakeY = 0;
+    if (shake > 0) {
+        shakeX = (Math.random() - 0.5) * shake;
+        shakeY = (Math.random() - 0.5) * shake;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+    }
+
+    const baseZ = cameraZ;
+    const baseIndex = Math.floor(baseZ / config.segmentLength);
+    const camDepth = config.cameraDepth;
+    
+    let maxY = height;
+    let curveX = 0;
+
+    // Render Road
+    for (let n = 0; n < config.drawDistance; n++) {
+        const idx = (baseIndex + n) % segments.length;
+        const seg = segments[idx];
+        
+        // Calculate Z relative to camera
+        let z = seg.p.z - baseZ;
+        if (z <= 0) continue;
+
+        // Accumulate curve offset
+        curveX += seg.curve;
+
+        const p = project({ x: seg.p.x - curveX * 100, y: seg.p.y, z: z }, 
+                          playerX * config.roadWidth, 
+                          config.cameraHeight, 
+                          0, 
+                          camDepth);
+
+        const nextIdx = (idx + 1) % segments.length;
+        const nextSeg = segments[nextIdx];
+        
+        // Calculate next segment with same curve offset logic
+        const pNext = project({ x: nextSeg.p.x - curveX * 100, y: nextSeg.p.y, z: z + config.segmentLength }, 
+                              playerX * config.roadWidth, 
+                              config.cameraHeight, 
+                              0, 
+                              camDepth);
+
+        if (p.y >= maxY) continue;
+
+        // --- Draw Segments ---
+        
+        // 1. Ground (Snow) - Alternating for speed sensation
+        const w1 = p.w * 5;
+        const w2 = pNext.w * 5;
+        const isDark = seg.color === 'dark';
+        const groundColor = isDark ? '#E2E8F0' : '#F8FAFC';
+        drawPoly(ctx, p.x - w1, p.y, p.x + w1, p.y, pNext.x + w2, pNext.y, pNext.x - w2, pNext.y, groundColor);
+
+        // 2. Road (Ice)
+        const rw1 = p.w;
+        const rw2 = pNext.w;
+        const roadColor = isDark ? '#BAE6FD' : '#E0F2FE';
+        drawPoly(ctx, p.x - rw1, p.y, p.x + rw1, p.y, pNext.x + rw2, pNext.y, pNext.x - rw2, pNext.y, roadColor);
+
+        // 3. Lane Markers (Dashed)
+        if (!isDark) {
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            const lw1 = rw1 * 0.03;
+            const lw2 = rw2 * 0.03;
+            drawPoly(ctx, p.x - lw1, p.y, p.x + lw1, p.y, pNext.x + lw2, pNext.y, pNext.x - lw2, pNext.y, 'rgba(255,255,255,0.9)');
+        }
+
+        // 4. Objects
+        if (n > 5) {
+            if (idx % 8 === 0) drawTree(ctx, p.x - w1 * 1.2, p.y, p.scale);
+            if (idx % 8 === 4) drawTree(ctx, p.x + w1 * 1.2, p.y, p.scale);
+            if (idx % 15 === 0) drawRock(ctx, p.x + rw1 * 1.1, p.y, p.scale);
+            if (idx % 15 === 7) drawRock(ctx, p.x - rw1 * 1.1, p.y, p.scale);
+        }
+
+        // 5. Gates
+        if (idx % 120 === 0 && n > 5 && n < 15) {
+            drawGate(ctx, p.x, p.y, p.scale);
+        }
+
+        maxY = p.y;
+    }
+
+    // --- Draw Player ---
+    const px = width / 2;
+    const py = height - 80;
+    
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(playerTilt);
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 40, 70, 18, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Skis
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(-45, 35, 16, 80);
+    ctx.fillRect(29, 35, 16, 80);
+
+    // Body
+    ctx.fillStyle = '#F43F5E'; // Red Suit
+    ctx.beginPath();
+    ctx.roundRect(-35, -40, 70, 80, 18);
+    ctx.fill();
+
+    // Helmet
+    ctx.fillStyle = '#1E40AF';
+    ctx.beginPath();
+    ctx.arc(0, -50, 32, 0, Math.PI*2);
+    ctx.fill();
+
+    // Goggles
+    ctx.fillStyle = '#FBBF24';
+    ctx.fillRect(-24, -55, 48, 16);
+
+    // Motion Blur (Speed Lines)
+    ctx.restore(); // Reset rotation
+    
+    if (speed > 50) {
+        ctx.save();
+        ctx.translate(px, py);
+        const alpha = Math.min((speed - 50) / 100, 0.7);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        for(let i=0; i<12; i++) {
+            const ox = (Math.random() - 0.5) * 200;
+            const oy = (Math.random() - 0.5) * 200;
+            ctx.beginPath();
+            ctx.moveTo(ox, oy);
+            ctx.lineTo(ox, oy + speed/1.2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    if (shake > 0) ctx.restore();
+}
+
+// --- Logic ---
+let cameraZ = 0;
+
+function update(dt) {
+    // Physics
+    if (speed < config.maxSpeed) speed += config.accel * dt;
+    else if (speed > config.maxSpeed) speed -= config.decel * dt;
+    
+    cameraZ += speed * 2 * dt;
+    distance += speed * 0.1 * dt;
+
+    // Steering
+    if (input.left) {
+        playerX -= config.turnSpeed * dt;
+        playerTilt = Math.max(playerTilt - 5*dt, -0.6);
+    } else if (input.right) {
+        playerX += config.turnSpeed * dt;
+        playerTilt = Math.min(playerTilt + 5*dt, 0.6);
+    } else {
+        playerTilt *= 0.9;
+    }
+    playerX = Math.max(-1.2, Math.min(1.2, playerX));
+
+    // Shake Decay
+    if (shake > 0) shake -= 20 * dt;
+    if (shake < 0) shake = 0;
+
+    // UI Updates
+    ui.speed.innerText = Math.floor(speed);
+    ui.dist.innerHTML = Math.floor(distance) + '<span>m</span>';
+    
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const min = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const sec = (elapsed % 60).toString().padStart(2, '0');
+    ui.time.innerText = `${min}:${sec}`;
+    
+    // Progress (Looping)
+    const progress = (distance % 2000) / 20;
+    ui.progress.style.width = `${progress}%`;
+    
+    ui.speedFill.style.width = `${(speed / config.maxSpeed) * 100}%`;
+
+    // Gate Logic
+    const nextGate = Math.ceil(distance / 500) * 500;
+    if (nextGate - distance < 200) {
+        ui.gate.classList.add('active');
+        if (shake === 0) shake = 3; // Tiny shake when gate is near
+    } else {
+        ui.gate.classList.remove('active');
+    }
+}
+
+// --- Loop ---
+let lastTime = 0;
+function loop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.1);
+    lastTime = time;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

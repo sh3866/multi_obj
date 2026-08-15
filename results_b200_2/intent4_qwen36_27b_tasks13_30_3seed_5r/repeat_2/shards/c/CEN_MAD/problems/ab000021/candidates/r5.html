@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Architecture: Information Flow</title>
+<style>
+    :root {
+        /* Palette - Professional Technical */
+        --bg-color: #090b0e;
+        --grid-color: #161b22;
+        
+        --panel-fill: #161b22;
+        --panel-stroke: #30363d;
+        --panel-glow: rgba(88, 166, 255, 0.15);
+        
+        /* Typography */
+        --text-main: #f0f6fc;
+        --text-muted: #8b949e;
+        
+        /* Semantic Signal Colors */
+        --col-data: #58a6ff;      /* Blue - Data */
+        --col-instr: #d2a8ff;     /* Purple - Instructions */
+        --col-ctrl: #7ee787;      /* Green - Control */
+        --col-io: #f2cc60;        /* Yellow - I/O */
+        
+        --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background-color: var(--bg-color);
+        /* Subtle orthogonal grid */
+        background-image: 
+            linear-gradient(var(--grid-color) 1px, transparent 1px),
+            linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+        background-size: 40px 40px;
+        
+        color: var(--text-main);
+        font-family: var(--font-stack);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* --- UI Overlay --- */
+    .ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 20;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    header {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        pointer-events: auto;
+    }
+
+    /* Design Change: Reduce Title Size/Weight */
+    h1 {
+        font-size: 1.5rem; /* Reduced from 2rem */
+        font-weight: 600;  /* Reduced weight */
+        letter-spacing: -0.01em;
+        margin-bottom: 0.5rem;
+        color: var(--text-main);
+        text-transform: uppercase;
+    }
+
+    .subtitle {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Design Change: Relocate Legend to Top Left */
+    .legend {
+        display: flex;
+        gap: 24px;
+        background: rgba(22, 27, 34, 0.6);
+        padding: 12px 24px;
+        border: 1px solid var(--panel-stroke);
+        border-radius: 6px;
+        pointer-events: auto;
+        backdrop-filter: blur(8px);
+        width: fit-content;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Design Change: High-Visibility Legend Indicators */
+    .line-indicator {
+        width: 24px;
+        height: 4px; /* Thicker */
+        position: relative;
+        border-radius: 2px;
+    }
+    .line-solid { background-color: currentColor; }
+    /* Instructions: Thick Dashed */
+    .line-dashed-thick { 
+        background: repeating-linear-gradient(90deg, currentColor 0, currentColor 6px, transparent 6px, transparent 10px); 
+    }
+    /* Control: Double Line simulated via border or pattern */
+    .line-double { 
+        height: 6px;
+        border-top: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        background: transparent;
+    }
+
+    /* --- SVG Container --- */
+    #diagram-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        z-index: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
+    /* --- Zones --- */
+    /* Design Change: Solid, low-opacity containers */
+    .zone {
+        rx: 12px;
+        stroke-width: 1;
+        fill: rgba(255, 255, 255, 0.03); /* Solid low opacity */
+        stroke: rgba(255, 255, 255, 0.05);
+        filter: drop-shadow(0 0 1px rgba(0,0,0,0.5));
+    }
+
+    .zone-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        font-weight: 600;
+        fill: var(--text-muted);
+        opacity: 0.6;
+        text-anchor: start;
+    }
+
+    /* --- Components --- */
+    .component-group {
+        cursor: pointer;
+        transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .component-group:hover {
+        transform: translateY(-4px);
+    }
+
+    /* Design Change: Unified Geometry (Rounded Rects rx=8) */
+    .comp-bg {
+        fill: var(--panel-fill);
+        stroke: var(--panel-stroke);
+        stroke-width: 2;
+        rx: 8px; /* Unified rx */
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+        transition: stroke 0.2s, fill 0.2s, filter 0.2s;
+    }
+    
+    .component-group:hover .comp-bg {
+        stroke: var(--text-muted);
+        fill: #1c2128;
+    }
+
+    /* Design Change: CPU Visual Anchor (Scale + Glow) */
+    .cpu-bg {
+        stroke: var(--col-data); /* Distinct Border */
+        stroke-width: 2.5;
+        fill: #0d1117;
+        filter: drop-shadow(0 0 20px var(--panel-glow)) drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+    }
+    
+    /* Storage is now a standard rounded rect, not a cylinder */
+    
+    .comp-icon {
+        fill: none;
+        stroke: var(--text-muted);
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: stroke 0.2s;
+    }
+    
+    .component-group:hover .comp-icon {
+        stroke: var(--text-main);
+    }
+
+    /* Design Change: Standardized Typography */
+    .comp-label {
+        fill: var(--text-main);
+        font-size: 14px; /* Standardized size */
+        font-weight: 600; /* Standardized weight */
+        text-anchor: middle;
+        letter-spacing: 0.02em;
+        pointer-events: none;
+        text-transform: uppercase;
+    }
+
+    .comp-sub {
+        fill: var(--text-muted);
+        font-size: 11px; /* Consistently smaller */
+        font-weight: 400; /* Lighter weight */
+        text-anchor: middle;
+        pointer-events: none;
+        letter-spacing: 0.02em;
+    }
+
+    /* --- Connectors (Lines) --- */
+    .path-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.02);
+        stroke-width: 12; /* Larger hit area */
+        stroke-linejoin: round;
+        stroke-linecap: round;
+    }
+
+    /* Design Change: Increased Stroke Width (Min 2px) */
+    .path-active {
+        fill: none;
+        stroke-width: 2.5; /* Increased visibility */
+        stroke-linejoin: round;
+        stroke-linecap: round;
+    }
+
+    /* Styles */
+    .style-data { stroke: var(--col-data); stroke-dasharray: none; }
+    
+    /* Design Change: High-Visibility Styles */
+    .style-instr { 
+        stroke: var(--col-instr); 
+        stroke-width: 3; 
+        stroke-dasharray: 8 6; /* Thick Dashed */
+    }
+    
+    .style-ctrl { 
+        stroke: var(--col-ctrl); 
+        stroke-width: 2; 
+        stroke-dasharray: 2 4; /* Dotted/Dashed */
+    }
+    
+    .style-io { stroke: var(--col-io); stroke-dasharray: none; }
+
+    /* Animations */
+    @keyframes flow-particle {
+        0% { stroke-dashoffset: 120; opacity: 0; }
+        15% { opacity: 1; }
+        85% { opacity: 1; }
+        100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+
+    .particle {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dasharray: 2 120; /* Single packet */
+        filter: drop-shadow(0 0 3px currentColor);
+        animation: flow-particle 2.5s linear infinite;
+    }
+
+    .p-data { stroke: var(--col-data); }
+    .p-instr { stroke: var(--col-instr); animation-duration: 1.5s; }
+    .p-ctrl { stroke: var(--col-ctrl); animation-duration: 3s; }
+    .p-io { stroke: var(--col-io); }
+
+    /* Hover States */
+    .dimmed {
+        opacity: 0.1 !important;
+        transition: opacity 0.3s;
+    }
+
+</style>
+</head>
+<body>
+
+    <div class="ui-layer">
+        <header>
+            <h1>System Architecture</h1>
+            <div class="subtitle">Information Flow &amp; Component Topology</div>
+            
+            <!-- Design Change: Legend Relocated to Top Left -->
+            <div class="legend">
+                <div class="legend-item" style="color: var(--col-data)">
+                    <div class="line-indicator line-solid"></div>
+                    <span>Data</span>
+                </div>
+                <div class="legend-item" style="color: var(--col-instr)">
+                    <div class="line-indicator line-dashed-thick"></div>
+                    <span>Instructions</span>
+                </div>
+                <div class="legend-item" style="color: var(--col-ctrl)">
+                    <div class="line-indicator line-double"></div>
+                    <span>Control</span>
+                </div>
+                <div class="legend-item" style="color: var(--col-io)">
+                    <div class="line-indicator line-solid"></div>
+                    <span>I/O Stream</span>
+                </div>
+            </div>
+        </header>
+    </div>
+
+    <div id="diagram-container">
+        <svg id="main-svg" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid meet">
+            <defs>
+                <!-- Arrowhead Marker -->
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <path d="M0,0 L0,7 L9,3.5 z" fill="currentColor" stroke="none" />
+                </marker>
+            </defs>
+            
+            <!-- Background Zones -->
+            <g id="zones-layer"></g>
+            
+            <!-- Paths (Lines) -->
+            <g id="paths-layer"></g>
+            
+            <!-- Animated Particles -->
+            <g id="particles-layer"></g>
+            
+            <!-- Components (Boxes) -->
+            <g id="components-layer"></g>
+        </svg>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const svg = document.getElementById('main-svg');
+    const zonesLayer = document.getElementById('zones-layer');
+    const pathsLayer = document.getElementById('paths-layer');
+    const particlesLayer = document.getElementById('particles-layer');
+    const componentsLayer = document.getElementById('components-layer');
+
+    const createSVG = (tag, attrs) => {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+        return el;
+    };
+
+    // Component Data - Refined Layout (Strict Orthogonal Grid)
+    const components = [
+        // CPU is larger (w: 200) to establish hierarchy
+        { id: 'cpu', label: 'CPU', sub: 'Central Processing', x: 500, y: 375, w: 200, h: 120, type: 'cpu', icon: 'cpu' },
+        { id: 'ram', label: 'Memory', sub: 'System RAM', x: 500, y: 175, w: 140, h: 90, type: 'standard', icon: 'ram' },
+        { id: 'gpu', label: 'GPU', sub: 'Graphics', x: 780, y: 375, w: 140, h: 90, type: 'standard', icon: 'gpu' },
+        { id: 'storage', label: 'Storage', sub: 'NVMe Array', x: 500, y: 575, w: 140, h: 90, type: 'standard', icon: 'hdd' },
+        { id: 'input', label: 'Input', sub: 'Keyboard / Mouse', x: 220, y: 375, w: 140, h: 90, type: 'standard', icon: 'mouse' },
+        { id: 'output', label: 'Output', sub: 'Display', x: 220, y: 175, w: 140, h: 90, type: 'standard', icon: 'monitor' },
+        { id: 'network', label: 'Network', sub: 'Interface', x: 220, y: 575, w: 140, h: 90, type: 'standard', icon: 'router' }
+    ];
+
+    // Connections
+    const connections = [
+        // Fetch-Execute Cycle
+        { from: 'storage', to: 'ram', type: 'instr', label: 'Load Instructions' },
+        { from: 'ram', to: 'cpu', type: 'instr', label: 'Fetch' },
+        
+        // CPU <-> Memory (Data)
+        { from: 'ram', to: 'cpu', type: 'data', label: 'Read/Write Data' },
+        
+        // CPU <-> Storage (Control)
+        { from: 'cpu', to: 'storage', type: 'ctrl', label: 'I/O Control' },
+        
+        // CPU <-> GPU (Data)
+        { from: 'cpu', to: 'gpu', type: 'data', label: 'Render Data' },
+        { from: 'gpu', to: 'cpu', type: 'ctrl', label: 'Sync' },
+        
+        // Input <-> CPU
+        { from: 'input', to: 'cpu', type: 'data', label: 'User Input' },
+        
+        // CPU <-> Output (I/O Stream)
+        { from: 'cpu', to: 'output', type: 'io', label: 'Video Signal' },
+        { from: 'gpu', to: 'output', type: 'io', label: 'Frame Buffer' },
+        
+        // Network <-> CPU
+        { from: 'network', to: 'cpu', type: 'data', label: 'Inbound' },
+        { from: 'cpu', to: 'network', type: 'data', label: 'Outbound' }
+    ];
+
+    // --- Draw Zones ---
+    function drawZones() {
+        // Core Zone (Right)
+        const coreZone = createSVG('rect', {
+            class: 'zone',
+            x: 400, y: 80, width: 540, height: 600
+        });
+        const coreLabel = createSVG('text', { x: 420, y: 115, class: 'zone-label' });
+        coreLabel.textContent = 'CORE SYSTEM';
+        zonesLayer.appendChild(coreZone);
+        zonesLayer.appendChild(coreLabel);
+
+        // Peripheral Zone (Left)
+        const periphZone = createSVG('rect', {
+            class: 'zone',
+            x: 120, y: 80, width: 280, height: 600
+        });
+        const periphLabel = createSVG('text', { x: 140, y: 115, class: 'zone-label' });
+        periphLabel.textContent = 'I/O PERIPHERALS';
+        zonesLayer.appendChild(periphZone);
+        zonesLayer.appendChild(periphLabel);
+    }
+
+    // --- Draw Icons ---
+    const drawIcon = (id, x, y) => {
+        let g = createSVG('g', { transform: `translate(${x}, ${y})` });
+        const stroke = { stroke: 'currentColor', 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+
+        if(id === 'cpu') {
+            g.appendChild(createSVG('rect', { x:-12, y:-12, width:24, height:24, ...stroke, rx:4 }));
+            g.appendChild(createSVG('rect', { x:-5, y:-5, width:10, height:10, fill: 'currentColor', stroke: 'none' }));
+        } else if (id === 'ram') {
+            g.appendChild(createSVG('rect', { x:-14, y:-9, width:28, height:18, ...stroke, rx:2 }));
+            g.appendChild(createSVG('path', { d:"M-8 -3v12 M-3 -3v12 M2 -3v12 M7 -3v12", ...stroke, 'stroke-width': 1.5 }));
+        } else if (id === 'gpu') {
+            g.appendChild(createSVG('rect', { x:-14, y:-9, width:28, height:18, ...stroke, rx:2 }));
+            g.appendChild(createSVG('rect', { x:-6, y:-1, width:12, height:6, fill: 'currentColor', stroke: 'none', rx:1, opacity: 0.5 }));
+        } else if (id === 'hdd') {
+            g.appendChild(createSVG('rect', { x:-14, y:-8, width:28, height:16, ...stroke, rx:2 }));
+            g.appendChild(createSVG('circle', { cx:0, cy:0, r:4, ...stroke }));
+        } else if (id === 'mouse') {
+            g.appendChild(createSVG('rect', { x:-8, y:-12, width:16, height:24, rx:6, ...stroke }));
+            g.appendChild(createSVG('line', { x1:0, y1:-12, x2:0, y2:-6, ...stroke }));
+        } else if (id === 'monitor') {
+            g.appendChild(createSVG('rect', { x:-14, y:-10, width:28, height:16, ...stroke, rx:2 }));
+            g.appendChild(createSVG('path', { d:"M-6 6v4h12v-4", ...stroke }));
+        } else if (id === 'router') {
+            g.appendChild(createSVG('rect', { x:-14, y:-8, width:28, height:16, ...stroke, rx:2 }));
+            g.appendChild(createSVG('path', { d:"M-5 0a5 5 0 0 1 10 0", ...stroke }));
+            g.appendChild(createSVG('path', { d:"M-8 3a8 8 0 0 1 16 0", ...stroke }));
+        }
+        return g;
+    };
+
+    // --- Render Components ---
+    const compMap = {}; 
+
+    components.forEach(c => {
+        const g = createSVG('g', { 
+            class: 'component-group', 
+            transform: `translate(${c.x}, ${c.y})`,
+            'data-id': c.id
+        });
+
+        // Design Change: Unified Geometry (Rounded Rects)
+        // Even CPU and Storage are now Rects, distinguished by size/style
+        let shape;
+        const isCpu = c.type === 'cpu';
+        
+        shape = createSVG('rect', { 
+            class: isCpu ? 'cpu-bg' : 'comp-bg',
+            x: -c.w/2, y: -c.h/2,
+            width: c.w, height: c.h 
+        });
+
+        // Icon (Centered slightly higher)
+        const icon = drawIcon(c.icon, 0, -15);
+        icon.setAttribute('class', 'comp-icon');
+
+        // Labels
+        const textLabel = createSVG('text', { x: 0, y: 20, class: 'comp-label' });
+        textLabel.textContent = c.label;
+        
+        const textSub = createSVG('text', { x: 0, y: 36, class: 'comp-sub' });
+        textSub.textContent = c.sub;
+
+        g.appendChild(shape);
+        g.appendChild(icon);
+        g.appendChild(textLabel);
+        g.appendChild(textSub);
+        
+        componentsLayer.appendChild(g);
+        compMap[c.id] = c;
+
+        // Hover Logic
+        g.addEventListener('mouseenter', () => highlightPath(c.id));
+        g.addEventListener('mouseleave', () => resetHighlight());
+    });
+
+    // --- Render Paths (Orthogonal) ---
+    const pathGroups = {}; 
+
+    // Orthogonal Path Generator (Manhattan)
+    const getOrthoPath = (c1, c2, offsetIndex, totalCount) => {
+        const dx = c2.x - c1.x;
+        const dy = c2.y - c1.y;
+        
+        // Calculate Offset for parallel lines (spread them out)
+        const offsetMag = 14;
+        const shift = (offsetIndex * 2 - (totalCount - 1)) * offsetMag;
+
+        // Special Case: Vertical Center Stack (CPU <-> RAM <-> Storage)
+        if (Math.abs(dx) < 10) {
+             const xShift = shift;
+             const startY = dy > 0 ? c1.y + c1.h/2 : c1.y - c1.h/2;
+             const endY = dy > 0 ? c2.y - c2.h/2 : c2.y + c2.h/2;
+             // Down -> Shift -> Down -> Center
+             return `M ${c1.x} ${startY} 
+                     L ${c1.x + xShift} ${startY} 
+                     L ${c1.x + xShift} ${endY} 
+                     L ${c2.x} ${endY}`;
+        }
+
+        // Logic: Determine primary axis
+        if (Math.abs(dy) > Math.abs(dx)) {
+            // Vertical Dominant
+            const xShift = shift;
+            const startY = dy > 0 ? c1.y + c1.h/2 : c1.y - c1.h/2;
+            const endY = dy > 0 ? c2.y - c2.h/2 : c2.y + c2.h/2;
+            
+            // Path: Down -> Shift -> Down -> To Center
+            return `M ${c1.x} ${startY} 
+                    L ${c1.x + xShift} ${startY} 
+                    L ${c1.x + xShift} ${endY} 
+                    L ${c2.x} ${endY}`;
+        } else {
+            // Horizontal Dominant
+            const yShift = shift;
+            const startX = dx > 0 ? c1.x + c1.w/2 : c1.x - c1.w/2;
+            const endX = dx > 0 ? c2.x - c2.w/2 : c2.x + c2.w/2;
+
+            // Path: Right -> Shift -> Right -> Up/Down -> Center
+            return `M ${startX} ${c1.y} 
+                    L ${(startX + endX)/2} ${c1.y} 
+                    L ${(startX + endX)/2} ${c2.y + yShift} 
+                    L ${endX} ${c2.y + yShift} 
+                    L ${endX} ${c2.y}`;
+        }
+    };
+
+    const connectionCount = {};
+
+    connections.forEach((conn, index) => {
+        const start = compMap[conn.from];
+        const end = compMap[conn.to];
+        
+        const pairKey = [conn.from, conn.to].sort().join('-');
+        if (!connectionCount[pairKey]) connectionCount[pairKey] = 0;
+        const offsetIndex = connectionCount[pairKey];
+        connectionCount[pairKey]++;
+
+        const g = createSVG('g', { class: 'connection-group', 'data-from': conn.from, 'data-to': conn.to });
+
+        const pathD = getOrthoPath(start, end, offsetIndex, connectionCount[pairKey]);
+        const trackColor = `var(--col-${conn.type})`;
+
+        // 1. Hit Area
+        const bgPath = createSVG('path', {
+            d: pathD,
+            stroke: 'transparent',
+            'stroke-width': 24,
+            fill: 'none',
+            class: 'hit-area'
+        });
+
+        // 2. Visible Track (Subtle)
+        const visiblePath = createSVG('path', {
+            d: pathD,
+            class: 'path-bg',
+            stroke: trackColor,
+            'stroke-opacity': 0.05
+        });
+
+        // 3. Active Semantic Line
+        const activePath = createSVG('path', {
+            d: pathD,
+            class: `path-active style-${conn.type}`,
+            'marker-end': 'url(#arrowhead)',
+            style: `color: ${trackColor}`
+        });
+
+        // 4. Particle
+        const particle = createSVG('path', {
+            d: pathD,
+            class: `particle p-${conn.type}`,
+            style: `animation-delay: ${Math.random() * 2}s; color: ${trackColor}`
+        });
+
+        g.appendChild(bgPath);
+        g.appendChild(visiblePath);
+        g.appendChild(activePath);
+        g.appendChild(particle);
+
+        pathsLayer.appendChild(g);
+        
+        if (!pathGroups[conn.from]) pathGroups[conn.from] = [];
+        if (!pathGroups[conn.to]) pathGroups[conn.to] = [];
+        pathGroups[conn.from].push(g);
+        pathGroups[conn.to].push(g);
+    });
+
+    // --- Interactivity ---
+    function highlightPath(activeId) {
+        document.querySelectorAll('.connection-group').forEach(el => el.classList.add('dimmed'));
+        document.querySelectorAll('.component-group').forEach(el => {
+            if(el.getAttribute('data-id') !== activeId) el.classList.add('dimmed');
+        });
+
+        const connectedGroups = pathGroups[activeId] || [];
+        connectedGroups.forEach(g => {
+            g.classList.remove('dimmed');
+            g.style.opacity = '1';
+            // Speed up particles on hover
+            const particle = g.querySelector('.particle');
+            if(particle) particle.style.animationDuration = '0.8s';
+        });
+    }
+
+    function resetHighlight() {
+        document.querySelectorAll('.connection-group').forEach(el => {
+            el.classList.remove('dimmed');
+            el.style.opacity = '';
+            el.querySelector('.particle').style.animationDuration = '';
+        });
+        document.querySelectorAll('.component-group').forEach(el => el.classList.remove('dimmed'));
+    }
+
+    // Initialize
+    drawZones();
+
+</script>
+</body>
+</html>

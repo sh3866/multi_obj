@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel Crossing: High Fidelity</title>
+    <style>
+        :root {
+            --ui-font: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --ui-shadow: 0 12px 24px rgba(0,0,0,0.15);
+            --glass-bg: rgba(255, 255, 255, 0.15);
+            --glass-border: rgba(255, 255, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #222;
+            font-family: var(--ui-font);
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- UI Overlay --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Top HUD */
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            padding: 32px;
+            pointer-events: none;
+        }
+
+        .score-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .score-label {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 3px;
+            color: rgba(255,255,255,0.8);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .score-value {
+            font-size: 48px;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 0 4px 0 rgba(0,0,0,0.1);
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .score-pill {
+            background: #fff;
+            padding: 12px 40px;
+            border-radius: 50px;
+            box-shadow: var(--ui-shadow);
+            transform: translateY(0);
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .score-pill.pop {
+            transform: scale(1.15) translateY(-5px);
+        }
+
+        /* Bottom Controls */
+        .controls-area {
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            pointer-events: auto;
+            margin-bottom: 20px;
+        }
+
+        .d-pad {
+            display: grid;
+            grid-template-columns: 80px 80px 80px;
+            grid-template-rows: 80px 80px;
+            gap: 12px;
+        }
+
+        .btn {
+            width: 80px;
+            height: 80px;
+            background: var(--glass-bg);
+            border: 2px solid var(--glass-border);
+            border-radius: 24px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(180deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 100%);
+            pointer-events: none;
+        }
+
+        .btn svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+        }
+
+        .btn:active, .btn.active {
+            background: rgba(255, 255, 255, 0.4);
+            transform: translateY(4px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        /* Tutorial Toast */
+        .toast {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(4px);
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+            letter-spacing: 2px;
+            padding: 12px 24px;
+            border-radius: 30px;
+            pointer-events: none;
+            animation: toastAnim 4s forwards;
+            text-transform: uppercase;
+        }
+
+        @keyframes toastAnim {
+            0% { opacity: 0; transform: translate(-50%, -40%); }
+            10% { opacity: 1; transform: translate(-50%, -50%); }
+            80% { opacity: 1; transform: translate(-50%, -50%); }
+            100% { opacity: 0; transform: translate(-50%, -60%); }
+        }
+
+        @media (max-width: 600px) {
+            .d-pad { transform: scale(0.85); margin-top: 20px; }
+            .hud-top { padding: 20px; }
+            .score-value { font-size: 36px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="score-container score-pill" id="score-pill">
+                <div class="score-label">Score</div>
+                <div class="score-value" id="score">0</div>
+            </div>
+            <div class="score-container">
+                <div class="score-label">Best</div>
+                <div class="score-value" style="color: #ff9f43; font-size: 36px;">12</div>
+            </div>
+        </div>
+
+        <div class="toast">Tap Arrows to Cross</div>
+
+        <div class="controls-area">
+            <div class="d-pad">
+                <div class="btn btn-up" id="btn-up">
+                    <svg viewBox="0 0 24 24"><path d="M12 4l-8 8h6v8h4v-8h6z"/></svg>
+                </div>
+                <div class="btn btn-left" id="btn-left">
+                    <svg viewBox="0 0 24 24"><path d="M4 12l8-8v6h8v4h-8v6z"/></svg>
+                </div>
+                <div class="btn btn-down" id="btn-down">
+                    <svg viewBox="0 0 24 24"><path d="M12 20l8-8h-6v-8h-4v8h-6z"/></svg>
+                </div>
+                <div class="btn btn-right" id="btn-right">
+                    <svg viewBox="0 0 24 24"><path d="M20 12l-8 8v-6h-8v-4h8v-6z"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * VISUAL OVERHAUL:
+         * 1. Improved Isometric Projection (2:1 ratio).
+         * 2. "Chunky" 3D aesthetic with thicker shadows and highlights.
+         * 3. Procedural generation of more interesting trees/obstacles.
+         * 4. Better color palette (Pastel/Pop).
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height;
+
+        const CONFIG = {
+            blockSize: 100,
+            blockH: 20, // Height of the ground block
+            isoScale: 0.55, // Controls the steepness of the view
+            fov: 400,
+            colors: {
+                skyTop: '#4facfe',
+                skyBot: '#00f2fe',
+                grass: ['#2ecc71', '#27ae60', '#34d058'],
+                road: '#505c66',
+                roadLine: '#f1c40f',
+                water: '#3498db',
+                wood: '#8d6e63',
+                woodDark: '#5d4037',
+                concrete: '#bdc3c7'
+            }
+        };
+
+        let camera = { z: 0, targetZ: 0 };
+        let player = { 
+            x: 0, y: 0, z: 0, 
+            targetY: 0, 
+            squish: 1, 
+            rot: 0, targetRot: 0,
+            dead: false,
+            color: '#fff'
+        };
+        let lanes = [];
+        let particles = [];
+        let score = 0;
+        let time = 0;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Math & Projection ---
+        // Custom projection to achieve that "Crossy Road" look
+        const project = (x, y, z) => {
+            // Relative Z from camera
+            const relZ = z - camera.z;
+            
+            // Simple perspective projection
+            // We push the horizon up slightly by adding an offset to Y
+            const scale = CONFIG.fov / (CONFIG.fov + relZ);
+            
+            // Isometric-ish X offset
+            const x2d = (x * scale) + (width / 2);
+            const y2d = ((y - relZ) * CONFIG.isoScale) + (height * 0.4);
+
+            return { x: x2d, y: y2d, scale: scale, visible: relZ > -CONFIG.fov + 50 && relZ < 2000 };
+        };
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const rand = (min, max) => Math.random() * (max - min) + min;
+        const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+        // --- Drawing Helpers ---
+
+        function adjustColor(hex, amount) {
+            let r = parseInt(hex.substring(1,3),16);
+            let g = parseInt(hex.substring(3,5),16);
+            let b = parseInt(hex.substring(5,7),16);
+            r = Math.min(255, Math.max(0, r + amount));
+            g = Math.min(255, Math.max(0, g + amount));
+            b = Math.min(255, Math.max(0, b + amount));
+            return `rgb(${r},${g},${b})`;
+        }
+
+        // Draws a 3D block with shadows
+        function drawBlock(x, y, z, w, h, d, color, shadowColor) {
+            // Front Face
+            const pFront = project(x, y, z);
+            if (!pFront.visible) return;
+            
+            const hw = (w * pFront.scale) / 2;
+            const hh = (h * pFront.scale);
+            const hd = (d * pFront.scale) / 2;
+
+            // 1. Shadow (Projected down)
+            // Simple logic: shadow falls "behind" and "down" relative to the object
+            const pShadow = project(x, y + 20, z + 10); // Offset shadow
+            if(pShadow.visible) {
+                ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                ctx.beginPath();
+                // Draw an ellipse on the ground plane
+                const sW = hw * 1.5;
+                const sH = hd * 1.5;
+                ctx.ellipse(pShadow.x, pShadow.y, sW, sH, 0, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            // 2. Block Faces (Painter's algo: Bottom -> Top)
+            
+            // Bottom (if visible, usually hidden by ground but good for floating logs)
+            ctx.fillStyle = shadowColor || adjustColor(color, -60);
+            ctx.beginPath();
+            ctx.moveTo(pFront.x - hw, pFront.y); // BL
+            ctx.lineTo(pFront.x, pFront.y + hd); // B (Center)
+            ctx.lineTo(pFront.x + hw, pFront.y); // BR
+            ctx.lineTo(pFront.x, pFront.y - hd); // BT (Back)
+            ctx.fill();
+
+            // Front
+            ctx.fillStyle = color;
+            ctx.fillRect(pFront.x - hw, pFront.y - hh, hw*2, hh);
+
+            // Top
+            ctx.fillStyle = adjustColor(color, 20);
+            ctx.beginPath();
+            ctx.moveTo(pFront.x - hw, pFront.y - hh); // TL
+            ctx.lineTo(pFront.x, pFront.y - hh - hd); // T (Center)
+            ctx.lineTo(pFront.x + hw, pFront.y - hh); // TR
+            ctx.lineTo(pFront.x, pFront.y - hh + hd); // TB (Back)
+            ctx.fill();
+        }
+
+        // --- Classes ---
+
+        class Particle {
+            constructor(x, y, z, color) {
+                this.x = x; this.y = y; this.z = z;
+                this.vx = rand(-5, 5); this.vy = rand(-10, -2); this.vz = rand(-5, 5);
+                this.color = color;
+                this.life = 1.0;
+                this.size = rand(6, 12);
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.z += this.vz;
+                this.vy += 0.4; // Gravity
+                this.life -= 0.025;
+            }
+        }
+
+        class Lane {
+            constructor(zIndex) {
+                this.z = zIndex * CONFIG.blockSize;
+                this.type = this.determineType(zIndex);
+                this.vehicles = [];
+                this.logs = [];
+                this.decorations = [];
+                this.initContent();
+            }
+
+            determineType(z) {
+                if (z < 5) return 'grass';
+                const mod = z % 7;
+                if (mod === 1) return 'road';
+                if (mod === 2) return 'water';
+                if (mod === 4) return 'road';
+                if (mod === 5) return 'road';
+                return 'grass';
+            }
+
+            initContent() {
+                if (this.type === 'road') {
+                    const count = randInt(2, 4);
+                    for(let i=0; i<count; i++) {
+                        this.vehicles.push({
+                            x: rand(-width * 2, width * 2),
+                            speed: rand(3, 8) * (Math.random() > 0.5 ? 1 : -1),
+                            color: this.getRandomCarColor(),
+                            w: rand(50, 80),
+                            h: rand(40, 60),
+                            d: rand(40, 60)
+                        });
+                    }
+                } else if (this.type === 'water') {
+                    const count = randInt(2, 3);
+                    for(let i=0; i<count; i++) {
+                        this.logs.push({
+                            x: rand(-width * 1.5, width * 1.5),
+                            speed: rand(2, 4) * (Math.random() > 0.5 ? 1 : -1),
+                            length: rand(150, 350)
+                        });
+                    }
+                } else {
+                    // Grass decoration
+                    const count = randInt(3, 6);
+                    for(let i=0; i<count; i++) {
+                        this.decorations.push({
+                            x: rand(-width/1.2, width/1.2),
+                            type: Math.random() > 0.6 ? 'tree' : (Math.random() > 0.5 ? 'bush' : 'rock'),
+                            scale: rand(0.9, 1.3),
+                            hueVar: Math.random()
+                        });
+                    }
+                }
+            }
+
+            getRandomCarColor() {
+                const colors = ['#e74c3c', '#3498db', '#f1c40f', '#e67e22', '#9b59b6', '#1abc9c', '#ecf0f1'];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                this.vehicles.forEach(v => {
+                    v.x += v.speed;
+                    if (v.x > width * 3) v.x = -width * 3;
+                    if (v.x < -width * 3) v.x = width * 3;
+                });
+                this.logs.forEach(l => {
+                    l.x += l.speed;
+                    if (l.x > width * 3) l.x = -width * 3;
+                    if (l.x < -width * 3) l.x = width * 3;
+                });
+            }
+
+            draw() {
+                const zRel = this.z - camera.z;
+                if (zRel < -CONFIG.fov || zRel > 2500) return;
+
+                // Draw Ground Plane
+                // We draw a trapezoid connecting this Z to the next Z
+                const pStart = project(-width * 4, 0, this.z);
+                const pEnd = project(width * 4, 0, this.z);
+                const pStartNext = project(-width * 4, 0, this.z + CONFIG.blockSize);
+                const pEndNext = project(width * 4, 0, this.z + CONFIG.blockSize);
+
+                if (!pStart.visible) return;
+
+                ctx.beginPath();
+                ctx.moveTo(pStart.x, pStart.y);
+                ctx.lineTo(pEnd.x, pEnd.y);
+                ctx.lineTo(pEndNext.x, pEndNext.y);
+                ctx.lineTo(pStartNext.x, pStartNext.y);
+                ctx.closePath();
+
+                if (this.type === 'grass') {
+                    ctx.fillStyle = (Math.floor(this.z / CONFIG.blockSize) % 2 === 0) 
+                        ? CONFIG.colors.grass[0] 
+                        : CONFIG.colors.grass[1];
+                } else if (this.type === 'road') {
+                    ctx.fillStyle = CONFIG.colors.road;
+                } else if (this.type === 'water') {
+                    ctx.fillStyle = CONFIG.colors.water;
+                    // Water ripples
+                    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    for(let i=-2; i<=2; i++) {
+                        const s = project(i * 150, 0, this.z);
+                        ctx.moveTo(s.x - 20, s.y);
+                        ctx.lineTo(s.x + 20, s.y);
+                    }
+                    ctx.stroke();
+                }
+                ctx.fill();
+
+                // Road Lines
+                if (this.type === 'road') {
+                    const lineStart = project(-width/2, 0, this.z);
+                    const lineEnd = project(width/2, 0, this.z);
+                    ctx.beginPath();
+                    ctx.moveTo(lineStart.x, lineStart.y);
+                    ctx.lineTo(lineEnd.x, lineEnd.y);
+                    ctx.strokeStyle = CONFIG.colors.roadLine;
+                    ctx.lineWidth = 6 * pStart.scale;
+                    ctx.setLineDash([40 * pStart.scale, 40 * pStart.scale]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            }
+        }
+
+        // --- Game Logic ---
+
+        const game = {
+            init: () => {
+                for(let i=0; i<25; i++) lanes.push(new Lane(i));
+                
+                window.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowUp') game.move(0, -1);
+                    if(e.key === 'ArrowDown') game.move(0, 1);
+                    if(e.key === 'ArrowLeft') game.move(-1, 0);
+                    if(e.key === 'ArrowRight') game.move(1, 0);
+                });
+
+                const bindBtn = (id, dx, dy) => {
+                    const btn = document.getElementById(id);
+                    const handle = (e) => {
+                        e.preventDefault();
+                        btn.classList.add('active');
+                        game.move(dx, dy);
+                        setTimeout(() => btn.classList.remove('active'), 150);
+                    };
+                    btn.addEventListener('touchstart', handle, {passive: false});
+                    btn.addEventListener('mousedown', handle);
+                };
+
+                bindBtn('btn-up', 0, -1);
+                bindBtn('btn-down', 0, 1);
+                bindBtn('btn-left', -1, 0);
+                bindBtn('btn-right', 1, 0);
+
+                requestAnimationFrame(game.loop);
+            },
+
+            move: (dx, dy) => {
+                if (player.dead) return;
+
+                if (dy === 1 && player.z <= 0) return; // Don't go back to start
+
+                if (dy === -1) {
+                    player.z += CONFIG.blockSize;
+                    camera.targetZ += CONFIG.blockSize;
+                    player.squish = 0.6;
+                    player.targetY = 0;
+                    
+                    score++;
+                    document.getElementById('score').innerText = score;
+                    const pill = document.getElementById('score-pill');
+                    pill.classList.add('pop');
+                    setTimeout(() => pill.classList.remove('pop'), 150);
+
+                    lanes.push(new Lane(lanes.length));
+                    lanes.shift();
+
+                    // Jump particles
+                    for(let i=0; i<8; i++) particles.push(new Particle(player.x, 0, player.z, '#fff'));
+
+                } else if (dy === 1) {
+                    player.z -= CONFIG.blockSize;
+                    camera.targetZ -= CONFIG.blockSize;
+                    player.squish = 0.6;
+                } else if (dx !== 0) {
+                    player.x += dx * CONFIG.blockSize;
+                    player.targetRot = dx * 0.5;
+                    player.squish = 0.7;
+                }
+            },
+
+            update: () => {
+                time += 16;
+                
+                // Smooth camera
+                camera.z = lerp(camera.z, camera.targetZ, 0.1);
+
+                // Player animations
+                player.squish = lerp(player.squish, 1, 0.1);
+                player.rot = lerp(player.rot, player.targetRot, 0.1);
+                player.targetRot = lerp(player.targetRot, 0, 0.05);
+
+                // Collision & Physics
+                let onLog = false;
+                let logSpeed = 0;
+                
+                lanes.forEach(lane => {
+                    lane.update();
+                    
+                    // Only check collision if player is roughly on this lane
+                    if (Math.abs(lane.z - player.z) < 10) {
+                        if (lane.type === 'road') {
+                            lane.vehicles.forEach(v => {
+                                // AABB Collision
+                                if (Math.abs(player.x - v.x) < (v.w/2 + 10) && 
+                                    Math.abs(0 - (v.h/2)) < (v.h/2 + 10)) {
+                                    game.die();
+                                }
+                            });
+                        } else if (lane.type === 'water') {
+                            lane.logs.forEach(log => {
+                                if (player.x > log.x - log.length/2 && player.x < log.x + log.length/2) {
+                                    onLog = true;
+                                    logSpeed = log.speed;
+                                }
+                            });
+                            if (!onLog && !player.dead) {
+                                game.die();
+                            }
+                        }
+                    }
+                });
+
+                if (onLog) player.x += logSpeed;
+
+                particles.forEach(p => p.update());
+                particles = particles.filter(p => p.life > 0);
+            },
+
+            die: () => {
+                if(player.dead) return;
+                player.dead = true;
+                for(let i=0; i<30; i++) particles.push(new Particle(player.x, 0, player.z, '#fff'));
+                setTimeout(() => game.reset(), 1000);
+            },
+
+            reset: () => {
+                score = 0;
+                document.getElementById('score').innerText = 0;
+                player.dead = false;
+                player.x = 0; player.z = 0;
+                camera.z = 0; camera.targetZ = 0;
+                lanes = [];
+                for(let i=0; i<25; i++) lanes.push(new Lane(i));
+            },
+
+            draw: () => {
+                // 1. Sky Background
+                const grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, CONFIG.colors.skyTop);
+                grad.addColorStop(1, CONFIG.colors.skyBot);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                // 2. Collect Drawables
+                let drawables = [];
+
+                lanes.forEach(l => {
+                    drawables.push({ type: 'lane', obj: l, z: l.z });
+                    l.decorations.forEach(d => drawables.push({ type: 'deco', obj: d, z: l.z }));
+                    l.vehicles.forEach(v => drawables.push({ type: 'vehicle', obj: v, z: l.z }));
+                    l.logs.forEach(lg => drawables.push({ type: 'log', obj: lg, z: l.z }));
+                });
+
+                drawables.push({ type: 'player', z: player.z });
+                particles.forEach(p => drawables.push({ type: 'particle', obj: p, z: p.z }));
+
+                // 3. Sort by Z (Painter's Algorithm)
+                drawables.sort((a, b) => a.z - b.z);
+
+                // 4. Render Loop
+                drawables.forEach(item => {
+                    if (item.type === 'lane') item.obj.draw();
+                    
+                    if (item.type === 'deco') {
+                        const d = item.obj;
+                        if (d.type === 'tree') {
+                            // Trunk
+                            drawBlock(d.x, 0, item.z, 15, 40, 15, '#8d6e63', '#5d4037');
+                            // Leaves (Stacked blocks for shape)
+                            drawBlock(d.x, 30, item.z, 50, 40, 50, '#2ecc71', '#27ae60');
+                            drawBlock(d.x, 55, item.z, 35, 30, 35, '#2ecc71', '#27ae60');
+                        } else if (d.type === 'bush') {
+                            drawBlock(d.x, 0, item.z, 30, 25, 30, '#27ae60', '#1e8449');
+                        } else if (d.type === 'rock') {
+                            drawBlock(d.x, 0, item.z, 25, 15, 25, '#95a5a6', '#7f8c8d');
+                        }
+                    }
+
+                    if (item.type === 'vehicle') {
+                        const v = item.obj;
+                        // Car Body
+                        drawBlock(v.x, 0, item.z, v.w, v.h, v.d, v.color, adjustColor(v.color, -40));
+                        // Windows (Dark block on top)
+                        drawBlock(v.x, v.h/2 + 10, item.z, v.w*0.9, v.h*0.4, v.d*0.3, '#2c3e50', '#000');
+                    }
+
+                    if (item.type === 'log') {
+                        const l = item.obj;
+                        drawBlock(l.x, 5, item.z, l.length, 20, 30, '#a1887f', '#5d4037');
+                    }
+
+                    if (item.type === 'player') {
+                        if (player.dead) return;
+                        
+                        // Player is drawn relative to their position
+                        // We need to handle the rotation manually in 2D space for the sprite/block
+                        const p = project(player.x, 0, player.z);
+                        if (!p.visible) return;
+
+                        ctx.save();
+                        ctx.translate(p.x, p.y);
+                        
+                        // Squish effect
+                        const s = p.scale;
+                        ctx.scale(player.squish, 1/player.squish);
+                        
+                        // Rotation for direction
+                        ctx.rotate(player.rot);
+
+                        // Shadow
+                        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 18*s, 9*s, 0, 0, Math.PI*2);
+                        ctx.fill();
+
+                        // Legs
+                        ctx.fillStyle = '#f1c40f'; // Yellow legs
+                        ctx.fillRect(-12*s, -15*s, 8*s, 15*s);
+                        ctx.fillRect(4*s, -15*s, 8*s, 15*s);
+
+                        // Body (The Chicken)
+                        // White Body
+                        drawBlock(0, -15*s, 0, 32*s, 32*s, 32*s, '#fff', '#ecf0f1');
+                        
+                        // Comb (Red thing on head)
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.fillRect(-4*s, -45*s, 8*s, 12*s);
+
+                        // Beak
+                        ctx.fillStyle = '#f1c40f';
+                        ctx.beginPath();
+                        ctx.moveTo(16*s, -38*s);
+                        ctx.lineTo(24*s, -34*s);
+                        ctx.lineTo(16*s, -30*s);
+                        ctx.fill();
+
+                        // Eyes
+                        ctx.fillStyle = '#000';
+                        ctx.beginPath();
+                        ctx.arc(12*s, -40*s, 2.5*s, 0, Math.PI*2);
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+
+                    if (item.type === 'particle') {
+                        const p = project(item.obj.x, item.obj.y, item.obj.z);
+                        if(p.visible) {
+                            ctx.fillStyle = item.obj.color;
+                            ctx.globalAlpha = item.obj.life;
+                            // Draw square particle
+                            const sz = item.obj.size * p.scale;
+                            ctx.fillRect(p.x - sz/2, p.y - sz/2, sz, sz);
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                });
+            },
+
+            loop: () => {
+                game.update();
+                game.draw();
+                requestAnimationFrame(game.loop);
+            }
+        };
+
+        game.init();
+
+    </script>
+</body>
+</html>

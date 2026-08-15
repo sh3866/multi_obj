@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Crossy Poly - Revised</title>
+<style>
+    :root {
+        /* Palette - Saturated & Playful */
+        --sky-top: #4fc3f7;
+        --sky-bot: #e1f5fe;
+        --grass-top: #aed581;
+        --grass-side: #7cb342;
+        --road-top: #546e7a;
+        --road-side: #37474f;
+        --water-top: #4fc3f7;
+        --water-side: #039be5;
+        --wood-top: #a1887f;
+        --wood-side: #6d4c41;
+        --chicken-white: #ffffff;
+        --chicken-side: #e0e0e0;
+        --chicken-comb: #d32f2f;
+        --chicken-beak: #fbc02d;
+        --ui-text: #37474f;
+        --ui-shadow: #ffffff;
+        --accent: #ffeb3b;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-bot) 100%);
+        /* System font stack that looks chunky/pixel-ish */
+        font-family: 'Courier New', Courier, monospace; 
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* --- 2.5D SCENE --- */
+    #scene {
+        width: 100%;
+        height: 100%;
+        max-width: 600px; 
+        position: relative;
+        overflow: hidden;
+        /* Aggressive perspective for depth */
+        perspective: 800px;
+        perspective-origin: 50% 15%;
+    }
+
+    /* --- HUD: Unification & Flat Style --- */
+    .hud {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100px;
+        z-index: 100;
+        pointer-events: none;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .score-pill {
+        /* Flat, semi-transparent white style */
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(4px);
+        color: var(--ui-text);
+        padding: 8px 16px;
+        border-radius: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 80px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        border: 2px solid #fff;
+    }
+
+    .score-pill span:first-child {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 900;
+        opacity: 0.8;
+    }
+
+    .score-pill span:last-child {
+        font-size: 28px;
+        font-weight: 900;
+        line-height: 1;
+        text-shadow: 1px 1px 0 #fff;
+    }
+
+    /* --- GAME WORLD --- */
+    #world {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        transform-style: preserve-3d;
+        /* Stronger rotation for 2.5D look */
+        transform: rotateX(45deg) translateY(-100px);
+        transition: transform 0.1s linear; 
+    }
+
+    /* --- LANES --- */
+    .lane {
+        width: 100%;
+        height: 120px; /* Taller lanes for perspective */
+        position: absolute;
+        left: 0;
+        transform-style: preserve-3d;
+    }
+
+    /* Grass */
+    .lane.grass {
+        background-color: var(--grass-top);
+        background-image: radial-gradient(circle, rgba(255,255,255,0.2) 2px, transparent 3px);
+        background-size: 24px 24px;
+    }
+    .lane.grass::after {
+        content: '';
+        position: absolute;
+        bottom: -30px; /* Thicker extrusion */
+        left: 0;
+        width: 100%;
+        height: 30px;
+        background: var(--grass-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* Road */
+    .lane.road {
+        background-color: var(--road-top);
+    }
+    .lane.road::after {
+        content: '';
+        position: absolute;
+        bottom: -30px;
+        left: 0;
+        width: 100%;
+        height: 30px;
+        background: var(--road-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+    /* Road Lines */
+    .lane.road::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 6px;
+        background: repeating-linear-gradient(90deg, rgba(255,255,255,0.6) 0, rgba(255,255,255,0.6) 60px, transparent 60px, transparent 120px);
+        transform: translateY(-50%);
+        opacity: 0.8;
+    }
+
+    /* Water */
+    .lane.water {
+        background-color: var(--water-top);
+        background-image: linear-gradient(90deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0.1) 100%);
+        background-size: 200px 100%;
+        animation: waterShimmer 4s infinite linear;
+    }
+    .lane.water::after {
+        content: '';
+        position: absolute;
+        bottom: -30px;
+        left: 0;
+        width: 100%;
+        height: 30px;
+        background: var(--water-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    @keyframes waterShimmer { from { background-position: 0 0; } to { background-position: 200px 0; } }
+
+    /* --- OBJECTS --- */
+    .obj {
+        position: absolute;
+        top: 40px; 
+        transform-style: preserve-3d;
+        will-change: transform;
+        /* Add shadow to objects */
+        filter: drop-shadow(0px 10px 2px rgba(0,0,0,0.2));
+    }
+
+    /* Cars - Geometric & 3D */
+    .car {
+        width: 90px;
+        height: 50px;
+        position: relative;
+        /* Motion blur hint */
+        transform: skewX(-5deg); 
+    }
+    
+    /* Car Body */
+    .car-body {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: #ef5350;
+        border-radius: 8px;
+        box-shadow: inset 0 -6px 0 rgba(0,0,0,0.15);
+    }
+    /* Car Extrusion (The "Depth" of the car) */
+    .car-body::after {
+        content: '';
+        position: absolute;
+        bottom: -18px;
+        left: 0;
+        width: 100%;
+        height: 18px;
+        background: #c62828;
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        border-radius: 0 0 4px 4px;
+    }
+    
+    /* Car Roof - Higher */
+    .car-roof {
+        position: absolute;
+        top: -25px;
+        left: 15px;
+        width: 60px;
+        height: 25px;
+        background: #ff8a80;
+        border-radius: 6px 6px 0 0;
+        box-shadow: inset 0 -4px 0 rgba(0,0,0,0.1);
+        z-index: 2;
+    }
+    .car-roof::after {
+        content: '';
+        position: absolute;
+        bottom: -18px;
+        left: 0;
+        width: 100%;
+        height: 18px;
+        background: #e57373;
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* Wheels - Geometric cylinders */
+    .car-wheel {
+        position: absolute;
+        bottom: -8px;
+        width: 18px;
+        height: 18px;
+        background: #212121;
+        border-radius: 50%;
+        border: 3px solid #424242;
+        z-index: 2;
+        box-shadow: inset 0 0 0 2px #111;
+    }
+    .car-wheel.fl { left: 12px; }
+    .car-wheel.fr { right: 12px; }
+
+    /* Truck Variant */
+    .truck { width: 140px; }
+    .truck .car-body { background: #ffb300; }
+    .truck .car-body::after { background: #ff8f00; }
+    .truck .car-roof { background: #ffca28; top: -35px; height: 35px; left: 10px; width: 40px; }
+    .truck .car-roof::after { background: #ffc107; }
+
+    /* Log */
+    .log {
+        width: 110px;
+        height: 40px;
+        position: relative;
+    }
+    .log-top {
+        position: absolute;
+        inset: 0;
+        background: var(--wood-top);
+        border-radius: 4px;
+        border: 2px solid rgba(0,0,0,0.05);
+    }
+    .log-top::after {
+        content: '';
+        position: absolute;
+        bottom: -12px;
+        left: 0;
+        width: 100%;
+        height: 12px;
+        background: var(--wood-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+    /* Log Ring Detail */
+    .log-top::before {
+        content: '';
+        position: absolute;
+        right: 8px; top: 8px; bottom: 8px; width: 10px;
+        border-radius: 50%;
+        border: 3px solid rgba(0,0,0,0.05);
+        background: repeating-linear-gradient(0deg, transparent 0, transparent 4px, rgba(0,0,0,0.1) 5px);
+    }
+
+    /* --- PLAYER: Distinct Animal (Chicken) --- */
+    #player-anchor {
+        position: absolute;
+        width: 70px;
+        height: 70px;
+        z-index: 50;
+        left: 50%;
+        transform: translateX(-50%);
+        transform-origin: bottom center;
+        transition: left 0.1s ease-out, bottom 0.2s ease-out;
+    }
+
+    .chicken {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        transform-style: preserve-3d;
+        animation: bob 0.4s infinite alternate ease-in-out;
+    }
+
+    /* Shadow */
+    .shadow {
+        position: absolute;
+        bottom: -8px;
+        left: 15px;
+        width: 40px;
+        height: 12px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 50%;
+        transform: translateZ(-10px);
+        filter: blur(3px);
+        z-index: -1;
+    }
+
+    /* Body */
+    .body {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        background: var(--chicken-white);
+        bottom: 0;
+        left: 12px;
+        border-radius: 10px 10px 6px 6px;
+        box-shadow: inset 0 -6px 0 rgba(0,0,0,0.05);
+        z-index: 1;
+    }
+    .body::after {
+        content: '';
+        position: absolute;
+        bottom: -12px;
+        left: 0;
+        width: 100%;
+        height: 12px;
+        background: var(--chicken-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+        border-radius: 0 0 6px 6px;
+    }
+
+    /* Head */
+    .head {
+        position: absolute;
+        top: -18px;
+        right: 0px;
+        width: 32px;
+        height: 32px;
+        background: var(--chicken-white);
+        border-radius: 8px;
+        box-shadow: inset 0 -4px 0 rgba(0,0,0,0.05);
+        z-index: 2;
+    }
+    .head::after {
+        content: '';
+        position: absolute;
+        bottom: -10px;
+        left: 0;
+        width: 100%;
+        height: 10px;
+        background: var(--chicken-side);
+        transform-origin: top;
+        transform: rotateX(-90deg);
+    }
+
+    /* Comb */
+    .comb {
+        position: absolute;
+        top: -12px;
+        left: 6px;
+        width: 14px;
+        height: 12px;
+        background: var(--chicken-comb);
+        border-radius: 4px 4px 0 0;
+        z-index: 3;
+        box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
+    }
+
+    /* Face */
+    .face {
+        position: absolute;
+        top: 10px;
+        right: 4px;
+    }
+    .eye {
+        width: 7px; height: 7px;
+        background: #3e2723;
+        border-radius: 50%;
+        position: absolute;
+        top: 0; right: 0;
+        box-shadow: 2px -2px 0 rgba(255,255,255,0.8);
+    }
+    .beak {
+        width: 10px; height: 8px;
+        background: var(--chicken-beak);
+        position: absolute;
+        top: 8px; right: 2px;
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
+
+    @keyframes bob {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(-5px); }
+    }
+
+    /* --- CONTROLS: Bottom Right, 3D Chunky --- */
+    .controls {
+        position: absolute;
+        bottom: 30px;
+        right: 30px;
+        width: 180px;
+        height: 180px;
+        z-index: 200;
+        pointer-events: auto;
+    }
+
+    .d-pad {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+
+    .btn {
+        position: absolute;
+        width: 65px;
+        height: 65px;
+        background: #ffffff;
+        border-radius: 18px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        /* 3D Extrusion */
+        box-shadow: 0 8px 0 #cfd8dc, 0 15px 20px rgba(0,0,0,0.15);
+        transition: transform 0.05s, box-shadow 0.05s;
+        -webkit-tap-highlight-color: transparent;
+        border: 2px solid #eceff1;
+    }
+
+    .btn:active {
+        transform: translateY(8px);
+        box-shadow: 0 0 0 #cfd8dc, 0 2px 5px rgba(0,0,0,0.15);
+    }
+
+    .btn svg { 
+        width: 32px; height: 32px; 
+        fill: #546e7a; 
+        filter: drop-shadow(0 2px 0 rgba(255,255,255,1));
+    }
+
+    .btn-up { top: 0; left: 57px; }
+    .btn-down { bottom: 0; left: 57px; }
+    .btn-left { top: 57px; left: 0; }
+    .btn-right { top: 57px; right: 0; }
+
+    /* --- DECORATIONS --- */
+    .cloud {
+        position: absolute;
+        background: rgba(255,255,255,0.8);
+        border-radius: 50px;
+        z-index: -1;
+        animation: floatCloud linear infinite;
+        filter: blur(1px);
+    }
+    .cloud::after, .cloud::before {
+        content: ''; position: absolute; background: inherit; border-radius: 50%;
+    }
+    .cloud::after { width: 40px; height: 40px; top: -20px; left: 15px; }
+    .cloud::before { width: 50px; height: 50px; top: -25px; left: 40px; }
+
+    @keyframes floatCloud {
+        from { transform: translateX(-200px); }
+        to { transform: translateX(100vw); }
+    }
+
+    /* Trees */
+    .tree {
+        position: absolute;
+        transform-style: preserve-3d;
+        transform: translateZ(20px); /* Pop out more */
+        filter: drop-shadow(0 10px 5px rgba(0,0,0,0.2));
+    }
+    .trunk {
+        width: 14px; height: 24px;
+        background: #795548;
+        margin: 0 auto;
+        border-radius: 3px;
+        box-shadow: inset 0 -6px 0 rgba(0,0,0,0.2);
+    }
+    .leaves {
+        width: 0; height: 0;
+        border-left: 28px solid transparent;
+        border-right: 28px solid transparent;
+        border-bottom: 65px solid #43a047;
+        margin-bottom: -8px;
+        position: relative;
+    }
+    /* Low-poly shading on leaves */
+    .leaves::after {
+        content: ''; position: absolute; top: 35px; left: -28px;
+        border-left: 28px solid transparent;
+        border-right: 28px solid transparent;
+        border-bottom: 55px solid #66bb6a;
+    }
+
+</style>
+</head>
+<body>
+
+<div id="scene">
+    <!-- HUD: Top Corners -->
+    <div class="hud">
+        <div class="score-pill">
+            <span>Score</span>
+            <span id="score">0</span>
+        </div>
+        <div class="score-pill">
+            <span>Best</span>
+            <span id="best">0</span>
+        </div>
+    </div>
+
+    <!-- Clouds -->
+    <div class="cloud" style="top: 5%; width: 120px; height: 40px; animation-duration: 45s;"></div>
+    <div class="cloud" style="top: 18%; width: 160px; height: 50px; animation-duration: 35s; animation-delay: -15s;"></div>
+    <div class="cloud" style="top: 10%; width: 100px; height: 35px; animation-duration: 55s; animation-delay: -30s;"></div>
+
+    <!-- GAME WORLD -->
+    <div id="world">
+        <!-- JS Injects Lanes Here -->
+    </div>
+
+    <!-- PLAYER -->
+    <div id="player-anchor">
+        <div class="chicken">
+            <div class="comb"></div>
+            <div class="head">
+                <div class="face">
+                    <div class="eye"></div>
+                    <div class="beak"></div>
+                </div>
+            </div>
+            <div class="body"></div>
+            <div class="shadow"></div>
+        </div>
+    </div>
+
+    <!-- CONTROLS: Bottom Right -->
+    <div class="controls">
+        <div class="d-pad">
+            <div class="btn btn-up" onclick="movePlayer(0, 1)">
+                <svg viewBox="0 0 24 24"><path d="M12 4L4 12h6v8h4v-8h6z"/></svg>
+            </div>
+            <div class="btn btn-down" onclick="movePlayer(0, -1)">
+                <svg viewBox="0 0 24 24"><path d="M12 20l8-8h-6V4h-4v8H4z"/></svg>
+            </div>
+            <div class="btn btn-left" onclick="movePlayer(-1, 0)">
+                <svg viewBox="0 0 24 24"><path d="M20 12l-8-8v6H4v4h8v6z"/></svg>
+            </div>
+            <div class="btn btn-right" onclick="movePlayer(1, 0)">
+                <svg viewBox="0 0 24 24"><path d="M4 12l8 8v-6h8v-4H12V4z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    const LANE_HEIGHT = 120;
+    const BOARD_INIT_OFFSET = -100;
+    const START_LANES = 15;
+    
+    // --- STATE ---
+    let score = 0;
+    let bestScore = 0;
+    let playerGridPos = { x: 0, y: 3 };
+    let lanes = [];
+    let gameLoopId;
+    let isGameOver = false;
+    let cameraY = 0;
+
+    // --- ELEMENTS ---
+    const world = document.getElementById('world');
+    const playerEl = document.getElementById('player-anchor');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+
+    // --- INITIALIZATION ---
+    function init() {
+        for (let i = 0; i < START_LANES; i++) {
+            addLane(i);
+        }
+        updatePlayerVisuals();
+        gameLoop();
+    }
+
+    // --- LANE GENERATION ---
+    function addLane(count) {
+        const index = count; 
+        let type = 'grass';
+        
+        // Procedural Logic
+        if (index > 1) {
+            const r = Math.random();
+            if (r < 0.45) type = 'road';
+            else if (r < 0.75) type = 'water';
+            else type = 'grass';
+        }
+
+        const lane = document.createElement('div');
+        lane.className = `lane ${type}`;
+        lane.style.bottom = (index * LANE_HEIGHT) + 'px';
+        
+        let contentEl = null;
+        let speed = 0;
+        let xPos = 0;
+
+        if (type === 'road') {
+            const isTruck = Math.random() > 0.7;
+            const dir = Math.random() > 0.5 ? 1 : -1;
+            speed = (1.5 + Math.random() * 2.5) * dir;
+            xPos = dir > 0 ? -150 : 120; 
+            
+            contentEl = document.createElement('div');
+            contentEl.className = `obj car ${isTruck ? 'truck' : ''}`;
+            contentEl.innerHTML = `
+                <div class="car-body"></div>
+                <div class="car-roof"></div>
+                <div class="car-wheel fl"></div>
+                <div class="car-wheel fr"></div>
+            `;
+            lane.appendChild(contentEl);
+        } 
+        else if (type === 'water') {
+            const dir = Math.random() > 0.5 ? 1 : -1;
+            speed = (0.8 + Math.random() * 1.2) * dir;
+            xPos = dir > 0 ? -150 : 120;
+
+            contentEl = document.createElement('div');
+            contentEl.className = 'obj log';
+            contentEl.innerHTML = '<div class="log-top"></div>';
+            lane.appendChild(contentEl);
+        } 
+        else if (type === 'grass') {
+            if (Math.random() > 0.6) {
+                const tree = document.createElement('div');
+                tree.className = 'tree';
+                tree.innerHTML = '<div class="leaves"></div><div class="trunk"></div>';
+                tree.style.left = (Math.random() * 80 + 10) + '%';
+                tree.style.bottom = (Math.random() * 30 + 10) + 'px';
+                lane.appendChild(tree);
+            }
+        }
+
+        world.appendChild(lane);
+
+        lanes.push({
+            element: lane,
+            type: type,
+            index: index,
+            content: contentEl,
+            speed: speed,
+            x: xPos
+        });
+    }
+
+    // --- GAME LOOP ---
+    function gameLoop() {
+        if (!isGameOver) {
+            lanes.forEach(l => {
+                if (l.content) {
+                    l.x += l.speed;
+                    if (l.speed > 0 && l.x > 120) l.x = -150;
+                    if (l.speed < 0 && l.x < -150) l.x = 120;
+                    
+                    l.content.style.transform = `translateX(${l.x}%)`;
+                }
+            });
+
+            checkCollisions();
+            updateCamera();
+        }
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- COLLISION LOGIC ---
+    function checkCollisions() {
+        const currentLane = lanes.find(l => l.index === playerGridPos.y);
+        if (!currentLane) return;
+
+        // Player X in Percentage (-5 to 5 maps to 0% to 100%)
+        // Screen width is roughly 100%. Grid is 10 units.
+        // 1 unit = 10%. Center is 50%.
+        const pCenterPct = 50 + (playerGridPos.x * 8);
+        const pRadiusPct = 3.5; // Slightly smaller hitbox for forgiveness
+
+        const pLeft = pCenterPct - pRadiusPct;
+        const pRight = pCenterPct + pRadiusPct;
+
+        if (currentLane.type === 'road') {
+            const carObj = currentLane.content;
+            const carWidth = carObj.classList.contains('truck') ? 24 : 16; 
+            const cLeft = currentLane.x;
+            const cRight = currentLane.x + carWidth;
+
+            if (pLeft < cRight && pRight > cLeft) {
+                gameOver();
+            }
+        } 
+        else if (currentLane.type === 'water') {
+            const logObj = currentLane.content;
+            const logWidth = 18; 
+            const lLeft = currentLane.x;
+            const lRight = currentLane.x + logWidth;
+
+            if (pLeft < lRight && pRight > lLeft) {
+                // Riding Log
+                playerGridPos.x += (currentLane.speed * 0.03); 
+                
+                // Clamp player on log
+                if (playerGridPos.x > 5) playerGridPos.x = 5;
+                if (playerGridPos.x < -5) playerGridPos.x = -5;
+                
+                updatePlayerVisuals();
+            } else {
+                // Drown
+                gameOver();
+            }
+        }
+    }
+
+    // --- MOVEMENT ---
+    window.movePlayer = function(dx, dy) {
+        if (isGameOver) {
+            resetGame();
+            return;
+        }
+
+        const newY = playerGridPos.y + dy;
+        
+        if (newY < 0) return; // Can't go below start
+
+        playerGridPos.x += dx;
+        playerGridPos.y = newY;
+
+        // Clamp X
+        if (playerGridPos.x > 5) playerGridPos.x = 5;
+        if (playerGridPos.x < -5) playerGridPos.x = -5;
+
+        updatePlayerVisuals();
+
+        if (dy > 0) {
+            score++;
+            scoreEl.innerText = score;
+            addLane(lanes.length);
+        }
+    };
+
+    function updatePlayerVisuals() {
+        const bottomPx = (playerGridPos.y * LANE_HEIGHT) + 40; // Adjusted for taller lanes
+        const leftPct = 50 + (playerGridPos.x * 8); // 8% per unit
+
+        playerEl.style.bottom = bottomPx + 'px';
+        playerEl.style.left = leftPct + '%';
+    }
+
+    function updateCamera() {
+        // Target: Keep player at ~40% from bottom of screen
+        const targetBottom = (playerGridPos.y * LANE_HEIGHT) + 40;
+        const screenCenter = window.innerHeight * 0.4; 
+        
+        const desiredBoardY = - (targetBottom - screenCenter);
+        
+        cameraY += (desiredBoardY - cameraY) * 0.1;
+        
+        world.style.transform = `rotateX(45deg) translateY(${BOARD_INIT_OFFSET + cameraY}px)`;
+    }
+
+    function gameOver() {
+        isGameOver = true;
+        if (score > bestScore) {
+            bestScore = score;
+            bestEl.innerText = bestScore;
+        }
+        
+        playerEl.style.transform = 'translateX(-50%) rotate(90deg) scale(0.8)';
+        playerEl.style.transition = 'all 0.3s';
+        playerEl.style.opacity = '0.5';
+        
+        setTimeout(() => {
+            alert(`Game Over!\nScore: ${score}\nBest: ${bestScore}\n\nClick OK to restart.`);
+            resetGame();
+        }, 800);
+    }
+
+    function resetGame() {
+        isGameOver = false;
+        score = 0;
+        scoreEl.innerText = '0';
+        playerGridPos = { x: 0, y: 3 };
+        cameraY = 0;
+        
+        playerEl.style.transform = 'translateX(-50%)';
+        playerEl.style.opacity = '1';
+        playerEl.style.transition = 'left 0.1s ease-out, bottom 0.2s ease-out';
+
+        world.innerHTML = '';
+        lanes = [];
+        
+        init();
+    }
+
+    // --- INPUT ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp') movePlayer(0, 1);
+        if (e.key === 'ArrowDown') movePlayer(0, -1);
+        if (e.key === 'ArrowLeft') movePlayer(-1, 0);
+        if (e.key === 'ArrowRight') movePlayer(1, 0);
+    });
+
+    // --- START ---
+    init();
+
+</script>
+</body>
+</html>

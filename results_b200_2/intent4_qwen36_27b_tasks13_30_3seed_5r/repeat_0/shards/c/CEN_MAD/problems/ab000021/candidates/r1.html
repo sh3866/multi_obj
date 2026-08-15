@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Data Flow</title>
+    <style>
+        :root {
+            --bg-color: #0B1120; /* Deep, rich dark blue */
+            --surface-color: #1E293B;
+            --surface-highlight: #334155;
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            
+            /* Flow Colors - High Contrast */
+            --color-data: #0EA5E9;      /* Sky Blue */
+            --color-instr: #A855F7;     /* Violet */
+            --color-control: #10B981;   /* Emerald */
+            --color-io: #F59E0B;        /* Amber */
+            
+            --cpu-glow: #38BDF8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header & Legend */
+        header {
+            padding: 1.5rem 3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--surface-highlight);
+            background: rgba(11, 17, 32, 0.95);
+            z-index: 20;
+            backdrop-filter: blur(8px);
+        }
+
+        .title-group h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            text-transform: uppercase;
+        }
+
+        .title-group .subtitle {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            font-weight: 500;
+        }
+
+        .legend {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .line-indicator {
+            width: 24px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        /* Main Canvas */
+        main {
+            flex: 1;
+            position: relative;
+            /* Subtle grid pattern */
+            background-image: 
+                linear-gradient(var(--surface-highlight) 1px, transparent 1px),
+                linear-gradient(90deg, var(--surface-highlight) 1px, transparent 1px);
+            background-size: 60px 60px;
+            background-position: center center;
+            /* Fade grid at edges */
+            mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+            -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+        }
+
+        /* SVG Layer */
+        svg#diagram {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Component Nodes */
+        .component {
+            position: absolute;
+            background: var(--surface-color);
+            border: 1px solid var(--surface-highlight);
+            border-radius: 12px; /* Standardized Radius */
+            padding: 1.25rem;
+            width: 150px;
+            text-align: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .component:hover {
+            transform: translateY(-4px) scale(1.02);
+            border-color: var(--text-secondary);
+            z-index: 15;
+        }
+
+        .component-icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.75rem;
+            display: block;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+
+        .component-label {
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+            display: block;
+        }
+
+        .component-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+            display: block;
+            font-weight: 400;
+        }
+
+        /* CPU Specific Styling (Visual Hierarchy) */
+        #cpu {
+            width: 210px; /* 25% larger */
+            height: 180px;
+            border: 2px solid var(--cpu-glow);
+            background: linear-gradient(145deg, #1e293b, #0f172a);
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.15), 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            z-index: 20;
+        }
+
+        #cpu .component-label {
+            font-size: 1.25rem;
+            color: var(--cpu-glow);
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+
+        /* Flow Lines Animation */
+        @keyframes flow-dash {
+            to { stroke-dashoffset: -24; } /* 12 + 12 */
+        }
+
+        .flow-path {
+            fill: none;
+            stroke-width: 3px; /* Thicker lines */
+            stroke-linecap: round;
+            stroke-dasharray: 12 12;
+            animation: flow-dash 1s linear infinite;
+            filter: drop-shadow(0 0 4px currentColor);
+        }
+
+        /* Speed Variations */
+        .speed-fast { animation-duration: 0.6s; }
+        .speed-slow { animation-duration: 1.5s; }
+
+        /* Static tracks (background for lines) */
+        .track-path {
+            fill: none;
+            stroke-width: 2px;
+            stroke: var(--surface-highlight);
+            opacity: 0.3;
+        }
+
+        /* Responsive Layout Positioning 
+           Using percentages to maintain relative structure on resize 
+        */
+        
+        /* Center Anchor */
+        #cpu { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+        /* Inner Ring (Tight Coupling) */
+        #ram { top: 35%; left: 35%; transform: translate(-50%, -50%); }
+        #storage { top: 65%; left: 35%; transform: translate(-50%, -50%); }
+        #gpu { top: 35%; left: 65%; transform: translate(-50%, -50%); }
+
+        /* Outer Ring (I/O) */
+        #network { top: 65%; left: 65%; transform: translate(-50%, -50%); }
+        #input { top: 50%; left: 15%; transform: translate(-50%, -50%); }
+        #output { top: 50%; left: 85%; transform: translate(-50%, -50%); }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>System Architecture</h1>
+            <div class="subtitle">Data Bus & Control Flow Topology</div>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="line-indicator" style="background: var(--color-data);"></div> Data
+            </div>
+            <div class="legend-item">
+                <div class="line-indicator" style="background: var(--color-instr);"></div> Instructions
+            </div>
+            <div class="legend-item">
+                <div class="line-indicator" style="background: var(--color-control);"></div> Control
+            </div>
+            <div class="legend-item">
+                <div class="line-indicator" style="background: var(--color-io);"></div> I/O
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- SVG Layer for connections -->
+        <svg id="diagram" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <!-- Arrowhead Marker -->
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="currentColor" />
+                </marker>
+            </defs>
+            <g id="connections"></g>
+        </svg>
+
+        <!-- HTML Layer for Components -->
+        
+        <!-- Inner Ring -->
+        <div id="ram" class="component">
+            <span class="component-icon">📊</span>
+            <span class="component-label">Memory</span>
+            <span class="component-desc">RAM / Cache</span>
+        </div>
+
+        <div id="storage" class="component">
+            <span class="component-icon">💾</span>
+            <span class="component-label">Storage</span>
+            <span class="component-desc">NVMe / SSD</span>
+        </div>
+
+        <div id="gpu" class="component">
+            <span class="component-icon">🎮</span>
+            <span class="component-label">GPU</span>
+            <span class="component-desc">Parallel Proc.</span>
+        </div>
+
+        <!-- Center -->
+        <div id="cpu" class="component">
+            <span class="component-icon">🧠</span>
+            <span class="component-label">CPU</span>
+            <span class="component-desc">Central Unit</span>
+        </div>
+
+        <!-- Outer Ring -->
+        <div id="network" class="component">
+            <span class="component-icon">🌐</span>
+            <span class="component-label">Network</span>
+            <span class="component-desc">NIC / WiFi</span>
+        </div>
+
+        <div id="input" class="component">
+            <span class="component-icon">⌨️</span>
+            <span class="component-label">Input</span>
+            <span class="component-desc">Key / Mouse</span>
+        </div>
+
+        <div id="output" class="component">
+            <span class="component-icon">🖥️</span>
+            <span class="component-label">Output</span>
+            <span class="component-desc">Display / Audio</span>
+        </div>
+
+    </main>
+
+    <script>
+        // Configuration for connections
+        // Types: 'data', 'instruction', 'control', 'io'
+        const connections = [
+            // CPU <-> Inner Ring
+            { from: 'ram', to: 'cpu', type: 'instruction', speed: 'speed-fast', label: 'Fetch' },
+            { from: 'cpu', to: 'ram', type: 'control', speed: 'speed-slow', label: 'Write' },
+            { from: 'cpu', to: 'gpu', type: 'data', speed: 'speed-fast', label: 'Render' },
+            { from: 'storage', to: 'cpu', type: 'data', speed: 'speed-slow', label: 'Load' },
+            { from: 'cpu', to: 'storage', type: 'control', speed: 'speed-slow', label: 'Save' },
+
+            // CPU <-> Outer Ring
+            { from: 'input', to: 'cpu', type: 'io', speed: 'speed-fast', label: 'Event' },
+            { from: 'cpu', to: 'output', type: 'io', speed: 'speed-fast', label: 'Output' },
+            
+            // Network
+            { from: 'network', to: 'cpu', type: 'data', speed: 'speed-slow', label: 'Rx' },
+            { from: 'cpu', to: 'network', type: 'data', speed: 'speed-slow', label: 'Tx' },
+
+            // GPU -> Output
+            { from: 'gpu', to: 'output', type: 'io', speed: 'speed-fast', label: 'Display' }
+        ];
+
+        const svg = document.getElementById('diagram');
+        const g = document.getElementById('connections');
+        
+        // Color map
+        const colors = {
+            'data': 'var(--color-data)',
+            'instruction': 'var(--color-instr)',
+            'control': 'var(--color-control)',
+            'io': 'var(--color-io)'
+        };
+
+        // Helper to get element center relative to main container
+        function getCenter(element) {
+            const rect = element.getBoundingClientRect();
+            const mainRect = document.querySelector('main').getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - mainRect.left,
+                y: rect.top + rect.height / 2 - mainRect.top
+            };
+        }
+
+        // Helper to calculate cardinal exit point (top, bottom, left, right)
+        function getCardinalPoint(center, targetCenter, width, height, padding = 20) {
+            const dx = targetCenter.x - center.x;
+            const dy = targetCenter.y - center.y;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            // Determine dominant axis
+            if (absDx > absDy) {
+                // Horizontal dominant
+                return {
+                    x: center.x + (dx > 0 ? width / 2 + padding : -width / 2 - padding),
+                    y: center.y
+                };
+            } else {
+                // Vertical dominant
+                return {
+                    x: center.x,
+                    y: center.y + (dy > 0 ? height / 2 + padding : -height / 2 - padding)
+                };
+            }
+        }
+
+        function drawConnections() {
+            g.innerHTML = '';
+
+            connections.forEach(conn => {
+                const startEl = document.getElementById(conn.from);
+                const endEl = document.getElementById(conn.to);
+                
+                if (!startEl || !endEl) return;
+
+                const startRect = startEl.getBoundingClientRect();
+                const endRect = endEl.getBoundingClientRect();
+                const mainRect = document.querySelector('main').getBoundingClientRect();
+
+                const startCenter = {
+                    x: startRect.left + startRect.width / 2 - mainRect.left,
+                    y: startRect.top + startRect.height / 2 - mainRect.top
+                };
+                
+                const endCenter = {
+                    x: endRect.left + endRect.width / 2 - mainRect.left,
+                    y: endRect.top + endRect.height / 2 - mainRect.top
+                };
+
+                // Calculate exit/entry points based on relative position (Cardinal routing)
+                const startPt = getCardinalPoint(startCenter, endCenter, startRect.width, startRect.height);
+                const endPt = getCardinalPoint(endCenter, startCenter, endRect.width, endRect.height);
+
+                // Calculate Control Points for Smooth Bezier
+                // Control point distance is proportional to distance between nodes
+                const dist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+                const curvature = dist * 0.5;
+
+                let cp1, cp2;
+
+                // Logic to route lines cleanly (Orthogonal-ish curves)
+                if (Math.abs(endPt.x - startPt.x) > Math.abs(endPt.y - startPt.y)) {
+                    // Horizontal movement dominant
+                    cp1 = { x: startPt.x + curvature, y: startPt.y };
+                    cp2 = { x: endPt.x - curvature, y: endPt.y };
+                } else {
+                    // Vertical movement dominant
+                    cp1 = { x: startPt.x, y: startPt.y + curvature };
+                    cp2 = { x: endPt.x, y: endPt.y - curvature };
+                }
+
+                // Construct Path
+                const d = `M ${startPt.x} ${startPt.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${endPt.x} ${endPt.y}`;
+
+                // 1. Background Track (Subtle)
+                const trackPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                trackPath.setAttribute("d", d);
+                trackPath.setAttribute("class", "track-path");
+                g.appendChild(trackPath);
+
+                // 2. Animated Flow Line
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", d);
+                path.setAttribute("class", `flow-path ${conn.speed}`);
+                path.setAttribute("style", `color: ${colors[conn.type]}; stroke: ${colors[conn.type]};`);
+                path.setAttribute("marker-end", "url(#arrow)"); // Arrowhead
+                g.appendChild(path);
+            });
+        }
+
+        // Initialize
+        window.addEventListener('load', drawConnections);
+        // Redraw on resize to maintain alignment
+        window.addEventListener('resize', drawConnections);
+
+    </script>
+</body>
+</html>

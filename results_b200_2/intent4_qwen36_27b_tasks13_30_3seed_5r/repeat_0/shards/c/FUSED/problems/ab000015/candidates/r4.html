@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Rush: Glacial Descent</title>
+<style>
+    :root {
+        --c-ui-bg: rgba(15, 23, 42, 0.35);
+        --c-ui-border: rgba(255, 255, 255, 0.2);
+        --c-frost: rgba(255, 255, 255, 0.6);
+        --c-accent: #38BDF8; /* Sky 400 */
+        --c-danger: #F43F5E;
+        --c-success: #4ADE80;
+        --font-stack: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden; background-color: #020617;
+        font-family: var(--font-stack);
+        color: white;
+    }
+
+    /* --- CANVAS LAYER --- */
+    #gameCanvas {
+        display: block;
+        width: 100%; height: 100%;
+    }
+
+    /* --- UI LAYER --- */
+    #ui-layer {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* --- HUD: TOP BAR --- */
+    .hud-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 20px 24px;
+        position: relative;
+        z-index: 10;
+        background: linear-gradient(to bottom, rgba(2, 6, 23, 0.6), transparent);
+    }
+
+    .panel {
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid var(--c-ui-border);
+        /* Frost effect via double border */
+        border-top: 2px solid var(--c-frost);
+        border-radius: 12px;
+        padding: 8px 16px;
+        display: flex; flex-direction: column;
+        transform: skewX(-6deg);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+
+    .label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--c-accent);
+        margin-bottom: 2px;
+        font-weight: 800;
+        opacity: 0.9;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .value {
+        font-size: 20px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        transform: skewX(6deg);
+        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+    
+    .value span { font-size: 14px; color: #94A3B8; font-weight: 600; margin-left: 4px; }
+
+    /* Progress Bar (Top Edge) */
+    .progress-track {
+        position: absolute; top: 0; left: 0; width: 100%; height: 4px;
+        background: rgba(0,0,0,0.4);
+        z-index: 20;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .progress-fill {
+        height: 100%; background: linear-gradient(90deg, var(--c-accent), var(--c-success));
+        width: 0%; transition: width 0.1s linear;
+        box-shadow: 0 0 15px var(--c-success);
+    }
+
+    /* --- CONTROLS: BOTTOM --- */
+    .hud-bottom {
+        padding: 20px 24px 40px 24px; /* Extra bottom padding */
+        display: flex; justify-content: space-between; align-items: flex-end;
+        z-index: 10;
+        background: linear-gradient(to top, rgba(2, 6, 23, 0.8), transparent);
+    }
+
+    .controls-area {
+        display: flex; gap: 20px;
+        pointer-events: auto;
+    }
+
+    .btn-control {
+        width: 70px; height: 70px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-top: 1px solid rgba(255, 255, 255, 0.8); /* Frost highlight */
+        border-radius: 20px;
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer;
+        transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        color: rgba(255,255,255,0.8);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    
+    .btn-control:active, .btn-control.pressed {
+        background: rgba(56, 189, 248, 0.25); 
+        border-color: var(--c-accent);
+        transform: scale(0.92) translateY(2px);
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+        color: white;
+    }
+    
+    .btn-control svg { width: 32px; height: 32px; fill: currentColor; }
+
+    .stats-area {
+        text-align: right;
+        pointer-events: none;
+    }
+
+    /* Speedometer - Dominant Visual */
+    .speedometer {
+        display: flex; align-items: flex-end; justify-content: flex-end;
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--c-ui-border);
+        border-top: 2px solid var(--c-frost);
+        padding: 10px 24px;
+        border-radius: 16px;
+        transform: skewX(-6deg);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    /* Subtle scanline texture on speedometer */
+    .speedometer::after {
+        content: ''; position: absolute; top:0; left:0; width:100%; height:100%;
+        background: repeating-linear-gradient(
+            to bottom,
+            transparent 0px,
+            transparent 2px,
+            rgba(255,255,255,0.03) 3px
+        );
+        pointer-events: none;
+    }
+
+    .speed-val {
+        font-size: 64px; font-weight: 900; font-style: italic;
+        color: white;
+        margin-right: 4px;
+        line-height: 1;
+        text-shadow: 0 4px 15px rgba(56, 189, 248, 0.6);
+        transform: skewX(6deg);
+        letter-spacing: -2px;
+    }
+    .speed-unit { 
+        font-size: 14px; font-weight: 800; color: var(--c-accent); 
+        letter-spacing: 1px; margin-bottom: 6px; transform: skewX(6deg);
+        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    /* Shake Effect Class */
+    .shake { animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+    @keyframes shake {
+        10%, 90% { transform: translate3d(-2px, 1px, 0); }
+        20%, 80% { transform: translate3d(3px, -1px, 0); }
+        30%, 50%, 70% { transform: translate3d(-4px, 2px, 0); }
+        40%, 60% { transform: translate3d(4px, -1px, 0); }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <!-- Progress Bar at very top -->
+    <div class="progress-track">
+        <div class="progress-fill" id="progressBar"></div>
+    </div>
+
+    <!-- Top HUD: Clean Integrated Bar -->
+    <div class="hud-top">
+        <div class="panel">
+            <div class="label">Distance</div>
+            <div class="value" id="distVal">0<span>m</span></div>
+        </div>
+        <div class="panel" style="align-items: center;">
+            <div class="label">Time</div>
+            <div class="value" id="timeVal">00:00</div>
+        </div>
+    </div>
+
+    <!-- Bottom Controls & Stats -->
+    <div class="hud-bottom">
+        <div class="controls-area">
+            <div class="btn-control" id="btnLeft">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="btn-control" id="btnRight">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+
+        <div class="stats-area">
+            <div class="speedometer">
+                <div class="speed-val" id="speedVal">0</div>
+                <div class="speed-unit">KM/H</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ALPINE RUSH: GLACIAL DESCENT (REVISED)
+ * Focus: Alpine Identity, Speed Sensation, Visual Polish
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+// --- Configuration ---
+const CFG = {
+    segmentLength: 150,
+    roadWidth: 2200,
+    drawDistance: 600, // Increased for epic depth
+    cameraHeight: 1200,
+    cameraDepth: 0.8, 
+    maxSpeed: 400, 
+    accel: 140,
+    decel: 90,
+    offRoadDecel: 250,
+    offRoadLimit: 1.6
+};
+
+// --- State ---
+let width, height;
+let frame = 0;
+let speed = 0;
+let playerX = 0; 
+let playerTilt = 0;
+let distance = 0;
+let startTime = Date.now();
+let shakeIntensity = 0;
+let particles = [];
+
+// --- World Data ---
+let segments = [];
+let mountains = []; // Parallax layers
+
+// --- UI Elements ---
+const uiSpeed = document.getElementById('speedVal');
+const uiDist = document.getElementById('distVal');
+const uiTime = document.getElementById('timeVal');
+const uiProgress = document.getElementById('progressBar');
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+
+// --- Resize Handling ---
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+    generateMountains(); 
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Input Handling ---
+let inputLeft = false;
+let inputRight = false;
+
+const handleInput = (dir, active) => {
+    if(dir === 'left') inputLeft = active;
+    if(dir === 'right') inputRight = active;
+    
+    const btn = dir === 'left' ? btnLeft : btnRight;
+    if(active) btn.classList.add('pressed');
+    else btn.classList.remove('pressed');
+};
+
+const addInputListeners = (el, dir) => {
+    el.addEventListener('mousedown', () => handleInput(dir, true));
+    el.addEventListener('mouseup', () => handleInput(dir, false));
+    el.addEventListener('mouseleave', () => handleInput(dir, false));
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir, true); });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); handleInput(dir, false); });
+};
+addInputListeners(btnLeft, 'left');
+addInputListeners(btnRight, 'right');
+
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', true);
+    if(e.key === 'ArrowRight') handleInput('right', true);
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', false);
+    if(e.key === 'ArrowRight') handleInput('right', false);
+});
+
+// --- 3D Math Helpers ---
+function project(p, cameraX, cameraY, cameraZ, cameraDepth) {
+    const scale = cameraDepth / (p.z - cameraZ);
+    const x = (1 + scale * (p.x - cameraX)) * width / 2;
+    const y = (1 - scale * (p.y - cameraY)) * height / 2;
+    const w = scale * CFG.roadWidth * width / 2;
+    return { x, y, scale, w };
+}
+
+// --- World Generation ---
+function generateMountains() {
+    mountains = [];
+    // Layer 1: Far, faint, slow
+    let pts = [];
+    for(let i=0; i<=width; i+=40) {
+        pts.push({x: i, y: height/2 - 120 + Math.sin(i*0.004)*80 + Math.random()*30});
+    }
+    mountains.push({color: '#1E293B', points: pts, offset: 0, speed: 0.02});
+    
+    // Layer 2: Mid, darker, faster
+    pts = [];
+    for(let i=0; i<=width; i+=30) {
+        pts.push({x: i, y: height/2 + 20 + Math.sin(i*0.008 + 100)*100 + Math.random()*40});
+    }
+    mountains.push({color: '#0F172A', points: pts, offset: 0, speed: 0.08});
+}
+
+function createRoad() {
+    segments = [];
+    const totalSegments = 5000; 
+    
+    for (let i = 0; i < totalSegments; i++) {
+        // Curves
+        const curve = (Math.sin(i * 0.003) * 6) + (Math.sin(i * 0.02) * 2);
+        // Hills
+        const y = Math.sin(i * 0.01) * 1500 + (Math.sin(i * 0.003) * 2000);
+        
+        segments.push({
+            index: i,
+            p: { x: 0, y: y, z: i * CFG.segmentLength },
+            curve: curve,
+            color: Math.floor(i / 3) % 2 ? 'dark' : 'light',
+            objects: []
+        });
+
+        // Procedural Objects
+        if (i > 50) {
+            // Trees (Denser, more varied)
+            if (i % 2 === 0) {
+                const side = Math.random() > 0.5 ? 1 : -1;
+                segments[i].objects.push({ 
+                    type: 'tree', 
+                    offset: side * (1.4 + Math.random() * 1.5),
+                    height: 1.0 + Math.random() * 1.2,
+                    color: Math.random() > 0.4 ? 'dark' : 'light'
+                });
+            }
+            // Rocks
+            if (i % 15 === 0) {
+                const lane = (Math.random() * 1.4) - 0.7;
+                segments[i].objects.push({ type: 'rock', offset: lane });
+            }
+            // Gates
+            if (i % 120 === 0 && i > 200) {
+                segments[i].objects.push({ type: 'gate', offset: 0 });
+            }
+        }
+    }
+}
+createRoad();
+
+// --- Rendering Helpers ---
+function drawPolygon(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.lineTo(x4, y4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// --- Particle System (Wind & Snow) ---
+function updateParticles() {
+    // Spawn based on speed
+    const spawnCount = Math.floor(speed / 15);
+    for(let k=0; k<spawnCount; k++) {
+        if (particles.length < 400) {
+            particles.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                z: Math.random(),
+                speed: Math.random() * 25 + 15,
+                len: Math.random() * 0.8 + 0.2,
+                type: Math.random() > 0.9 ? 'snow' : 'streak'
+            });
+        }
+    }
+    
+    ctx.lineCap = 'round';
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        
+        // Move down screen (forward motion)
+        p.y += p.speed + (speed * 0.4); 
+        // Parallax sideways
+        p.x -= (playerX * 12); 
+
+        if (p.y > height) {
+            p.y = -20;
+            p.x = Math.random() * width;
+        }
+        
+        if (p.type === 'streak') {
+            // Draw wind streaks
+            const alpha = Math.min(0.8, (speed / 100) * 0.5);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            // Streaks point backwards relative to movement
+            ctx.lineTo(p.x - (playerX*10), p.y - (p.len * 20 * (speed/50)));
+            ctx.stroke();
+        } else {
+            // Draw Snow
+            ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5 + 0.3})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, Math.random() * 2 + 1, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+}
+
+// --- Object Drawing Functions ---
+
+function drawTree(ctx, x, y, scale, typeData) {
+    const h = 1800 * scale * typeData.height;
+    const w = 600 * scale;
+    
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, w, w*0.4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Trunk
+    ctx.fillStyle = '#0F172A'; 
+    ctx.fillRect(x - w/12, y - h/5, w/6, h/5);
+    
+    // Leaves (Pine shape)
+    const baseColor = typeData.color === 'dark' ? '#064E3B' : '#047857'; 
+    const topColor = typeData.color === 'dark' ? '#059669' : '#10B981'; 
+    
+    ctx.fillStyle = baseColor;
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w, y - h/2);
+    ctx.lineTo(x + w, y - h/2);
+    ctx.fill();
+    
+    ctx.fillStyle = topColor;
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w*0.7, y - h*0.8);
+    ctx.lineTo(x + w*0.7, y - h*0.8);
+    ctx.fill();
+
+    // Snow Cap (Crucial for alpine identity)
+    ctx.fillStyle = '#F8FAFC';
+    ctx.beginPath();
+    ctx.moveTo(x, y - h);
+    ctx.lineTo(x - w/4, y - h*0.9);
+    ctx.lineTo(x + w/4, y - h*0.9);
+    ctx.fill();
+}
+
+function drawRock(ctx, x, y, scale) {
+    const size = 500 * scale;
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.moveTo(x - size/2, y);
+    ctx.lineTo(x - size/2, y - size/2);
+    ctx.lineTo(x, y - size);
+    ctx.lineTo(x + size/2, y - size/1.5);
+    ctx.lineTo(x + size/2, y);
+    ctx.fill();
+    
+    // Snow on top of rock
+    ctx.fillStyle = '#E2E8F0';
+    ctx.beginPath();
+    ctx.moveTo(x, y - size);
+    ctx.lineTo(x + size/2, y - size/1.5);
+    ctx.lineTo(x, y - size/2);
+    ctx.fill();
+}
+
+function drawGate(ctx, x, y, scale) {
+    const w = 2200 * scale;
+    const h = 800 * scale;
+    
+    // Poles
+    ctx.fillStyle = '#EF4444'; 
+    ctx.fillRect(x - w/2, y - h, 30 * scale, h);
+    ctx.fillStyle = '#3B82F6'; 
+    ctx.fillRect(x + w/2 - 30*scale, y - h, 30 * scale, h);
+    
+    // Crossbar
+    ctx.fillStyle = '#F8FAFC';
+    ctx.fillRect(x - w/2, y - h, w, 60 * scale);
+    
+    // Text
+    ctx.fillStyle = '#0F172A';
+    ctx.font = `900 ${50*scale}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText("GATE", x, y - h + 30*scale);
+}
+
+// --- Main Loop ---
+let cameraZ = 0;
+
+function update(dt) {
+    // Acceleration logic
+    if (speed < CFG.maxSpeed) speed += CFG.accel * dt;
+    else if (speed > CFG.maxSpeed) speed -= CFG.decel * dt;
+    
+    // Off-road penalty
+    if (Math.abs(playerX) > CFG.offRoadLimit) {
+        if (speed > 60) speed -= CFG.offRoadDecel * dt;
+        shakeIntensity = 20; 
+    }
+
+    // Movement
+    const speedMeters = speed * 0.9; 
+    cameraZ += speedMeters * 2; 
+    distance += speedMeters * dt;
+    
+    // Steering
+    const steerSpeed = 3.2 * dt;
+    if (inputLeft) {
+        playerX -= steerSpeed;
+        playerTilt = Math.max(playerTilt - 12*dt, -0.9);
+    } else if (inputRight) {
+        playerX += steerSpeed;
+        playerTilt = Math.min(playerTilt + 12*dt, 0.9);
+    } else {
+        playerTilt *= 0.8; // Return to center
+    }
+    playerX = Math.max(-3.5, Math.min(3.5, playerX));
+
+    // Shake Decay
+    if(shakeIntensity > 0) shakeIntensity -= 40 * dt;
+    if(shakeIntensity < 0) shakeIntensity = 0;
+
+    // UI Updates
+    uiSpeed.innerText = Math.floor(speed);
+    uiDist.innerHTML = Math.floor(distance) + '<span>m</span>';
+    
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const min = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const sec = (elapsed % 60).toString().padStart(2, '0');
+    uiTime.innerText = `${min}:${sec}`;
+    
+    // Progress Bar
+    const progress = (distance % 10000) / 100;
+    uiProgress.style.width = `${progress}%`;
+}
+
+function render() {
+    // 1. Sky Gradient (Deep Alpine Blue to Horizon)
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#020617'); // Deepest Night
+    gradient.addColorStop(0.4, '#0F172A'); // Slate 900
+    gradient.addColorStop(0.8, '#1E293B'); // Slate 800
+    gradient.addColorStop(1, '#38BDF8'); // Horizon Glow
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    // 2. Shake Application
+    let shakeX = 0, shakeY = 0;
+    if (shakeIntensity > 0) {
+        shakeX = (Math.random() - 0.5) * shakeIntensity;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+    }
+
+    // 3. Parallax Mountains
+    mountains.forEach(m => {
+        ctx.fillStyle = m.color;
+        ctx.beginPath();
+        ctx.moveTo(0, height);
+        m.points.forEach(p => {
+            const x = p.x - (playerX * 60 * m.speed); 
+            ctx.lineTo(x, p.y);
+        });
+        ctx.lineTo(width, height);
+        ctx.fill();
+    });
+
+    // 4. Camera Math
+    const baseSegmentIndex = Math.floor(cameraZ / CFG.segmentLength);
+    const basePercent = (cameraZ % CFG.segmentLength) / CFG.segmentLength;
+    
+    const playerSegment = segments[baseSegmentIndex % segments.length];
+    const playerY = playerSegment.p.y;
+
+    let maxY = height;
+    let curveX = 0;
+    let dx = 0; 
+
+    // 5. Draw Road (Painter's Algorithm: Back to Front)
+    for(let n = 0; n < CFG.drawDistance; n++) {
+        const index = (baseSegmentIndex + n) % segments.length;
+        const segment = segments[index];
+        
+        // Z position relative to camera
+        let z = (n * CFG.segmentLength) - (basePercent * CFG.segmentLength);
+        if (z <= 10) continue;
+
+        // Curve accumulation
+        dx += segment.curve;
+        
+        // Project points
+        const p = project({ x: segment.p.x - (dx * 120), y: segment.p.y, z: z }, 
+                          playerX * CFG.roadWidth, 
+                          playerY + CFG.cameraHeight, 
+                          0, 
+                          CFG.cameraDepth);
+        
+        const nextIndex = (index + 1) % segments.length;
+        const nextSegment = segments[nextIndex];
+        const nextZ = z + CFG.segmentLength;
+        const pNext = project({ x: nextSegment.p.x - ((dx + nextSegment.curve) * 120), y: nextSegment.p.y, z: nextZ }, 
+                              playerX * CFG.roadWidth, 
+                              playerY + CFG.cameraHeight, 
+                              0, 
+                              CFG.cameraDepth);
+
+        if (p.y >= maxY) continue;
+        
+        // --- Draw Ground/Snow ---
+        const w1 = p.w * 5.0; 
+        const w2 = pNext.w * 5.0;
+        
+        // Snow colors with shading
+        const snowColor = segment.color === 'dark' ? '#CBD5E1' : '#E2E8F0';
+        drawPolygon(ctx, p.x - w1, p.y, p.x + w1, p.y, pNext.x + w2, pNext.y, pNext.x - w2, pNext.y, snowColor);
+        
+        // --- Draw Ice Track ---
+        const rw1 = p.w;
+        const rw2 = pNext.w;
+        // Richer ice colors
+        const iceColor = segment.color === 'dark' ? '#7DD3FC' : '#BAE6FD'; 
+        drawPolygon(ctx, p.x - rw1, p.y, p.x + rw1, p.y, pNext.x + rw2, pNext.y, pNext.x - rw2, pNext.y, iceColor);
+        
+        // Lane Markers
+        if (segment.color === 'light') {
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            const lw1 = rw1 * 0.015;
+            const lw2 = rw2 * 0.015;
+            // Center
+            drawPolygon(ctx, p.x - lw1, p.y, p.x + lw1, p.y, pNext.x + lw2, pNext.y, pNext.x - lw2, pNext.y, 'rgba(255,255,255,0.8)');
+            // Sides
+            drawPolygon(ctx, p.x - rw1*0.5 - lw1, p.y, p.x - rw1*0.5 + lw1, p.y, pNext.x - rw2*0.5 + lw2, pNext.y, pNext.x - rw2*0.5 - lw2, pNext.y, 'rgba(255,255,255,0.4)');
+            drawPolygon(ctx, p.x + rw1*0.5 - lw1, p.y, p.x + rw1*0.5 + lw1, p.y, pNext.x + rw2*0.5 + lw2, pNext.y, pNext.x + rw2*0.5 - lw2, pNext.y, 'rgba(255,255,255,0.4)');
+        }
+
+        // --- Draw Objects ---
+        for(let obj of segment.objects) {
+            const objX = p.x + (obj.offset * p.w);
+            if (obj.type === 'tree') drawTree(ctx, objX, p.y, p.scale, obj);
+            if (obj.type === 'rock') drawRock(ctx, objX, p.y, p.scale);
+            if (obj.type === 'gate') drawGate(ctx, objX, p.y, p.scale);
+        }
+
+        maxY = p.y;
+    }
+
+    // 6. Draw Player (Rider)
+    // Positioned to match perspective floor
+    const playerScreenX = width / 2;
+    const playerScreenY = height - 150; 
+    
+    ctx.save();
+    ctx.translate(playerScreenX, playerScreenY);
+    ctx.rotate(playerTilt);
+
+    // Shadow (Dynamic based on tilt)
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 55, 70, 25, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // --- Stylized Skier Silhouette ---
+    
+    // Skis
+    ctx.fillStyle = '#020617'; // Almost black
+    // Left Ski
+    ctx.save();
+    ctx.translate(-30, 48);
+    ctx.rotate(-0.15);
+    ctx.fillRect(-6, 0, 12, 100);
+    // Ski tip detail
+    ctx.fillStyle = '#EF4444';
+    ctx.fillRect(-6, 0, 12, 12);
+    ctx.restore();
+    
+    // Right Ski
+    ctx.fillStyle = '#020617';
+    ctx.save();
+    ctx.translate(30, 48);
+    ctx.rotate(0.15);
+    ctx.fillRect(-6, 0, 12, 100);
+    ctx.fillStyle = '#EF4444';
+    ctx.fillRect(-6, 0, 12, 12);
+    ctx.restore();
+
+    // Body (Red Suit)
+    ctx.fillStyle = '#DC2626'; 
+    ctx.beginPath();
+    ctx.roundRect(-38, -15, 76, 70, 15);
+    ctx.fill();
+    
+    // Arms (Out for balance)
+    ctx.fillStyle = '#991B1B';
+    ctx.save();
+    ctx.translate(-38, 5);
+    ctx.rotate(-0.6);
+    ctx.fillRect(-50, 0, 50, 16);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(38, 5);
+    ctx.rotate(0.6);
+    ctx.fillRect(0, 0, 50, 16);
+    ctx.restore();
+
+    // Head/Helmet
+    ctx.fillStyle = '#020617'; // Dark Helmet
+    ctx.beginPath();
+    ctx.arc(0, -32, 30, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Goggles (Reflective Cyan)
+    ctx.fillStyle = '#38BDF8';
+    ctx.beginPath();
+    ctx.roundRect(-20, -38, 40, 18, 8);
+    ctx.fill();
+    // Goggle reflection
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(-12, -32, 6, 3, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 7. Atmosphere: Snow Particles & Speed Lines
+    updateParticles();
+    
+    // Speed Lines (Horizontal streaks on edges)
+    if (speed > 120) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 3;
+        for(let i=0; i<10; i++) {
+            const y = Math.random() * height;
+            const len = Math.random() * 200 + 100;
+            // Left side
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(len, y);
+            ctx.stroke();
+            // Right side
+            ctx.beginPath();
+            ctx.moveTo(width, y);
+            ctx.lineTo(width - len, y);
+            ctx.stroke();
+        }
+    }
+
+    // Reset Shake
+    if (shakeIntensity > 0) ctx.restore();
+}
+
+// --- Game Loop ---
+let lastTime = 0;
+function loop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.1); 
+    lastTime = time;
+
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

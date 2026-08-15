@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alpine Rush: Velocity</title>
+<style>
+    :root {
+        --c-ui-bg: rgba(10, 15, 30, 0.65);
+        --c-ui-border: rgba(255, 255, 255, 0.15);
+        --c-cyan: #00f2ff;
+        --c-orange: #ff5e00;
+        --c-white: #ffffff;
+        --c-text-muted: #94a3b8;
+        --font-ui: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        --font-display: 'Impact', 'Arial Black', system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%;
+        overflow: hidden; background-color: #020617;
+        font-family: var(--font-ui);
+    }
+
+    /* --- CANVAS LAYER --- */
+    #gameCanvas {
+        display: block;
+        width: 100%; height: 100%;
+        will-change: transform; 
+    }
+
+    /* --- UI LAYER --- */
+    #ui-layer {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* --- HUD: TOP --- */
+    .hud-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 24px;
+        width: 100%;
+        z-index: 10;
+        pointer-events: none;
+    }
+
+    /* Left: Progress Bar (Replaced old line) */
+    .progress-container {
+        flex-grow: 1;
+        margin-right: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .progress-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--c-text-muted);
+        font-weight: 700;
+    }
+
+    .progress-track {
+        width: 100%; height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid var(--c-ui-border);
+    }
+    .progress-fill {
+        height: 100%; background: var(--c-cyan);
+        width: 0%; transition: width 0.1s linear;
+        box-shadow: 0 0 15px var(--c-cyan);
+    }
+
+    /* Right: Stats Cluster (Grouped) */
+    .stats-cluster {
+        background: var(--c-ui-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--c-ui-border);
+        border-radius: 16px;
+        padding: 12px 20px;
+        display: flex; gap: 24px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        color: var(--c-white);
+        min-width: 280px;
+    }
+    
+    .stat-item {
+        display: flex; flex-direction: column; align-items: flex-end;
+    }
+
+    .label {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--c-text-muted);
+        margin-bottom: 2px;
+        font-weight: 700;
+    }
+
+    .value {
+        font-family: var(--font-display);
+        font-size: 22px;
+        font-weight: 400;
+        line-height: 1;
+        letter-spacing: 1px;
+    }
+
+    .value.speed-val {
+        font-size: 32px;
+        color: var(--c-white);
+        text-shadow: 0 0 10px rgba(0, 242, 255, 0.4);
+    }
+
+    /* --- HUD: BOTTOM --- */
+    .hud-bottom {
+        padding: 40px 40px;
+        display: flex; justify-content: space-between; align-items: flex-end;
+        width: 100%;
+        z-index: 10;
+        pointer-events: none; /* Let clicks pass through empty space */
+    }
+
+    /* Controls: Glass-morphism */
+    .controls-area {
+        display: flex; gap: 20px;
+        pointer-events: auto;
+    }
+
+    .btn-control {
+        width: 80px; height: 80px;
+        background: rgba(255, 255, 255, 0.05); 
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 20px;
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer;
+        transition: all 0.1s ease-out;
+        color: rgba(255, 255, 255, 0.7);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+    
+    .btn-control:active, .btn-control.pressed {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: var(--c-white);
+        transform: scale(0.92);
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+        color: #fff;
+    }
+    
+    .btn-control svg { width: 36px; height: 36px; fill: currentColor; }
+
+    /* Vignette overlay */
+    .vignette {
+        position: absolute; top:0; left:0; width:100%; height:100%;
+        background: radial-gradient(circle at center, transparent 60%, rgba(0,0,0,0.6) 100%);
+        pointer-events: none;
+        z-index: 5;
+    }
+
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+<div class="vignette"></div>
+
+<div id="ui-layer">
+    
+    <!-- Top: Split Layout -->
+    <div class="hud-top">
+        <!-- Left: Progress Bar -->
+        <div class="progress-container">
+            <div class="progress-label">Sector Progress</div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressBar"></div>
+            </div>
+        </div>
+
+        <!-- Right: Stats Cluster -->
+        <div class="stats-cluster">
+            <div class="stat-item">
+                <div class="label">Distance</div>
+                <div class="value" id="distVal">0<span style="font-size:12px; color:var(--c-cyan)">m</span></div>
+            </div>
+            <div class="stat-item">
+                <div class="label">Time</div>
+                <div class="value" id="timeVal">00:00</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">Speed</div>
+                <div class="value speed-val" id="speedVal">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom: Controls -->
+    <div class="hud-bottom">
+        <div class="controls-area">
+            <div class="btn-control" id="btnLeft">
+                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </div>
+            <div class="btn-control" id="btnRight">
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ALPINE RUSH: VELOCITY
+ * Design Revision Implementation
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+// State
+let width, height;
+let frame = 0;
+let speed = 0;
+let targetSpeed = 240; // Faster base speed
+let playerX = 0; // -1 to 1
+let playerTilt = 0;
+let distance = 0;
+let startTime = Date.now();
+let shakeIntensity = 0;
+
+// World Generation
+const SEGMENT_LENGTH = 120;
+const ROAD_WIDTH = 2200; 
+let segments = [];
+
+// UI Elements
+const uiSpeed = document.getElementById('speedVal');
+const uiDist = document.getElementById('distVal');
+const uiTime = document.getElementById('timeVal');
+const uiProgress = document.getElementById('progressBar');
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+
+// --- Resize Handling ---
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Input Handling ---
+let inputLeft = false;
+let inputRight = false;
+
+const handleInput = (dir, active) => {
+    if(dir === 'left') inputLeft = active;
+    if(dir === 'right') inputRight = active;
+    
+    const btn = dir === 'left' ? btnLeft : btnRight;
+    if(active) btn.classList.add('pressed');
+    else btn.classList.remove('pressed');
+};
+
+const addInputListeners = (el, dir) => {
+    el.addEventListener('mousedown', () => handleInput(dir, true));
+    el.addEventListener('mouseup', () => handleInput(dir, false));
+    el.addEventListener('mouseleave', () => handleInput(dir, false));
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(dir, true); });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); handleInput(dir, false); });
+};
+addInputListeners(btnLeft, 'left');
+addInputListeners(btnRight, 'right');
+
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', true);
+    if(e.key === 'ArrowRight') handleInput('right', true);
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft') handleInput('left', false);
+    if(e.key === 'ArrowRight') handleInput('right', false);
+});
+
+// --- 3D Math Helpers ---
+function project(p, cameraX, cameraY, cameraZ, cameraDepth) {
+    const scale = cameraDepth / (p.z - cameraZ);
+    const x = (1 + scale * (p.x - cameraX)) * width / 2;
+    const y = (1 - scale * (p.y - cameraY)) * height / 2;
+    const w = scale * ROAD_WIDTH * width / 2;
+    return { x, y, scale, w };
+}
+
+// --- World Creation ---
+function createRoad() {
+    segments = [];
+    const totalSegments = 1500;
+    
+    for (let i = 0; i < totalSegments; i++) {
+        // More aggressive curves
+        const curve = (Math.sin(i * 0.02) * 8) + (Math.sin(i * 0.09) * 4);
+        // Hills
+        const y = Math.sin(i * 0.04) * 2000 + (Math.sin(i*0.01)*4000);
+        
+        segments.push({
+            index: i,
+            p: { x: 0, y: y, z: i * SEGMENT_LENGTH },
+            curve: curve,
+            color: Math.floor(i / 3) % 2
+        });
+    }
+}
+createRoad();
+
+// --- Rendering Helpers ---
+
+// CRITIQUE FIX: Smooth vertical gradient sky
+function drawSky(ctx) {
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#020617'); // Deepest Navy
+    gradient.addColorStop(0.5, '#0f172a'); 
+    gradient.addColorStop(1, '#1e293b'); // Slightly lighter at horizon
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+}
+
+function drawMountains(ctx, playerX) {
+    const offset = playerX * 50; 
+    
+    // Far Mountains (Dark Silhouette)
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(0, height * 0.65);
+    for(let i=0; i<=width; i+=20) {
+        const h = (Math.sin(i*0.004 + offset*0.1) * 100) + (Math.cos(i*0.015) * 30) + (height * 0.6);
+        ctx.lineTo(i, h);
+    }
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.fill();
+}
+
+// CRITIQUE FIX: Reconstructed Playfield (No grid, smooth gradient + streaks)
+function drawGround(ctx, x1, y1, x2, y2, w1, w2, isDark, segmentIndex) {
+    
+    // Gradient base for depth (Dark Blue -> Black)
+    const grad = ctx.createLinearGradient(0, y1, 0, y2);
+    grad.addColorStop(0, '#020617'); // Black/Dark Navy
+    grad.addColorStop(1, '#1e293b'); // Darker Slate
+    
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y1, width, y2 - y1);
+
+    // CRITIQUE FIX: Diagonal Streaks for Ice/Speed
+    if (speed > 10) {
+        const scrollOffset = (distance * 25) % 50; 
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, y1, width, y2 - y1);
+        ctx.clip();
+
+        // Opacity increases with speed
+        const alpha = Math.min(0.3, speed / 1000);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 2;
+        
+        const angle = -0.4; 
+        const spacing = 50;
+        const startX = x1 - w1;
+        const endX = x1 + w1;
+        const count = Math.ceil((endX - startX) / spacing) * 2;
+        
+        for(let i = -count; i < count * 2; i++) {
+            const lineX = startX + (i * spacing) - scrollOffset;
+            
+            ctx.beginPath();
+            ctx.moveTo(lineX, y1 - 50); 
+            ctx.lineTo(lineX + (y2 - y1) * Math.tan(angle), y2 + 50);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+// CRITIQUE FIX: Obstacles (Dark Jagged Rocks)
+function drawRock(ctx, x, y, scale) {
+    const size = 700 * scale;
+    
+    ctx.fillStyle = '#0f172a'; // Dark Slate
+    ctx.beginPath();
+    // Jagged shape
+    ctx.moveTo(x - size/2, y);
+    ctx.lineTo(x - size/2, y - size/4);
+    ctx.lineTo(x - size/4, y - size/2);
+    ctx.lineTo(x, y - size * 0.7);
+    ctx.lineTo(x + size/3, y - size/3);
+    ctx.lineTo(x + size/2, y - size/6);
+    ctx.lineTo(x + size/2, y);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Subtle rim light
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+// CRITIQUE FIX: Gates (Vertical pillars, glowing cyan top)
+function drawGate(ctx, x, y, scale, type) {
+    const w = 1400 * scale;
+    const h = 800 * scale;
+    const thickness = 50 * scale;
+    
+    const color = '#00f2ff'; // Cyan Glow
+    
+    // Pillars (Dark)
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(x - w/2 - thickness/2, y - h, thickness, h);
+    ctx.fillRect(x + w/2 - thickness/2, y - h, thickness, h);
+    
+    // Glowing Top Bar
+    ctx.shadowBlur = 20 * scale;
+    ctx.shadowColor = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness * 0.8;
+    
+    ctx.beginPath();
+    ctx.moveTo(x - w/2, y - h);
+    ctx.lineTo(x + w/2, y - h);
+    ctx.stroke();
+    
+    // Reset Shadow
+    ctx.shadowBlur = 0;
+}
+
+// --- Main Loop ---
+let cameraZ = 0;
+
+function update(dt) {
+    // Physics
+    if (speed < targetSpeed) speed += 80 * dt;
+    else if (speed > targetSpeed) speed -= 50 * dt;
+    
+    const speedMeters = speed * 0.9; 
+    cameraZ += speedMeters * 2.5; 
+    distance += speedMeters * dt;
+    
+    // Steering
+    const steerSpeed = 3.5 * dt;
+    if (inputLeft) {
+        playerX -= steerSpeed;
+        playerTilt = Math.max(playerTilt - 10*dt, -0.6);
+    } else if (inputRight) {
+        playerX += steerSpeed;
+        playerTilt = Math.min(playerTilt + 10*dt, 0.6);
+    } else {
+        playerTilt *= 0.9;
+    }
+    playerX = Math.max(-2.5, Math.min(2.5, playerX)); 
+
+    // Shake Decay
+    if(shakeIntensity > 0) shakeIntensity -= 20 * dt;
+    if(shakeIntensity < 0) shakeIntensity = 0;
+
+    // UI Updates
+    uiSpeed.innerText = Math.floor(speed);
+    uiDist.innerHTML = Math.floor(distance) + '<span style="font-size:14px; color:var(--c-cyan)">m</span>';
+    
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const min = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const sec = (elapsed % 60).toString().padStart(2, '0');
+    uiTime.innerText = `${min}:${sec}`;
+    
+    const progress = (distance % 3000) / 30;
+    uiProgress.style.width = `${progress}%`;
+}
+
+// CRITIQUE FIX: Motion Blur Snow Particles
+function drawSnowParticles(ctx) {
+    const particleCount = 40;
+    const intensity = Math.min(1, speed / 200);
+    
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    
+    for(let i=0; i<particleCount; i++) {
+        // Random position, biased towards edges and bottom
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        
+        // Speed determines length and opacity
+        const len = 50 + (Math.random() * speed);
+        const alpha = Math.random() * 0.5 * intensity;
+        
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = Math.random() * 2 + 1;
+        ctx.lineCap = 'round';
+        
+        ctx.beginPath();
+        // Angle slightly outwards from center to simulate tunnel effect
+        const dx = (x - width/2) * 0.05;
+        const dy = len;
+        
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + dx, y + dy);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function render() {
+    // Clear & Sky
+    drawSky(ctx);
+    
+    // Shake
+    let shakeX = 0, shakeY = 0;
+    if (shakeIntensity > 0) {
+        shakeX = (Math.random() - 0.5) * shakeIntensity;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save();
+        ctx.translate(shakeX, shakeY);
+    }
+
+    // Background Mountains
+    drawMountains(ctx, playerX);
+
+    const baseSegmentIndex = Math.floor(cameraZ / SEGMENT_LENGTH);
+    const cameraDepth = 0.84; 
+    const drawDistance = 300;
+    let maxY = height;
+    
+    // Curve accumulation
+    let curveX = 0;
+    let dx = 0;
+
+    // Render Road
+    for(let n = 0; n < drawDistance; n++) {
+        const index = (baseSegmentIndex + n) % segments.length;
+        const segment = segments[index];
+        
+        let z = segment.p.z - cameraZ;
+        if (z <= 0) continue;
+
+        // Calculate Curve Offset
+        if (n > 0) {
+            curveX += dx;
+            dx += segment.curve;
+        }
+
+        const p = project({ x: segment.p.x - curveX * 100, y: segment.p.y, z: z }, 
+                          playerX * ROAD_WIDTH, 
+                          1800, // Camera height
+                          0, 
+                          cameraDepth);
+        
+        const pNext = project({ x: segments[(index+1)%segments.length].p.x - curveX * 100, y: segments[(index+1)%segments.length].p.y, z: z + SEGMENT_LENGTH }, 
+                              playerX * ROAD_WIDTH, 
+                              1800, 0, cameraDepth);
+
+        if (p.y >= maxY) continue;
+        
+        // Draw Ground
+        drawGround(ctx, p.x, p.y, pNext.x, pNext.y, p.w, pNext.w, segment.color === 1, segment.index);
+        
+        // Draw Objects (Rocks)
+        // Only draw if on the side
+        if (segment.index % 12 === 0 && n > 5 && n < 60) {
+            const side = (segment.index % 24 === 0) ? -1 : 1;
+            drawRock(ctx, p.x + (side * p.w * 1.8), p.y, p.scale);
+        }
+        
+        // Draw Gates
+        if (segment.index % 150 === 0 && n > 5 && n < 50) {
+             drawGate(ctx, p.x, p.y, p.scale, 'gate');
+        }
+
+        maxY = p.y;
+    }
+
+    // --- Draw Player (The Sled) ---
+    // CRITIQUE FIX: Reposition rider to lower-middle third
+    const playerScreenX = width / 2;
+    const playerScreenY = height * 0.75; 
+    
+    ctx.save();
+    ctx.translate(playerScreenX, playerScreenY);
+    ctx.rotate(playerTilt);
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(10, 60, 90, 30, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // CRITIQUE FIX: Trailing particle effect (Snow Spray)
+    if (speed > 20) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        for(let i=0; i<40; i++) {
+            const ox = (Math.random() - 0.5) * 160; 
+            const oy = (Math.random() * 100) + 60;   
+            const size = Math.random() * 12 + 2;
+            ctx.beginPath();
+            ctx.arc(ox, oy, size, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+
+    // CRITIQUE FIX: Unify Rider Visuals (Neon Orange/Red Vector Shape)
+    
+    // Sled Body (Aerodynamic, Dark base)
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#ffffff'; 
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = 'rgba(255, 94, 0, 0.5)'; // Orange Glow
+    
+    // Main Body Shape
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(-45, 60); // Rear Left
+    ctx.quadraticCurveTo(-30, -20, 0, -80); // Nose
+    ctx.quadraticCurveTo(30, -20, 45, 60); // Rear Right
+    ctx.quadraticCurveTo(0, 80, -45, 60); // Bottom
+    ctx.fill();
+    ctx.stroke(); 
+
+    // CRITIQUE FIX: Rider (Cohesive 2D Vector, Neon Orange)
+    ctx.shadowBlur = 0; 
+    ctx.fillStyle = '#ff5e00'; // Neon Orange
+    ctx.beginPath();
+    // Shoulders/Back
+    ctx.moveTo(-40, 20);
+    ctx.lineTo(-50, 60);
+    ctx.lineTo(50, 60);
+    ctx.lineTo(40, 20);
+    // Head
+    ctx.arc(0, -10, 32, Math.PI, 0); 
+    ctx.fill();
+    
+    // Helmet Visor (Reflective White/Cyan)
+    const visorGrad = ctx.createLinearGradient(-25, -10, 25, -10);
+    visorGrad.addColorStop(0, '#00f2ff');
+    visorGrad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = visorGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, -10, 30, 14, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Skis (Longer, distinct)
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(-50, 40, 10, 120);
+    ctx.fillRect(40, 40, 10, 120);
+    
+    // Ski Tips (Orange)
+    ctx.fillStyle = '#ff5e00';
+    ctx.beginPath(); ctx.arc(-45, 160, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(45, 160, 5, 0, Math.PI*2); ctx.fill();
+
+    ctx.restore();
+
+    // CRITIQUE FIX: Motion Blur Snow (Overlay)
+    drawSnowParticles(ctx);
+
+    // Reset Shake
+    if (shakeIntensity > 0) ctx.restore();
+}
+
+// --- Game Loop ---
+let lastTime = 0;
+function loop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.1);
+    lastTime = time;
+
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+}
+
+// Start
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

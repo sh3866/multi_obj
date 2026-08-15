@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bounce Dash - Adventure Awaits</title>
+    <style>
+        :root {
+            /* Palette - Dynamic via JS, defaults here */
+            --c-sky-top: #4facfe;
+            --c-sky-bot: #00f2fe;
+            --c-ground: #65c238;
+            --c-ground-dark: #4da025;
+            --c-dirt: #e67e22;
+            --c-dirt-dark: #d35400;
+            --c-block: #f1c40f;
+            --c-block-dark: #f39c12;
+            --c-hero: #ff4757;
+            --c-hero-dark: #c0392b;
+            --c-ui-bg: rgba(255, 255, 255, 0.9);
+            --c-text: #2d3436;
+            
+            /* Typography */
+            --font-stack: 'Segoe UI', 'Helvetica Neue', sans-serif;
+            --font-display: 'Arial Black', 'Impact', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+        body {
+            background: #222;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-stack);
+            overflow: hidden;
+        }
+
+        /* --- GAME SCREEN CONTAINER --- */
+        #game-screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 1600px;
+            max-height: 900px;
+            background: linear-gradient(to bottom, var(--c-sky-top), var(--c-sky-bot));
+            overflow: hidden;
+            box-shadow: 0 0 60px rgba(0,0,0,0.5);
+            transition: background 0.5s ease;
+        }
+
+        /* --- PARALLAX BACKGROUND (CSS) --- */
+        .bg-layer {
+            position: absolute;
+            width: 120%; /* Extra width for parallax movement */
+            left: -10%;
+            height: 100%;
+            pointer-events: none;
+            transition: transform 0.1s linear;
+        }
+
+        /* Clouds */
+        .cloud {
+            position: absolute;
+            background: #fff;
+            border-radius: 50px;
+            opacity: 0.8;
+            filter: drop-shadow(0 4px 0 rgba(0,0,0,0.1));
+        }
+        .c1 { width: 120px; height: 40px; top: 15%; left: 10%; animation: float 25s infinite linear; }
+        .c2 { width: 180px; height: 60px; top: 25%; left: 60%; animation: float 35s infinite linear reverse; opacity: 0.6; }
+        .c3 { width: 100px; height: 30px; top: 10%; left: 80%; animation: float 20s infinite linear; }
+
+        /* Hills (Midground) */
+        .hills {
+            position: absolute;
+            bottom: 180px; /* Just above ground */
+            width: 100%;
+            height: 200px;
+            background: 
+                radial-gradient(100px 100px at 10% 100%, var(--c-ground-dark) 100%, transparent 100%),
+                radial-gradient(150px 150px at 30% 100%, var(--c-ground-dark) 100%, transparent 100%),
+                radial-gradient(120px 120px at 60% 100%, var(--c-ground-dark) 100%, transparent 100%),
+                radial-gradient(180px 180px at 85% 100%, var(--c-ground-dark) 100%, transparent 100%);
+            opacity: 0.8;
+            z-index: 1;
+        }
+
+        /* --- LEVEL CANVAS (Foreground) --- */
+        #level-canvas {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 400px;
+            z-index: 5;
+        }
+
+        /* --- HERO CHARACTER (CSS + SVG) --- */
+        #hero-container {
+            position: absolute;
+            bottom: 190px; /* Standing on the canvas ground */
+            left: 25%;
+            z-index: 10;
+            width: 140px;
+            height: 140px;
+            transition: left 0.1s linear;
+            filter: drop-shadow(0px 15px 5px rgba(0,0,0,0.4));
+        }
+
+        /* --- UI OVERLAY --- */
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 40px 50px;
+            pointer-events: none;
+        }
+
+        /* Header: Title & High Score */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .game-title {
+            font-family: var(--font-display);
+            font-size: 5.5rem;
+            color: #fff;
+            text-transform: uppercase;
+            line-height: 0.9;
+            position: relative;
+            transform: skew(-5deg) rotate(-2deg);
+            /* Flat Vector 2D Style */
+            text-shadow: 4px 4px 0px var(--c-hero-dark);
+            margin-left: -15px;
+        }
+        
+        .game-title span {
+            display: block;
+            color: var(--c-block);
+            font-size: 7rem;
+            text-shadow: 4px 4px 0px #d35400;
+        }
+
+        .high-score-box {
+            background: var(--c-ui-bg);
+            border: 4px solid var(--c-text);
+            border-radius: 15px;
+            padding: 10px 20px;
+            color: var(--c-text);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            box-shadow: 0 8px 0 rgba(0,0,0,0.1);
+            pointer-events: auto;
+            transform: skew(-5deg);
+            font-weight: 800;
+        }
+        
+        .hs-label { font-size: 1rem; opacity: 0.6; text-transform: uppercase; }
+        .hs-val { font-family: monospace; font-size: 1.8rem; color: var(--c-hero); }
+
+        /* Bottom Section */
+        .bottom-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            pointer-events: none;
+            margin-bottom: 20px;
+        }
+
+        /* World Selector */
+        .world-selector-group {
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .world-header {
+            font-family: var(--font-display);
+            color: #fff;
+            font-size: 1.2rem;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+            margin-left: 5px;
+            letter-spacing: 1px;
+        }
+
+        .world-selector {
+            background: var(--c-ui-bg);
+            padding: 8px;
+            border-radius: 50px;
+            display: flex;
+            gap: 10px;
+            border: 4px solid var(--c-text);
+            box-shadow: 0 8px 0 rgba(0,0,0,0.1);
+        }
+
+        .world-btn {
+            width: 50px; height: 50px;
+            border-radius: 50%;
+            border: 3px solid var(--c-text);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: rgba(0,0,0,0.5);
+            font-size: 0.8rem;
+            background: #fff;
+        }
+
+        .world-btn:hover { transform: translateY(-3px); }
+        .world-btn.active { 
+            transform: scale(1.2) translateY(-5px); 
+            box-shadow: 0 5px 0 rgba(0,0,0,0.2);
+            z-index: 2;
+            color: #fff;
+            text-shadow: 1px 1px 0 rgba(0,0,0,0.3);
+        }
+
+        /* World Patterns */
+        .w-grass { background: radial-gradient(circle at 30% 30%, #85e04c, #4CBB17); }
+        .w-ice { background: radial-gradient(circle at 30% 30%, #a3f7ff, #5bc0de); }
+        .w-fire { background: radial-gradient(circle at 30% 30%, #ff9f43, #c0392b); }
+        .w-sky { background: radial-gradient(circle at 30% 30%, #74b9ff, #0984e3); }
+
+        /* Controls Guide (Integrated into scene via Signpost) */
+        .signpost-container {
+            pointer-events: none;
+            position: relative;
+            transform: rotate(2deg);
+        }
+        
+        .signpost-board {
+            background: #e67e22;
+            border: 4px solid #d35400;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: #fff;
+            box-shadow: 0 8px 0 rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            position: relative;
+        }
+        
+        .signpost-board::after {
+            content: '';
+            position: absolute;
+            bottom: -40px;
+            left: 50%;
+            width: 12px;
+            height: 40px;
+            background: #8e44ad; /* Wood color */
+            transform: translateX(-50%);
+            z-index: -1;
+        }
+
+        .key-row {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            font-size: 0.85rem;
+            font-weight: 800;
+            text-shadow: 1px 1px 0 rgba(0,0,0,0.3);
+        }
+        .key {
+            background: #fff;
+            color: #333;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: 900;
+            box-shadow: 0 3px 0 #999;
+            min-width: 24px;
+            text-align: center;
+            border-bottom: 2px solid #ccc;
+        }
+
+        /* Start Button (Question Block Style) */
+        .start-btn-container {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            z-index: 30;
+        }
+        
+        .start-btn {
+            background: var(--c-block);
+            color: #d35400;
+            border: 4px solid #d35400;
+            width: 120px;
+            height: 60px;
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            cursor: pointer;
+            position: relative;
+            box-shadow: 0 10px 0 #b33939, 0 15px 20px rgba(0,0,0,0.3);
+            transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-transform: uppercase;
+            text-shadow: 1px 1px 0 rgba(255,255,255,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        
+        /* Screws for block look */
+        .start-btn::before, .start-btn::after {
+            content: ''; position: absolute; width: 8px; height: 8px;
+            background: rgba(0,0,0,0.2); border-radius: 50%;
+        }
+        .start-btn::before { top: 4px; left: 4px; }
+        .start-btn::after { top: 4px; right: 4px; }
+
+        .start-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 0 #b33939, 0 20px 30px rgba(0,0,0,0.3);
+        }
+        
+        .start-btn:active {
+            transform: translateY(5px);
+            box-shadow: 0 0 0 #b33939, 0 5px 10px rgba(0,0,0,0.3);
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes float {
+            0% { transform: translateX(0); }
+            50% { transform: translateX(40px); }
+            100% { transform: translateX(0); }
+        }
+        @keyframes blink {
+            0%, 96%, 100% { transform: scaleY(1); }
+            98% { transform: scaleY(0.1); }
+        }
+
+        /* SVG Hero Styles */
+        .hero-svg { width: 100%; height: 100%; }
+        .eye { transform-origin: center; animation: blink 4s infinite; }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-screen">
+        
+        <!-- Background Layers (Parallax) -->
+        <div class="bg-layer" id="bg-clouds">
+            <div class="cloud c1"></div>
+            <div class="cloud c2"></div>
+            <div class="cloud c3"></div>
+        </div>
+        <div class="bg-layer" id="bg-hills">
+            <div class="hills"></div>
+        </div>
+
+        <!-- The Level Preview (Canvas) -->
+        <canvas id="level-canvas"></canvas>
+
+        <!-- Hero Character -->
+        <div id="hero-container">
+            <svg class="hero-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="2" result="blur"/>
+                        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    </filter>
+                </defs>
+                <!-- Body -->
+                <circle cx="50" cy="55" r="40" fill="#FF4757" stroke="#C41E3A" stroke-width="4" />
+                <!-- Shine -->
+                <path d="M25 35 Q 50 15 75 35" stroke="rgba(255,255,255,0.5)" stroke-width="5" fill="none" stroke-linecap="round" />
+                <!-- Face -->
+                <g class="face">
+                    <!-- Eyes -->
+                    <circle cx="38" cy="50" r="7" fill="black" class="eye" />
+                    <circle cx="62" cy="50" r="7" fill="black" class="eye" />
+                    <!-- Eye Highlights -->
+                    <circle cx="41" cy="47" r="3" fill="white" class="eye" />
+                    <circle cx="65" cy="47" r="3" fill="white" class="eye" />
+                    <!-- Mouth -->
+                    <path d="M35 65 Q 50 75 65 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
+                </g>
+                <!-- Hat -->
+                <path d="M20 25 L 50 5 L 80 25 Z" fill="#FFD700" stroke="#E67E22" stroke-width="4" stroke-linejoin="round" />
+                <rect x="15" y="22" width="70" height="8" rx="4" fill="#E67E22" stroke="#d35400" stroke-width="2"/>
+            </svg>
+        </div>
+
+        <!-- UI Layer -->
+        <div class="ui-layer">
+            <header>
+                <div class="game-title">
+                    Bounce
+                    <span>Dash</span>
+                </div>
+                <div class="high-score-box">
+                    <div class="hs-label">High Score</div>
+                    <div class="hs-val">12,500</div>
+                </div>
+            </header>
+
+            <div class="bottom-controls">
+                <!-- Left: World Selector -->
+                <div class="world-selector-group">
+                    <div class="world-header">WORLD SELECT</div>
+                    <div class="world-selector">
+                        <div class="world-btn w-grass active" data-theme="grass" title="Green Hills">1</div>
+                        <div class="world-btn w-ice" data-theme="ice" title="Ice Peaks">2</div>
+                        <div class="world-btn w-fire" data-theme="fire" title="Lava Lands">3</div>
+                        <div class="world-btn w-sky" data-theme="sky" title="Sky High">4</div>
+                    </div>
+                </div>
+
+                <!-- Right: Controls (Signpost) -->
+                <div class="signpost-container">
+                    <div class="signpost-board">
+                        <div class="key-row"><span>Move</span> <span class="key">←</span> <span class="key">→</span></div>
+                        <div class="key-row"><span>Jump</span> <span class="key" style="width: 70px;">SPACE</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Bottom: Start Button -->
+        <div class="start-btn-container">
+            <button class="start-btn">PLAY</button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const themes = {
+            grass: { 
+                sky: ['#4facfe', '#00f2fe'], 
+                ground: '#65c238', groundDark: '#4da025', 
+                dirt: '#e67e22', dirtDark: '#d35400',
+                block: '#f1c40f', blockDark: '#f39c12',
+                hill: '#4da025'
+            },
+            ice: { 
+                sky: ['#83a4d4', '#b6fbff'], 
+                ground: '#a3f7ff', groundDark: '#74b9ff', 
+                dirt: '#dfe6e9', dirtDark: '#b2bec3',
+                block: '#74b9ff', blockDark: '#0984e3',
+                hill: '#74b9ff'
+            },
+            fire: { 
+                sky: ['#2c3e50', '#fd746c'], 
+                ground: '#555555', groundDark: '#333333', 
+                dirt: '#2c2c2c', dirtDark: '#1a1a1a',
+                block: '#e17055', blockDark: '#d63031',
+                hill: '#333333'
+            },
+            sky: {
+                sky: ['#2980b9', '#6dd5fa'], 
+                ground: '#f1c40f', groundDark: '#f39c12', 
+                dirt: '#f1c40f', dirtDark: '#d35400',
+                block: '#fab1a0', blockDark: '#e17055',
+                hill: '#f39c12'
+            }
+        };
+
+        let currentTheme = themes.grass;
+
+        // --- CANVAS DRAWING ---
+        const canvas = document.getElementById('level-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            canvas.width = canvas.parentElement.offsetWidth;
+            canvas.height = canvas.parentElement.offsetHeight;
+            drawLevel();
+        }
+        window.addEventListener('resize', resize);
+
+        // Drawing Helpers
+        function drawRect(x, y, w, h, color, shadowColor) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            if(shadowColor) {
+                ctx.fillStyle = shadowColor;
+                ctx.fillRect(x, y + h - 6, w, 6); // Bottom shadow
+                ctx.fillRect(x + w - 6, y, 6, h); // Right shadow
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fillRect(x, y, w, 6); // Top highlight
+                ctx.fillRect(x, y, 6, h); // Left highlight
+            }
+        }
+
+        function drawMysteryBlock(x, y, size, color, darkColor) {
+            // Base
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, size, size);
+            
+            // Highlights/Shadows
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fillRect(x, y, size, 6);
+            ctx.fillRect(x, y, 6, size);
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(x, y+size-6, size, 6);
+            ctx.fillRect(x+size-6, y, 6, size);
+
+            // Screws
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.arc(x+8, y+8, 3, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+size-8, y+8, 3, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+8, y+size-8, 3, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+size-8, y+size-8, 3, 0, Math.PI*2); ctx.fill();
+
+            // Question Mark
+            ctx.fillStyle = darkColor;
+            ctx.font = `900 ${size*0.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('?', x + size/2, y + size/2 + 4);
+        }
+
+        function drawPipe(x, y, w, h, color) {
+            const headH = 50;
+            // Body
+            ctx.fillStyle = color;
+            ctx.fillRect(x + 12, y + headH, w - 24, h - headH);
+            // Head
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, headH);
+            
+            // Highlights
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(x+6, y, 10, headH); // Head shine
+            ctx.fillRect(x+18, y+headH, 6, h-headH); // Body shine
+            
+            // Shadows
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(x+w-12, y, 12, headH);
+            ctx.fillRect(x+w-12, y+headH, 12, h-headH);
+
+            // Outlines
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, headH);
+            ctx.strokeRect(x+12, y+headH, w-24, h-headH);
+        }
+
+        function drawFlag(x, y, h) {
+            // Pole
+            ctx.fillStyle = '#bdc3c7';
+            ctx.fillRect(x, y, 10, h);
+            ctx.strokeStyle = '#7f8c8d';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, 10, h);
+            
+            // Ball
+            ctx.beginPath();
+            ctx.arc(x+5, y, 10, 0, Math.PI*2);
+            ctx.fillStyle = '#f1c40f';
+            ctx.fill();
+            ctx.stroke();
+
+            // Flag
+            ctx.fillStyle = '#e74c3c';
+            ctx.beginPath();
+            ctx.moveTo(x+10, y+15);
+            ctx.lineTo(x+70, y+35);
+            ctx.lineTo(x+10, y+60);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        function drawEnemy(x, y) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(x+30, y+45, 25, 8, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Body (Goomba-ish)
+            ctx.fillStyle = '#8e44ad';
+            ctx.beginPath();
+            ctx.arc(x+30, y+25, 30, Math.PI, 0); // Dome
+            ctx.lineTo(x+60, y+45);
+            ctx.lineTo(x, y+45);
+            ctx.fill();
+            
+            // Feet
+            ctx.fillStyle = '#2c3e50';
+            ctx.beginPath(); ctx.ellipse(x+10, y+45, 10, 6, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(x+50, y+45, 10, 6, 0, 0, Math.PI*2); ctx.fill();
+
+            // Face
+            ctx.fillStyle = 'white';
+            ctx.beginPath(); ctx.arc(x+18, y+30, 8, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+42, y+30, 8, 0, Math.PI*2); ctx.fill();
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath(); ctx.arc(x+20, y+30, 3, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x+40, y+30, 3, 0, Math.PI*2); ctx.fill();
+            
+            // Eyebrows
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(x+10, y+22); ctx.lineTo(x+25, y+26); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x+50, y+22); ctx.lineTo(x+35, y+26); ctx.stroke();
+        }
+
+        function drawCoin(x, y, offset) {
+            const wobble = Math.sin(Date.now() / 200 + offset) * 3;
+            const scale = (Math.sin(Date.now() / 300 + offset) + 1) / 2; // 0 to 1
+            
+            ctx.save();
+            ctx.translate(x, y + wobble);
+            ctx.scale(scale, 1);
+            
+            // Glow
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 15;
+            
+            // Coin Body
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 14, 18, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Inner
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.ellipse(-4, -4, 3, 6, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        function drawLevel() {
+            const t = currentTheme;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const groundY = canvas.height - 100;
+
+            // 1. Ground
+            drawRect(0, groundY, canvas.width, 100, t.ground, t.groundDark);
+            
+            // Dirt layer
+            drawRect(0, groundY + 25, canvas.width, 75, t.dirt, t.dirtDark);
+            
+            // Dirt details
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            for(let i=0; i<canvas.width; i+=80) {
+                ctx.beginPath(); ctx.arc(i+40, groundY+60, 6, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(i+20, groundY+80, 6, 0, Math.PI*2); ctx.fill();
+            }
+
+            // 2. Platforms
+            // Mystery Block
+            drawMysteryBlock(canvas.width * 0.25, groundY - 140, 60, t.block, t.blockDark);
+            
+            // Brick Row
+            for(let i=0; i<3; i++) {
+                drawRect(canvas.width * 0.45 + (i*70), groundY - 140, 65, 25, t.dirt, t.dirtDark);
+                // Grass top
+                ctx.fillStyle = t.ground;
+                ctx.fillRect(canvas.width * 0.45 + (i*70), groundY - 140, 65, 8);
+            }
+
+            // High Platform
+            drawRect(canvas.width * 0.75, groundY - 230, 180, 25, t.dirt, t.dirtDark);
+            ctx.fillStyle = t.ground;
+            ctx.fillRect(canvas.width * 0.75, groundY - 230, 180, 8);
+
+            // 3. Pipe
+            drawPipe(canvas.width * 0.65, groundY - 70, 80, 70, t.groundDark);
+
+            // 4. Flag
+            drawFlag(canvas.width * 0.88, groundY - 280, 280);
+
+            // 5. Coins
+            drawCoin(canvas.width * 0.25 + 30, groundY - 180, 0);
+            drawCoin(canvas.width * 0.75 + 50, groundY - 270, 1);
+            drawCoin(canvas.width * 0.75 + 90, groundY - 270, 2);
+            drawCoin(canvas.width * 0.75 + 130, groundY - 270, 3);
+
+            // 6. Enemy
+            drawEnemy(canvas.width * 0.55, groundY - 45);
+
+            // 7. Bushes
+            const drawBush = (x, y, scale, color) => {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, 35 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 30*scale, y, 45 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 60*scale, y, 35 * scale, 0, Math.PI * 2);
+                ctx.fill();
+            };
+            drawBush(canvas.width * 0.15, groundY, 1.2, t.groundDark);
+            drawBush(canvas.width * 0.8, groundY, 0.9, t.groundDark);
+        }
+
+        // --- INTERACTIVITY ---
+        
+        // 1. Parallax & Hero Movement
+        const hero = document.getElementById('hero-container');
+        const screen = document.getElementById('game-screen');
+        const bgClouds = document.getElementById('bg-clouds');
+        const bgHills = document.getElementById('bg-hills');
+        let mouseX = 0;
+
+        screen.addEventListener('mousemove', (e) => {
+            const rect = screen.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            
+            // Map mouse X to percentage
+            let percent = (mouseX / rect.width) * 100;
+            if(percent > 40) percent = 40;
+            if(percent < 10) percent = 10;
+            
+            // Hero movement
+            hero.style.left = percent + '%';
+            
+            // Bobbing effect
+            const bounce = Math.abs(Math.sin(Date.now() / 300)) * 15;
+            hero.style.transform = `translateY(-${bounce}px)`;
+
+            // Parallax Backgrounds
+            const moveX = (mouseX - rect.width/2) * 0.05;
+            bgClouds.style.transform = `translateX(${moveX}px)`;
+            bgHills.style.transform = `translateX(${moveX * 2}px)`;
+        });
+
+        // 2. World Selector Logic
+        const worlds = document.querySelectorAll('.world-btn');
+        const root = document.documentElement;
+        
+        worlds.forEach(btn => {
+            btn.addEventListener('click', () => {
+                worlds.forEach(w => w.classList.remove('active'));
+                btn.classList.add('active');
+
+                const themeName = btn.dataset.theme;
+                currentTheme = themes[themeName];
+                
+                // Update CSS Variables
+                root.style.setProperty('--c-sky-top', currentTheme.sky[0]);
+                root.style.setProperty('--c-sky-bot', currentTheme.sky[1]);
+                root.style.setProperty('--c-ground', currentTheme.ground);
+                root.style.setProperty('--c-ground-dark', currentTheme.groundDark);
+                
+                // Redraw Canvas
+                drawLevel();
+            });
+        });
+
+        // 3. Animation Loop
+        function animate() {
+            drawLevel();
+            requestAnimationFrame(animate);
+        }
+
+        // Start
+        resize();
+        animate();
+
+    </script>
+</body>
+</html>

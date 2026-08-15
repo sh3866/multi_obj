@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Architecture & Data Flow</title>
+<style>
+    :root {
+        --bg-dark: #09090b;
+        --bg-panel: #18181b;
+        --border-color: #27272a;
+        --text-primary: #f4f4f5;
+        --text-secondary: #a1a1aa;
+        
+        /* Signal Colors - High Contrast */
+        --color-data: #00e5ff;       /* Cyan - Data */
+        --color-instruction: #ff4081; /* Pink - Instructions */
+        --color-control: #76ff03;    /* Lime - Control */
+        --color-io: #ffea00;         /* Yellow - I/O */
+        
+        --font-stack: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background-color: var(--bg-dark);
+        /* Blueprint Grid Pattern */
+        background-image: 
+            linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+        color: var(--text-primary);
+        font-family: var(--font-stack);
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* UI Overlay */
+    .ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        width: 100%;
+    }
+
+    .title-block {
+        pointer-events: auto;
+    }
+
+    h1 {
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        margin-bottom: 0.5rem;
+        color: #fff;
+        text-shadow: 0 0 20px rgba(255,255,255,0.1);
+    }
+
+    .subtitle {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        max-width: 400px;
+        line-height: 1.5;
+    }
+
+    .legend-panel {
+        pointer-events: auto;
+        background: rgba(24, 24, 27, 0.9);
+        border: 1px solid var(--border-color);
+        padding: 16px 24px;
+        border-radius: 12px;
+        display: flex;
+        gap: 32px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        backdrop-filter: blur(8px);
+    }
+
+    .legend-title {
+        position: absolute;
+        top: -10px;
+        left: 12px;
+        background: var(--bg-dark);
+        padding: 0 8px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-secondary);
+        font-weight: 700;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #d4d4d8;
+    }
+
+    /* Legend Line Styles to match diagram */
+    .line-sample {
+        width: 24px;
+        height: 2px;
+        position: relative;
+    }
+    
+    .ls-data { background: var(--color-data); box-shadow: 0 0 6px var(--color-data); }
+    .ls-instruction { background: var(--color-instruction); border-top: 2px dashed var(--color-instruction); height: 0; }
+    .ls-control { border-bottom: 2px dotted var(--color-control); height: 0; }
+    .ls-io { background: var(--color-io); opacity: 0.8; }
+
+    /* SVG Container */
+    #diagram-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        z-index: 1;
+    }
+
+    svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
+    /* Component Styles */
+    .component-group {
+        cursor: pointer;
+        transition: transform 0.3s ease;
+    }
+
+    .component-group:hover {
+        transform: translateY(-3px);
+    }
+
+    /* Base Box Styling */
+    .comp-bg {
+        fill: var(--bg-panel);
+        stroke: var(--border-color);
+        stroke-width: 1.5;
+        filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+        transition: stroke 0.2s, filter 0.2s;
+    }
+
+    .component-group:hover .comp-bg {
+        stroke: #52525b;
+        filter: drop-shadow(0 8px 12px rgba(0,0,0,0.5));
+    }
+
+    /* CPU Specific Styling - The "Hero" */
+    .cpu-bg {
+        fill: #1c1c1f;
+        stroke: var(--color-instruction);
+        stroke-width: 2;
+        filter: drop-shadow(0 0 15px rgba(255, 64, 129, 0.2));
+    }
+    
+    .cpu-grid {
+        stroke: rgba(255, 255, 255, 0.05);
+        stroke-width: 1;
+        fill: none;
+    }
+
+    /* Typography */
+    .comp-label {
+        fill: var(--text-primary);
+        font-size: 15px;
+        font-weight: 700;
+        text-anchor: middle;
+        letter-spacing: 0.02em;
+    }
+
+    .comp-sub {
+        fill: var(--text-secondary);
+        font-size: 10px;
+        text-anchor: middle;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    /* Path Styles */
+    .path-bg {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.05);
+        stroke-width: 4;
+        stroke-linecap: round;
+    }
+
+    .path-active {
+        fill: none;
+        stroke-linecap: round;
+    }
+
+    /* Animations */
+    @keyframes dash-flow {
+        to { stroke-dashoffset: -24; }
+    }
+
+    @keyframes particle-flow {
+        0% { stroke-dashoffset: 100; opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+
+    /* Path Variants */
+    .p-data {
+        stroke: var(--color-data);
+        stroke-width: 2;
+    }
+
+    .p-instruction {
+        stroke: var(--color-instruction);
+        stroke-width: 2;
+        stroke-dasharray: 6 6;
+        animation: dash-flow 1.5s linear infinite;
+    }
+
+    .p-control {
+        stroke: var(--color-control);
+        stroke-width: 2;
+        stroke-dasharray: 2 4;
+        animation: dash-flow 2s linear infinite;
+    }
+
+    .p-io {
+        stroke: var(--color-io);
+        stroke-width: 2;
+        stroke-opacity: 0.6;
+    }
+
+    /* Particles */
+    .particle {
+        fill: none;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-dasharray: 1 100; 
+        filter: drop-shadow(0 0 4px currentColor);
+        animation: particle-flow 2s linear infinite;
+    }
+
+    /* Interactive States */
+    .dimmed {
+        opacity: 0.15 !important;
+        transition: opacity 0.3s ease;
+    }
+    
+    .highlighted {
+        opacity: 1 !important;
+        filter: brightness(1.2);
+        transition: opacity 0.3s ease;
+    }
+
+    .label-tag {
+        font-size: 9px;
+        fill: #fff;
+        background: #000;
+        opacity: 0; /* Hidden by default, shown on hover */
+        transition: opacity 0.2s;
+    }
+    
+    .component-group:hover ~ .label-tag, 
+    .highlighted .label-tag {
+        opacity: 0.8;
+    }
+
+</style>
+</head>
+<body>
+
+    <div class="ui-layer">
+        <header>
+            <div class="title-block">
+                <h1>System Architecture</h1>
+                <div class="subtitle">Visualizing the Von Neumann model: information flow between processing, storage, and I/O peripherals.</div>
+            </div>
+
+            <div class="legend-panel">
+                <div class="legend-title">Signal Legend</div>
+                <div class="legend-item">
+                    <div class="line-sample ls-data"></div>
+                    <span>Data Stream</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-sample ls-instruction"></div>
+                    <span>Instructions</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-sample ls-control"></div>
+                    <span>Control Signals</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-sample ls-io"></div>
+                    <span>I/O Traffic</span>
+                </div>
+            </div>
+        </header>
+    </div>
+
+    <div id="diagram-container">
+        <svg id="main-svg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+            <defs>
+                <!-- Arrowhead Marker -->
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#71717a" />
+                </marker>
+                <marker id="arrowhead-data" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="var(--color-data)" />
+                </marker>
+                <marker id="arrowhead-inst" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="var(--color-instruction)" />
+                </marker>
+            </defs>
+            
+            <g id="paths-layer"></g>
+            <g id="components-layer"></g>
+        </svg>
+    </div>
+
+<script>
+    const svg = document.getElementById('main-svg');
+    const pathsLayer = document.getElementById('paths-layer');
+    const componentsLayer = document.getElementById('components-layer');
+
+    const createSVG = (tag, attrs) => {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+        return el;
+    };
+
+    // --- Configuration ---
+    // Layout: Core (CPU, RAM, Storage) Center, GPU Right, I/O Left
+    const components = [
+        { id: 'cpu', label: 'CPU', sub: 'Central Processing Unit', x: 500, y: 350, w: 140, h: 100, type: 'cpu', icon: 'cpu' },
+        { id: 'ram', label: 'Memory', sub: 'High-Speed RAM', x: 500, y: 160, w: 120, h: 80, type: 'standard', icon: 'ram' },
+        { id: 'storage', label: 'Storage', sub: 'NVMe SSD Array', x: 500, y: 540, w: 120, h: 80, type: 'standard', icon: 'hdd' },
+        { id: 'gpu', label: 'GPU', sub: 'Graphics Processor', x: 780, y: 350, w: 120, h: 100, type: 'standard', icon: 'gpu' },
+        { id: 'input', label: 'Input', sub: 'Keyboard / Mouse', x: 220, y: 220, w: 110, h: 80, type: 'standard', icon: 'mouse' },
+        { id: 'output', label: 'Output', sub: 'Display / Audio', x: 220, y: 480, w: 110, h: 80, type: 'standard', icon: 'monitor' },
+        { id: 'network', label: 'Network', sub: 'Ethernet / WiFi', x: 220, y: 350, w: 110, h: 80, type: 'standard', icon: 'wifi' }
+    ];
+
+    const connections = [
+        // CPU <-> RAM (Instruction & Data)
+        { from: 'ram', to: 'cpu', type: 'instruction', label: 'Fetch' },
+        { from: 'cpu', to: 'ram', type: 'data', label: 'Store' },
+        
+        // CPU <-> GPU (Data & Control)
+        { from: 'cpu', to: 'gpu', type: 'data', label: 'Render Payload' },
+        { from: 'gpu', to: 'cpu', type: 'control', label: 'Interrupts' },
+        
+        // Storage <-> RAM (DMA)
+        { from: 'storage', to: 'ram', type: 'data', label: 'Load' },
+        
+        // CPU <-> Peripherals
+        { from: 'input', to: 'cpu', type: 'control', label: 'Events' },
+        { from: 'cpu', to: 'output', type: 'data', label: 'Frame Buffer' },
+        { from: 'network', to: 'cpu', type: 'io', label: 'Inbound Packets' },
+        { from: 'cpu', to: 'network', type: 'io', label: 'Outbound' },
+        
+        // Direct CPU <-> Storage (Bypass)
+        { from: 'storage', to: 'cpu', type: 'data', label: 'Direct Access' }
+    ];
+
+    // --- Helper Functions ---
+
+    // Draw distinct icons based on type
+    const drawIcon = (type, x, y) => {
+        let g = createSVG('g', { transform: `translate(${x}, ${y})` });
+        const stroke = "#71717a";
+        const w = 2;
+        
+        if(type === 'cpu') {
+            g.appendChild(createSVG('rect', { x:-10, y:-10, width:20, height:20, rx:2, fill:'none', stroke:'#f4f4f5', 'stroke-width':w }));
+            g.appendChild(createSVG('rect', { x:-4, y:-4, width:8, height:8, rx:1, fill:'#f4f4f5' }));
+            // Pins
+            g.appendChild(createSVG('path', { d:"M-10 -5v-2 M10 -5v-2 M-10 5v2 M10 5v2 M-5 -10h-2 M5 -10h2 M-5 10h-2 M5 10h2", stroke:'#f4f4f5', 'stroke-width':w, 'stroke-linecap':'round'}));
+        } else if (type === 'ram') {
+            g.appendChild(createSVG('rect', { x:-12, y:-8, width:24, height:16, rx:1, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('path', { d:"M-12 -2h24 M-12 2h24", stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('path', { d:"M-8 -8v-2 M-2 -8v-2 M4 -8v-2 M10 -8v-2", stroke:stroke, 'stroke-width':w }));
+        } else if (type === 'gpu') {
+            g.appendChild(createSVG('rect', { x:-12, y:-10, width:24, height:20, rx:2, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('circle', { cx:0, cy:0, r:5, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('path', { d:"M-12 10v4 M-4 10v4 M4 10v4 M12 10v4", stroke:stroke, 'stroke-width':w })); // Fans
+        } else if (type === 'hdd') {
+            g.appendChild(createSVG('rect', { x:-14, y:-10, width:28, height:20, rx:2, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('circle', { cx:0, cy:0, r:6, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('path', { d:"M-14 6h28", stroke:stroke, 'stroke-width':w }));
+        } else if (type === 'mouse') {
+            g.appendChild(createSVG('rect', { x:-6, y:-10, width:12, height:20, rx:6, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('line', { x1:0, y1:-10, x2:0, y2:0, stroke:stroke, 'stroke-width':w }));
+        } else if (type === 'monitor') {
+            g.appendChild(createSVG('rect', { x:-14, y:-10, width:28, height:16, rx:2, fill:'none', stroke:stroke, 'stroke-width':w }));
+            g.appendChild(createSVG('path', { d:"M-6 6v4 M6 6v4 M-8 10h16", stroke:stroke, 'stroke-width':w }));
+        } else if (type === 'wifi') {
+            g.appendChild(createSVG('path', { d:"M-8 6a10 10 0 0 1 16 0 M-4 3a5 5 0 0 1 8 0 M0 0v2", fill:'none', stroke:stroke, 'stroke-width':w, 'stroke-linecap':'round'}));
+        }
+        return g;
+    };
+
+    // Generate smooth Bezier path
+    const getPathD = (c1, c2) => {
+        // Determine connection points based on relative position
+        let sx, sy, ex, ey, c1x, c1y, c2x, c2y;
+
+        // Heuristic for orthogonal-ish routing
+        const isVertical = Math.abs(c1.y - c2.y) > Math.abs(c1.x - c2.x);
+
+        if (isVertical) {
+            // Vertical flow
+            sx = c1.x; sy = c1.y + (c2.y > c1.y ? c1.h/2 : -c1.h/2);
+            ex = c2.x; ey = c2.y + (c2.y > c1.y ? -c2.h/2 : c2.h/2);
+            c1x = c1.x; c1y = c1.y + (c2.y > c1.y ? 60 : -60);
+            c2x = c2.x; c2y = c2.y + (c2.y > c1.y ? -60 : 60);
+        } else {
+            // Horizontal flow
+            sx = c1.x + (c2.x > c1.x ? c1.w/2 : -c1.w/2); sy = c1.y;
+            ex = c2.x + (c2.x > c1.x ? -c2.w/2 : c2.w/2); ey = c2.y;
+            c1x = c1.x + (c2.x > c1.x ? 60 : -60); c1y = c1.y;
+            c2x = c2.x + (c2.x > c1.x ? -60 : 60); c2y = c2.y;
+        }
+        
+        // Fix for overlapping boxes (like CPU to RAM)
+        if (Math.abs(c1.x - c2.x) < 50 && Math.abs(c1.y - c2.y) < 50) {
+             // Straight line logic override if too close, though our layout prevents this mostly
+             return `M ${sx} ${sy} L ${ex} ${ey}`;
+        }
+
+        return `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
+    };
+
+    // --- Render Components ---
+    const compMap = {};
+
+    components.forEach(c => {
+        const g = createSVG('g', { 
+            class: 'component-group', 
+            transform: `translate(${c.x - c.w/2}, ${c.y - c.h/2})`,
+            'data-id': c.id
+        });
+
+        // Background
+        const rect = createSVG('rect', { 
+            class: c.type === 'cpu' ? 'cpu-bg' : 'comp-bg', 
+            width: c.w, height: c.h, rx: 8 
+        });
+        
+        // CPU Grid Detail
+        if(c.type === 'cpu') {
+            g.appendChild(createSVG('path', { d:`M0 33h140 M0 66h140 M46 0v100 M93 0v100`, class: 'cpu-grid' }));
+        }
+
+        // Icon
+        const icon = drawIcon(c.icon, c.w/2, c.h/2 - 10);
+
+        // Labels
+        const textLabel = createSVG('text', { x: c.w/2, y: c.h - 20, class: 'comp-label' });
+        textLabel.textContent = c.label;
+        
+        const textSub = createSVG('text', { x: c.w/2, y: c.h - 8, class: 'comp-sub' });
+        textSub.textContent = c.sub;
+
+        g.appendChild(rect);
+        if(c.type === 'cpu') { /* grid is inside */ }
+        g.appendChild(icon);
+        g.appendChild(textLabel);
+        g.appendChild(textSub);
+        
+        componentsLayer.appendChild(g);
+        compMap[c.id] = c;
+    });
+
+    // --- Render Paths ---
+    const pathGroups = {};
+
+    connections.forEach((conn) => {
+        const start = compMap[conn.from];
+        const end = compMap[conn.to];
+        
+        const d = getPathD(start, end);
+
+        const g = createSVG('g', { 
+            class: 'connection-group', 
+            'data-from': conn.from, 
+            'data-to': conn.to,
+            'data-type': conn.type
+        });
+
+        // 1. Invisible Hit Area
+        const hitPath = createSVG('path', {
+            d: d,
+            stroke: 'transparent',
+            'stroke-width': 20,
+            fill: 'none'
+        });
+
+        // 2. Base Line
+        const basePath = createSVG('path', {
+            d: d,
+            class: 'path-bg'
+        });
+
+        // 3. Colored Line
+        const activePath = createSVG('path', {
+            d: d,
+            class: `path-active p-${conn.type}`,
+            'marker-end': conn.type === 'data' ? 'url(#arrowhead-data)' : (conn.type === 'instruction' ? 'url(#arrowhead-inst)' : 'url(#arrowhead)')
+        });
+
+        // 4. Particle
+        const particle = createSVG('path', {
+            d: d,
+            class: `particle p-${conn.type}`,
+            style: `animation-delay: ${Math.random() * 2}s; animation-duration: ${1.5 + Math.random()}s`
+        });
+
+        // Label (Hidden by default)
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2;
+        const labelBg = createSVG('rect', { x: midX - 20, y: midY - 8, width: 40, height: 16, rx: 4, fill: '#000', opacity: 0.8 });
+        const labelText = createSVG('text', { x: midX, y: midY + 3, class: 'label-tag', 'text-anchor': 'middle', opacity: 1 });
+        labelText.textContent = conn.label;
+
+        g.appendChild(hitPath);
+        g.appendChild(basePath);
+        g.appendChild(activePath);
+        g.appendChild(particle);
+        g.appendChild(labelBg);
+        g.appendChild(labelText);
+
+        pathsLayer.appendChild(g);
+        
+        // Indexing
+        if (!pathGroups[conn.from]) pathGroups[conn.from] = [];
+        if (!pathGroups[conn.to]) pathGroups[conn.to] = [];
+        pathGroups[conn.from].push(g);
+        pathGroups[conn.to].push(g);
+    });
+
+    // --- Interactivity ---
+    function highlightPath(activeId) {
+        // Dim everything
+        document.querySelectorAll('.connection-group').forEach(el => el.classList.add('dimmed'));
+        document.querySelectorAll('.component-group').forEach(el => {
+            if(el.getAttribute('data-id') !== activeId) el.classList.add('dimmed');
+        });
+
+        // Highlight active component
+        const activeComp = document.querySelector(`.component-group[data-id="${activeId}"]`);
+        if(activeComp) activeComp.classList.remove('dimmed');
+
+        // Highlight connected paths and neighbors
+        const connectedGroups = pathGroups[activeId] || [];
+        
+        connectedGroups.forEach(g => {
+            g.classList.remove('dimmed');
+            g.classList.add('highlighted');
+            
+            // Show label
+            const tag = g.querySelector('.label-tag');
+            const bg = g.querySelector('rect'); // The label background rect
+            if(tag) tag.setAttribute('opacity', '1');
+            if(bg) bg.setAttribute('opacity', '1');
+
+            // Speed up particles
+            const p = g.querySelector('.particle');
+            if(p) p.style.animationDuration = '0.8s';
+        });
+
+        // Highlight neighbor components
+        connectedGroups.forEach(g => {
+            const from = g.getAttribute('data-from');
+            const to = g.getAttribute('data-to');
+            if(from !== activeId) document.querySelector(`.component-group[data-id="${from}"]`).classList.remove('dimmed');
+            if(to !== activeId) document.querySelector(`.component-group[data-id="${to}"]`).classList.remove('dimmed');
+        });
+    }
+
+    function resetHighlight() {
+        document.querySelectorAll('.connection-group').forEach(el => {
+            el.classList.remove('dimmed', 'highlighted');
+            el.style.opacity = '';
+            el.querySelector('.particle').style.animationDuration = '';
+            const tag = el.querySelector('.label-tag');
+            if(tag) tag.setAttribute('opacity', '0');
+            const bg = el.querySelector('rect');
+            if(bg) bg.setAttribute('opacity', '0');
+        });
+        document.querySelectorAll('.component-group').forEach(el => el.classList.remove('dimmed'));
+    }
+
+    // Attach listeners
+    document.querySelectorAll('.component-group').forEach(el => {
+        el.addEventListener('mouseenter', () => highlightPath(el.getAttribute('data-id')));
+        el.addEventListener('mouseleave', resetHighlight);
+    });
+
+</script>
+</body>
+</html>
